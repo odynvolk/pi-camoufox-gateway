@@ -17,7 +17,7 @@ test("the shipped config example is a config the loader accepts", (t) => {
 
   const config = loadConfig({ configPath: path, env: {} });
 
-  assert.equal(config.gatewayUrl, "http://192.168.8.110:9377");
+  assert.equal(config.gatewayUrl, "http://localhost:9377");
   assert.equal(config.search.maxResults, 10);
   assert.equal(config.read.defaultMaxChars, 12_000);
   assert.deepEqual(config.engines.map((engine) => engine.name), ["google", "duckduckgo"]);

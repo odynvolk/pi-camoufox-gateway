@@ -134,20 +134,22 @@ test("extractText uses the gateway nextOffset when the gateway itself truncated"
   assert.equal(out.nextOffset, 2000);
 });
 
-test("extractText honours an explicit offset by passing it through to the gateway", () => {
+test("an explicit offset is counted into nextOffset when we do the cutting", () => {
+  // Continuation is "where do I resume", so our own consumed point wins over the gateway's chunk
+  // end. That only shows up when the caller passed an offset, which is what a second read does.
   const snapshot = {
     url: "https://example.test/",
-    text: "second half of the page",
+    text: "x".repeat(30_000),
     refsCount: 0,
-    truncated: false,
+    truncated: true,
     totalChars: 50_000,
-    hasMore: false,
-    nextOffset: 50_000,
+    hasMore: true,
+    nextOffset: 20_000,
   };
-  const out = extractText(snapshot, { maxChars: 12_000, offset: 30_000 });
+  const out = extractText(snapshot, { maxChars: 12_000, offset: 18_000 });
 
-  assert.equal(out.text, "second half of the page");
-  assert.equal(out.requestedOffset, 30_000);
+  assert.equal(out.truncated, true);
+  assert.equal(out.nextOffset, 30_000, "resume at offset + what we showed, not the gateway's chunk");
 });
 
 test("a long page that merely mentions captchas is content, not a wall", () => {

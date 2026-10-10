@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { DEFAULT_CONFIG, loadConfig } from "../src/config.ts";
+import { resolveConfig } from "../src/extension.ts";
 
 function withConfigFile(contents, t) {
   const dir = mkdtempSync(join(tmpdir(), "camoufox-config-"));
@@ -18,7 +19,7 @@ test("returns defaults when nothing is configured", (t) => {
   const configPath = withConfigFile(undefined, t);
   const config = loadConfig({ configPath, env: {} });
 
-  assert.equal(config.gatewayUrl, "http://192.168.8.110:9377");
+  assert.equal(config.gatewayUrl, "http://localhost:9377");
   assert.equal(config.read.defaultMaxChars, DEFAULT_CONFIG.read.defaultMaxChars);
   assert.equal(config.search.maxResults, 10);
   assert.deepEqual(config.blockedHosts, []);
@@ -42,6 +43,31 @@ test("config file overrides defaults", (t) => {
   assert.equal(config.engines[0].name, "duckduckgo");
   // unrelated defaults survive a partial file
   assert.equal(config.search.maxResults, 10);
+});
+
+test("a partial nested object keeps its sibling defaults", (t) => {
+  // The merge is field by field on purpose. Collapsing it to an object spread would reset every key
+  // inside a section the caller only mentioned once.
+  const configPath = withConfigFile(JSON.stringify({ cache: { serpMs: 1000 } }), t);
+  const config = loadConfig({ configPath, env: {} });
+
+  assert.equal(config.cache.serpMs, 1000);
+  assert.equal(config.cache.pageMs, DEFAULT_CONFIG.cache.pageMs, "the untouched sibling survives");
+});
+
+test("a broken config file fails closed rather than falling through to the environment", (t) => {
+  // Locks a contract, not a bug: resolveConfig's catch returns defaults without re-running the env
+  // layer, and `error` is set, so every tool call dies with config_error instead of quietly talking
+  // to whatever URL the environment happens to point at.
+  const configPath = withConfigFile('{"gatewayUrl": 42}', t);
+  const { config, usedDefaults, error } = resolveConfig({
+    CAMOUFOX_CONFIG_PATH: configPath,
+    CAMOUFOX_GATEWAY_URL: "http://env.wins:9377",
+  });
+
+  assert.equal(usedDefaults, true);
+  assert.match(error, /gatewayUrl/u);
+  assert.equal(config.gatewayUrl, DEFAULT_CONFIG.gatewayUrl, "env must not silently repoint a broken config");
 });
 
 test("environment overrides the config file", (t) => {
@@ -69,7 +95,7 @@ test("reports the file and key that broke a malformed config", (t) => {
 });
 
 test("rejects a gateway URL without a scheme", (t) => {
-  const configPath = withConfigFile(JSON.stringify({ gatewayUrl: "192.168.8.110:9377" }), t);
+  const configPath = withConfigFile(JSON.stringify({ gatewayUrl: "localhost:9377" }), t);
 
   assert.throws(() => loadConfig({ configPath, env: {} }), /http:\/\/ or https:\/\/|scheme/u);
 });

@@ -48,7 +48,6 @@ export function googleEngine(): Engine {
         return {
           engine: "google",
           results: results.slice(0, wanted),
-          requestedCount: context.maxResults,
         };
       } finally {
         await client.closeTabQuietly({ userId, tabId: tab.tabId });

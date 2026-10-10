@@ -45,6 +45,16 @@ const CHROME_TITLES =
 /** Above this size a page is content, not an interstitial, whatever it happens to mention. */
 const INTERSTITIAL_MAX_CHARS = 3_000;
 
+/**
+ * A page past this size with no link blocks is a parser failure rather than a thin query. Set below
+ * `INTERSTITIAL_MAX_CHARS` so a long wall reports as `consent_wall` and only the unparseable
+ * middle-to-long band reaches `parse_error`.
+ */
+const PARSEABLE_MIN_CHARS = 2_000;
+
+/** Snippets are model-facing, so the cap is explicit rather than an inline slice. */
+const SNIPPET_MAX_CHARS = 400;
+
 const LINK_LINE = /^(\s*)-\s+link\s+"(.*)"\s*(?:\[(e\d+)\])?\s*:?\s*$/u;
 const URL_LINE = /^\s*-\s*\/url:\s*(\S+)\s*$/u;
 const CITE_LINE = /^\s*-\s*cite:\s*(.+?)\s*$/u;
@@ -144,7 +154,7 @@ function isChrome(engine: string, url: string): boolean {
  */
 export function looksUnparseable(snapshot: SnapshotLike): boolean {
   const text = snapshot.text ?? "";
-  if (text.length <= 2_000) return false;
+  if (text.length <= PARSEABLE_MIN_CHARS) return false;
   return linkBlocks(text).length === 0;
 }
 
@@ -169,7 +179,7 @@ export function parseSerp(snapshot: SnapshotLike, engine: string): { results: Se
       .join(" ")
       .replace(/\s+/gu, " ")
       .trim()
-      .slice(0, 400);
+      .slice(0, SNIPPET_MAX_CHARS);
 
     results.push({
       title: block.title || url,
@@ -225,8 +235,6 @@ export interface ExtractedText {
   totalChars: number;
   /** Offset to pass on the next call, or null when there is nothing left. */
   nextOffset: number | null;
-  /** Echoed back so the caller can tell what the gateway was asked for. */
-  requestedOffset?: number;
 }
 
 export function extractText(snapshot: SnapshotLike, options: ExtractTextOptions): ExtractedText {
@@ -248,13 +256,11 @@ export function extractText(snapshot: SnapshotLike, options: ExtractTextOptions)
     nextOffset = snapshot.nextOffset;
   }
 
-  const result: ExtractedText = {
+  return {
     text: sliced,
     truncated: weTruncated,
     hasMore: gatewayMore,
     totalChars,
     nextOffset,
   };
-  if (options.offset !== undefined) result.requestedOffset = options.offset;
-  return result;
 }

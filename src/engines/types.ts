@@ -16,15 +16,12 @@ export interface EngineContext {
 }
 
 export interface EngineOutcome {
-  engine: EngineName | string;
+  /** The engine that produced this outcome. A fallback shows up in `chain.ts`'s `tried`, not here. */
+  engine: EngineName;
   results: SearchResult[];
-  /** The count the caller asked for, kept so the tool can explain a clamp. */
-  requestedCount?: number;
-  /** Which engine actually served this outcome (differs from `name` after a fallback). */
-  servedBy?: string;
 }
 
 export interface Engine {
-  readonly name: string;
+  readonly name: EngineName;
   search(query: string, context: EngineContext): Promise<EngineOutcome>;
 }

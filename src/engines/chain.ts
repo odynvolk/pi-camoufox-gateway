@@ -17,7 +17,10 @@ const BY_NAME: Record<string, () => Engine> = {
   duckduckgo: duckduckgoEngine,
 };
 
-/** Outcomes where trying a different engine is pointless. */
+/**
+ * Outcomes where trying a different engine is pointless. `host_blocked` is defensive: only the read
+ * policy raises it, so no search can reach it here.
+ */
 const TERMINAL_CODES: GatewayErrorCode[] = ["gateway_unreachable", "gateway_unauthorized", "timeout", "host_blocked"];
 
 export interface TriedStep {
@@ -65,7 +68,7 @@ export async function searchWithFallback(
         continue;
       }
       tried.push({ engine: engine.name, code: "ok", message: "served" });
-      return { ...outcome, engine: outcome.servedBy ?? engine.name, tried };
+      return { ...outcome, tried };
     } catch (error) {
       const gatewayError = error instanceof GatewayError ? error : new GatewayError("gateway_error", String(error));
       tried.push({ engine: engine.name, code: gatewayError.code, message: gatewayError.message });

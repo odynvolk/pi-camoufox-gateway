@@ -77,7 +77,7 @@ test("clamps the result count to what the engine can actually return", async (t)
   const { client } = setup(t);
   const outcome = await googleEngine().search("camoufox", { client, userId: "u1", maxResults: 99 });
 
-  assert.ok(outcome.requestedCount === 99);
+  assert.equal(outcome.engine, "google");
   assert.ok(outcome.results.length <= 10, "the google macro returns a page of ten");
 });
 
@@ -142,6 +142,36 @@ test("does not walk the chain when the gateway itself is down", async (t) => {
   const error = await searchWithFallback("camoufox", engines, { client, userId: "u1", maxResults: 5 }).catch((e) => e);
 
   assert.equal(error.code, "gateway_unreachable");
+  // The early exit is the whole point of the code list: without it every search burns a second
+  // connect timeout against a gateway that is already known to be down.
+  assert.equal(error.details.tried.length, 1, "the chain stopped at the first terminal code");
+});
+
+test("every terminal code stops the chain before the next engine is tried", async (t) => {
+  const { client } = setup(t);
+
+  for (const code of ["gateway_unreachable", "gateway_unauthorized", "timeout", "host_blocked"]) {
+    let secondRan = false;
+    const first = {
+      name: "first",
+      search: async () => {
+        throw new GatewayError(code, `${code} from the first engine`);
+      },
+    };
+    const second = {
+      name: "second",
+      search: async () => {
+        secondRan = true;
+        return { engine: "second", results: [] };
+      },
+    };
+
+    const error = await searchWithFallback("camoufox", [first, second], { client, userId: "u1", maxResults: 5 }).catch((e) => e);
+
+    assert.equal(error.code, code, `${code} must surface unchanged`);
+    assert.equal(secondRan, false, `${code} must not reach the next engine`);
+    assert.equal(error.details.tried.length, 1, `${code} must stop after one step`);
+  }
 });
 
 test("honours enabled flags and ordering from config", async (t) => {

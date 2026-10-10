@@ -2,7 +2,7 @@
 
 Canonical vocabulary for this repo. Not a spec — see `docs/brainstorms/` and `docs/plans/`.
 
-- **Gateway** — the external `camofox-browser` HTTP server (`http://192.168.8.110:9377`, configurable).
+- **Gateway** — the external `camofox-browser` HTTP server (`http://localhost:9377`, configurable).
   We only call it; this repo runs no browser and owns no server code.
 - **Session** — gateway-side tab namespace keyed by `userId`, derived from the pi session id.
   Distinct sessions must never share tabs.
@@ -16,7 +16,7 @@ Canonical vocabulary for this repo. Not a spec — see `docs/brainstorms/` and `
 - **goto URL** — a `google.com/goto?url=CAES…` wrapper. Not locally decodable; it becomes the real
   URL only when we navigate to it.
 - **Engine adapter** — the module that turns a query into results for one engine
-  (Google via the `@google_search` macro; DuckDuckGo and Bing via direct navigation).
+  (Google via the `@google_search` macro; DuckDuckGo via direct navigation).
 - **Wall** — a consent or CAPTCHA interstitial. Distinct from "no results" and from a timeout; the
   model is told which one it hit.
 - **Resolve** — opt-in follow-through that turns `goto` URLs into final URLs using concurrent tabs.

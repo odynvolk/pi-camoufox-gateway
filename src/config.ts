@@ -34,7 +34,7 @@ export interface CamoufoxConfig {
 }
 
 export const DEFAULT_CONFIG: CamoufoxConfig = {
-  gatewayUrl: "http://192.168.8.110:9377",
+  gatewayUrl: "http://localhost:9377",
   engines: [
     { name: "google", enabled: true },
     { name: "duckduckgo", enabled: true },

@@ -9,7 +9,7 @@ import json
 import time
 import urllib.request
 
-BASE = "http://192.168.8.110:9377"
+BASE = "http://localhost:9377"
 USER = "pi-fixture-recorder"
 
 TARGETS = [

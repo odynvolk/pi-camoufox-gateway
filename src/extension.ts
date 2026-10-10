@@ -11,12 +11,12 @@ import { GatewayError } from "./errors.ts";
 import { enginesFromConfig } from "./engines/chain.ts";
 import { createGatewayClient, type GatewayClient } from "./gateway.ts";
 import { readTool, type ReadOutcome } from "./tools/read.ts";
-import { searchTool, type SearchOutcome } from "./tools/search.ts";
+import { searchTool, type CachedSearch, type SearchOutcome } from "./tools/search.ts";
 
 export interface ExtensionDeps {
   config: CamoufoxConfig;
   client: GatewayClient;
-  cache: Cache<SearchOutcome>;
+  cache: Cache<CachedSearch>;
   userId: string;
 }
 
@@ -54,9 +54,9 @@ export interface Extension {
   config: CamoufoxConfig;
 }
 
-const SEARCH_DESCRIPTION =
+export const SEARCH_DESCRIPTION =
   "Search the web through a Camoufox browser gateway. Returns ranked titles, urls and snippets. Set resolve:true when you need clean final urls (costs one extra page load per result).";
-const READ_DESCRIPTION =
+export const READ_DESCRIPTION =
   "Read a web page through a Camoufox browser gateway so JavaScript-rendered pages work. Returns page text (bounded, use offset to continue) and optionally a JSON-Schema extraction.";
 
 export interface ExtensionDepsWithConfig extends ExtensionDeps {
@@ -122,7 +122,7 @@ export function createExtension(deps: ExtensionDepsWithConfig): Extension {
 
 function outcomeToDetails(outcome: SearchOutcome): Record<string, unknown> {
   const { text: _text, ...rest } = outcome;
-  return rest as unknown as Record<string, unknown>;
+  return rest;
 }
 
 function renderRead(outcome: ReadOutcome): string {

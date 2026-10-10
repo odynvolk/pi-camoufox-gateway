@@ -145,5 +145,5 @@ export function searchTool(deps: SearchToolDeps) {
     return { ...shaped, text: formatResults(shaped) };
   }
 
-  return { name: "camoufox_search", deps, search: run };
+  return { name: "camoufox_search", search: run };
 }

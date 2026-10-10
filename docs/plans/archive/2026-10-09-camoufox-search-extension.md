@@ -6,7 +6,7 @@
 
 pi has no web access: no built-in `web_search`/`web_fetch`, and the ecosystem option
 (`pi-web-search`) is entirely provider-native, so it costs money and needs keys. The user runs
-`camofox-browser` v1.14.0 on their LAN (`http://192.168.8.110:9377`) which provides real
+`camofox-browser` v1.14.0 on their LAN (`http://localhost:9377`) which provides real
 anti-detection browser execution for free, but nothing talks to it from pi.
 
 Requirements (`docs/brainstorms/2026-10-09-pi-camoufox-gateway.md`) ask for a local-first
@@ -102,11 +102,11 @@ pages).
 ### U1 — Scaffold and config
 
 **Goal:** a real, loadable extension package and a config layer that resolves
-`defaults → JSON file → env`, defaulting `gatewayUrl` to `http://192.168.8.110:9377`.
+`defaults → JSON file → env`, defaulting `gatewayUrl` to `http://localhost:9377`.
 
 **Files:** `package.json`, `tsconfig.json`, `src/config.ts`, `tests/config.test.mjs`
 
-**Config surface:** `gatewayUrl` (default `http://192.168.8.110:9377`), `apiKey` (optional, sent as
+**Config surface:** `gatewayUrl` (default `http://localhost:9377`), `apiKey` (optional, sent as
 `Bearer`; the gateway's OpenAPI declares `BearerAuth` though the running instance does not enforce
 it), `engines` (ordered chain: google then duckduckgo, each with `enabled`), `cache.ttlSerpMs`/`ttlPageMs`,
 `read.defaultMaxChars` (12000), `search.maxResults` (10), `blockedHosts` (default empty),
@@ -283,7 +283,7 @@ JSON/print mode works.
 
 **Suite safety (review amendment):** install a global fetch guard for every test run — any request
 not explicitly stubbed throws instead of reaching the LAN, so a forgotten mock can never quietly
-exercise `192.168.8.110:9377`. Assert the tab-leak invariant after **every** test (zero live tabs for
+exercise `localhost:9377`. Assert the tab-leak invariant after **every** test (zero live tabs for
 our `userId`), not only in the teardown test.
 
 **Test scenarios:** `userId` is stable within a session and differs across sessions; teardown calls
@@ -305,7 +305,7 @@ test is observed failing, then passing with real implementation.
 
 **Broader:** full `NODE_ENV=test node --test tests/*.test.mjs` must be green with the global fetch
 guard installed so no test can reach the network by accident; `npx tsc --noEmit` clean under
-`strict`; opt-in `CAMOUFOX_LIVE=1 node tests/live.mjs` against `http://192.168.8.110:9377` for the
+`strict`; opt-in `CAMOUFOX_LIVE=1 node tests/live.mjs` against `http://localhost:9377` for the
 four live claims unit tests cannot prove — real results, final URL after `goto`, bounded read output,
 and no session/tab leak.
 

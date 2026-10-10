@@ -1,7 +1,7 @@
 import { createGatewayClient } from "../src/gateway.ts";
 import { detectWall } from "../src/snapshot.ts";
 
-const client = createGatewayClient({ baseUrl: "http://192.168.8.110:9377", timeoutMs: 30000 });
+const client = createGatewayClient({ baseUrl: "http://localhost:9377", timeoutMs: 30000 });
 const url = process.argv[2] ?? "https://github.com/daijro/camoufox";
 const tab = await client.openTab({ userId: "pi-diag", url });
 const snap = await client.snapshot({ userId: "pi-diag", tabId: tab.tabId });

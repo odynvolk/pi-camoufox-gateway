@@ -270,23 +270,6 @@ export class GatewayClient {
     return this.asNavigateResult(body, params.tabId);
   }
 
-  async navigate(params: {
-    userId: string;
-    tabId: string;
-    url: string;
-    signal?: AbortSignal;
-  }): Promise<NavigateResult> {
-    if (!/^https?:\/\//i.test(params.url)) {
-      throw new GatewayError("blocked_url", `can only navigate to http(s) URLs (got "${params.url}")`);
-    }
-    const body = await this.requestJson<Record<string, unknown>>("POST", endpointPath("navigate", { tabId: params.tabId }), {
-      userId: params.userId,
-      body: { userId: params.userId, url: params.url },
-      signal: params.signal,
-    });
-    return this.asNavigateResult(body, params.tabId);
-  }
-
   async snapshot(params: {
     userId: string;
     tabId: string;

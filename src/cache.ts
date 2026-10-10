@@ -6,11 +6,6 @@
  * successes are stored — caching a consent wall would make a transient problem look permanent.
  */
 
-export interface CacheOptions {
-  ttlMs?: number;
-  maxEntries?: number;
-}
-
 interface Entry<T> {
   value: T;
   expiresAt: number;
@@ -25,17 +20,22 @@ export interface Cache<T> {
   clear(): void;
 }
 
-export function createCache<T = unknown>(options: CacheOptions = {}): Cache<T> {
-  const defaultTtl = options.ttlMs ?? 5 * 60 * 1000;
-  const maxEntries = options.maxEntries ?? 128;
+/** Fallback for a `set` with no explicit ttl. Every real call site passes one. */
+const DEFAULT_TTL_MS = 5 * 60 * 1000;
+/** Ceiling per session. Eviction is insertion order, not LRU: a re-read key keeps its slot. */
+const MAX_ENTRIES = 128;
+
+export function createCache<T = unknown>(): Cache<T> {
   const entries = new Map<string, Entry<T>>();
   const inflight = new Map<string, Promise<T>>();
+  /** Bumped by clear() so a producer that finishes afterwards cannot resurrect a dropped value. */
+  let generation = 0;
 
   function prune(now: number): void {
     for (const [key, entry] of entries) {
       if (entry.expiresAt <= now) entries.delete(key);
     }
-    while (entries.size > maxEntries) {
+    while (entries.size > MAX_ENTRIES) {
       const oldest = entries.keys().next();
       if (oldest.done) break;
       entries.delete(oldest.value);
@@ -54,7 +54,7 @@ export function createCache<T = unknown>(options: CacheOptions = {}): Cache<T> {
     },
 
     set(key: string, value: T, ttlMs?: number): void {
-      entries.set(key, { value, expiresAt: Date.now() + (ttlMs ?? defaultTtl) });
+      entries.set(key, { value, expiresAt: Date.now() + (ttlMs ?? DEFAULT_TTL_MS) });
       prune(Date.now());
     },
 
@@ -65,10 +65,13 @@ export function createCache<T = unknown>(options: CacheOptions = {}): Cache<T> {
       const existing = inflight.get(key);
       if (existing) return await existing;
 
+      const epoch = generation;
       const work = produce().then(
         (value) => {
           inflight.delete(key);
-          this.set(key, value, ttlMs);
+          // A clear() while this was in flight means "drop everything", so the result is returned to
+          // the caller but not stored — a later call must be free to produce a fresh value.
+          if (epoch === generation) this.set(key, value, ttlMs);
           return value;
         },
         (error) => {
@@ -86,6 +89,7 @@ export function createCache<T = unknown>(options: CacheOptions = {}): Cache<T> {
     },
 
     clear(): void {
+      generation += 1;
       entries.clear();
       inflight.clear();
     },
