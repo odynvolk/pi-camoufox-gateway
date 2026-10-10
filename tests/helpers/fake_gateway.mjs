@@ -180,18 +180,16 @@ export function createFakeGateway(options = {}) {
       }
 
       if (method === "POST" && sub === "/navigate") {
-        if (state.consentWallOn?.has(body.userId) && body.macro) {
-          tab.url = `https://consent.google.com/ml?continue=${encodeURIComponent(body.query ?? "")}`;
-          return json({ ok: true, tabId, url: tab.url, refsAvailable: false });
-        }
         if (body.macro) {
           const template = MACROS[body.macro];
           if (!template) return json({ error: `Unknown macro ${body.macro}` }, 400);
+          const target = template(body.query ?? "");
           if (state.consentWallOn?.has(body.userId)) {
-            tab.url = `https://consent.google.com/ml?continue=${encodeURIComponent(template(body.query ?? ""))}`;
+            // The macro ran, and Google answered with the interstitial instead of a results page.
+            tab.url = `https://consent.google.com/ml?continue=${encodeURIComponent(target)}`;
             return json({ ok: true, tabId, url: tab.url, refsAvailable: false });
           }
-          tab.url = template(body.query ?? "");
+          tab.url = target;
           tab.title = tab.url;
           return json({ ok: true, tabId, url: tab.url, refsAvailable: false, googleSerp: true });
         }
