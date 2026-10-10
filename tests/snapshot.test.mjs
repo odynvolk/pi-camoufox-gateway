@@ -144,7 +144,8 @@ test("an explicit offset is counted into nextOffset when we do the cutting", () 
     truncated: true,
     totalChars: 50_000,
     hasMore: true,
-    nextOffset: 20_000,
+    // The chunk end a gateway would actually report: asked at 18_000, it handed back 30_000 chars.
+    nextOffset: 48_000,
   };
   const out = extractText(snapshot, { maxChars: 12_000, offset: 18_000 });
 

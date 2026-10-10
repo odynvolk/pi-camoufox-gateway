@@ -9,9 +9,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { createCache } from "../src/cache.ts";
-
-const MAX_ENTRIES = 128; // mirrored from cache.ts; keep in sync when the ceiling changes
+import { createCache, MAX_ENTRIES } from "../src/cache.ts";
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -28,20 +26,24 @@ test("eviction drops the oldest inserted key, not the least used", () => {
   assert.equal(cache.get(`k${MAX_ENTRIES}`), "x", "the newest entry survives");
 });
 
-test("size prunes entries that expired between reads", () => {
+test("size prunes entries that expired between reads", async () => {
   const cache = createCache();
   cache.set("live", "1", 60_000);
-  cache.set("expired", "1", 0);
+  // A ttl of 0 would be pruned inside set() itself, so `size` would never be asked to do the work.
+  // This one expires untouched — it is still sitting in the map until the getter prunes it.
+  cache.set("expired", "1", 10);
+
+  await sleep(30);
 
   assert.equal(cache.size, 1, "an expired entry is not counted just because it is still in the map");
 });
 
 test("an expired entry stops being visible without needing a read to evict it", async () => {
   const cache = createCache();
-  cache.set("short", "value", 1);
+  cache.set("short", "value", 30);
 
   assert.equal(cache.get("short"), "value");
-  await sleep(5);
+  await sleep(60);
 
   assert.equal(cache.get("short"), undefined);
   await cache.run("short", async () => "fresh", 60_000);

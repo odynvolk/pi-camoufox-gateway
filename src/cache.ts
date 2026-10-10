@@ -23,7 +23,7 @@ export interface Cache<T> {
 /** Fallback for a `set` with no explicit ttl. Every real call site passes one. */
 const DEFAULT_TTL_MS = 5 * 60 * 1000;
 /** Ceiling per session. Eviction is insertion order, not LRU: a re-read key keeps its slot. */
-const MAX_ENTRIES = 128;
+export const MAX_ENTRIES = 128;
 
 export function createCache<T = unknown>(): Cache<T> {
   const entries = new Map<string, Entry<T>>();
