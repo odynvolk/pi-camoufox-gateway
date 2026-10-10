@@ -1,0 +1,52 @@
+- heading "camoufox anti-detect browser - Sök på Google"
+- searchbox "Search" [e1]: camoufox anti-detect browser
+- navigation:
+  - link "AI-läge" [e2]
+  - link "Allt" [e3]
+  - link "Bilder" [e4]
+  - link "Videor" [e5]
+  - link "Nyheter" [e6]
+  - link "Korta videor" [e7]
+  - link "Webb" [e8]
+- link "Camoufox: Introduction" [e9]:
+  - /url: https://www.google.com/goto?url=CAESUAHrOzAV_F8wzJf_LROta2cnpGyDYdXk6tg9m_h7-51Zav7rd_mEWwh1NclbMMg7aSfosetIzI6gQ0exDQut2jxf3-WlyvGmaVCHDLi_UZpu
+  - cite: https://camoufox.com
+  - text: An open source anti-detect browser built for AI agents. · Rotating & Sticky Sessions (up to 90 minutes) · ⚡ 99.99% uptime with unlimited concurrent ...
+- link "daijro/camoufox: 🦊 Anti-detect browser" [e10]:
+  - /url: https://www.google.com/goto?url=CAESXQHrOzAVBAJ0Vdr6YYlwTpibBQZd4HgMAJClkYQ5oyls2wzRyxZL3PwROAZRhIktFnVVORiGt-SIJnqA3dIrYmpAeQCg4LX1eSM3pQflOGGm0k0YIytiXWdQyH1NcQ
+  - cite: https://github.com › daijro › ca...
+  - text: Camoufox is a Firefox fork engineered for web scraping and AI agents. It is headless, undetectable, and optimized to run at scale. Every run gets a fresh ...
+- link "Camoufox Anti-Detect Browser: C++-Level Fingerprint ..." [e11]:
+  - /url: https://www.google.com/goto?url=CAESeAHrOzAVJkrXU8UZUU7966537v6xVozzmQMPo_Rrk26NHzdIXQ5zim_DkBRyXdAkYGJKf7UzxW8oSsve1KKZlnkGJYU4n7szlgJNCbF-ZFbP61zNiQspfY7_5joR12DJywjkUbPV7gQXzyNThi2kugs1o-c02QSnPg
+  - cite: https://www.16yun.cn › 2026/05
+  - text: 28 maj 2026 — Camoufox is a deeply modified Firefox fork with C++ engine-level fingerprint spoofing. Spoofs WebGL, AudioContext, WebRTC, and all major ...
+- link "Open-Source Anti-Detect Browser Alternatives in 2026" [e12]:
+  - /url: https://www.google.com/goto?url=CAESigEB6zswFfkXhtQu37bmHreDJyGaQkntIJRvrTTXerOHpP1IioP9wfuvbxkf3hNiQvfFQpTSEh82UeuBW-2f3rJzGSCPyv_6sdk_qLxuiso4DVQEtjjzww0jpESpbSOto408UVAYHrHUG2rp_vYiGr6s_zxUitXvxqwVKcBuAGV3Y2Dqtn2oNC7gNNk
+  - cite: https://nextbrowser.com › blog
+  - text: 21 juli 2026 — TL;DR: Camoufox (Firefox-based) is the strongest open-source anti-detect browser in 2026. Donut Browser (Chromium-based) is the most actively ...
+- link "The Complete Guide to Camoufox and Anti-Detect ..." [e13]:
+  - /url: https://www.google.com/goto?url=CAESlQEB6zswFWxxV6O_CU7yWSLEqi2zKhpe3xBnfCnFoSWFeBV315OiPtplijP4FaZ4LCHxOjDnrHpE_817h4HC6xVxOql0gXZ-hr-2t9H8dKnLnBjjwq4yzH5VXgcTrbCM_tIepqOny93Or7NVkQ-B6k5AO8JApPwoyVU13HUHxqfkqMlJ9z50zIbuBbphEC4gr4i3ntrykg
+  - cite: https://www.scrapingbee.com › ...
+  - text: Camoufox is an open-source, Firefox-based anti-detect browser for Python that spoofs browser fingerprints inside Firefox's C++ code, not through injected ...
+- link "Camoufox alternative - Clearcote" [e14]:
+  - /url: https://www.google.com/goto?url=CAESbgHrOzAVKDCBn5yEP2OZdgsHy9Ygz3K0sR7SKXWIuXHaaySvF2swMKES-FPcPKu0eCGUnMCLNPZz1yA7raCu4vXz2mywc_jaJS5yHi8agWhogeuMDmTxx9Zk-V6MYlbC5tYaiLgpt3hKnA9eiJga
+  - cite: https://www.clearcotelabs.com › ...
+  - text: Camoufox is an open-source, engine-level anti-detect browser on Firefox (~3% of the web). Clearcote does the same on Chromium, behind Chrome's ~69%.
+- link "Web Scraping with Camoufox: The Anti-Detect Browser Guide" [e15]:
+  - /url: https://www.google.com/goto?url=CAESZgHrOzAVHAtENjofzrioJCbTckyaI5uotKnTkNYrnTFOIwWFg9ldXwkOfUe3mTIQAQXKtVJqEDN_xZw_9MJqxXE-ggKdL56VX7ka466zgF7Rrke8OK_t1_ZThZO5I0NmEraMrZRe5Q
+  - cite: Fler än 1,6 tn visningar  ·  för 2 månader sedan
+  - text: Your scraper works in testing, then real sites block it on sight. In this tutorial, I show how to set up Camoufox, a custom Firefox build ...
+- link "Web Scraping with Camoufox: Complete Guide 2026" [e16]:
+  - /url: https://www.google.com/goto?url=CAESegHrOzAVrIWw1sEG7_LaTJZ0_o1JZW59wMgwuPxB82fAqBPkvGkPSqyKN09CprZtQ6rL2WkxqY900vTFVMDERu5M7Az29n75DraeuNAyovRjwaZA8jIvNcEzSLTZGat0eU76uHGGu_GK--aCSdcE8zLl2F1CYQBXeXpW
+  - cite: https://brightdata.com › blog
+  - text: Camoufox is an open-source anti-detect browser built on a modified Firefox base. It is designed for browser automation and web scraping scenarios where standard ...
+- link "camoufox - The Web Scraping Wiki by ..." [e17]:
+  - /url: https://www.google.com/goto?url=CAEShgEB6zswFfykGRIMZpXsNeUM0ZC6fc9YdYysnci3jsHEaJ40l1CXcuYLpdkBDD8tCvIieRaw-X7zwAEFr-InrQwEDZRrt6WqARbyS0BGZP8nVOkI3gtSL5aLfi3sBA5Rb6rO4YLJsjdzDYSKUR85tjjpZFKSCY9Mi3m1TXFON2SdSV48H0kcFg
+  - cite: https://publish.obsidian.md › c...
+  - text: 4 juni 2026 — Camoufox is a custom Firefox build created by daijro, released as open-source. It is not a Playwright wrapper or a stealth plugin layered on ...
+- link "camoufox-connector" [e18]:
+  - /url: https://www.google.com/goto?url=CAESZwHrOzAVtBuTTJcZL_f_XVP2HpyblU1jTs8veVy_7TMBxP75ABL59AOoNc7idFG-jfJ3bxIfa858hjT3bLhPDn061XLOzDHa4VwYvaFyJAbzSOVjFcABqRnMENwYgkAUNF8edvzJm1c
+  - cite: https://pypi.org › project › cam...
+  - text: Camoufox is a powerful anti-detect browser based on Firefox, but its Python-only interface limits accessibility. Camoufox Connector solves this by: Exposing ...
+- navigation "pagination":
+  - link "Next" [e19]

@@ -1,0 +1,1219 @@
+- link "Skip to content" [e1]:
+  - /url: "#start-of-content"
+- banner:
+  - heading "Navigation Menu" [level=2]
+  - link "Homepage" [e2]:
+    - /url: /
+  - navigation "Global":
+    - list:
+      - listitem:
+        - button "Platform" [e3]
+      - listitem:
+        - button "Solutions" [e4]
+      - listitem:
+        - button "Resources" [e5]
+      - listitem:
+        - button "Open Source" [e6]
+      - listitem:
+        - button "Enterprise" [e7]
+      - listitem:
+        - link "Pricing" [e8]:
+          - /url: https://github.com/pricing
+  - button "Search or jump to, type / to search" [e9]: Search
+  - link "Sign in" [e10]:
+    - /url: /login?return_to=https%3A%2F%2Fgithub.com%2Fdaijro%2Fcamoufox
+  - link "Sign up" [e11]:
+    - /url: /signup?ref_cta=Sign+up&ref_loc=header+logged+out&ref_page=%2F%3Cuser-name%3E%2F%3Crepo-name%3E&source=header-repo&source_repo=daijro%2Fcamoufox
+  - button "Appearance settings" [e12]
+- main:
+  - navigation "Breadcrumbs":
+    - list:
+      - listitem:
+        - link "daijro" [e13]:
+          - /url: /daijro
+      - listitem:
+        - link "camoufox" [e14]:
+          - /url: /daijro/camoufox
+  - heading "Repository navigation" [level=2]
+  - navigation "Repository":
+    - list:
+      - listitem:
+        - link "Code" [e15]:
+          - /url: /daijro/camoufox
+      - listitem:
+        - link "Issues (72)" [e16]:
+          - /url: /daijro/camoufox/issues
+      - listitem:
+        - link "Pull requests (12)" [e17]:
+          - /url: /daijro/camoufox/pulls
+      - listitem:
+        - link "Discussions" [e18]:
+          - /url: /daijro/camoufox/discussions
+      - listitem:
+        - link "Actions" [e19]:
+          - /url: /daijro/camoufox/actions
+      - listitem:
+        - link "Projects" [e20]:
+          - /url: /daijro/camoufox/projects
+      - listitem:
+        - link "Security and quality" [e21]:
+          - /url: /daijro/camoufox/security
+      - listitem:
+        - link "Insights" [e22]:
+          - /url: /daijro/camoufox/pulse
+  - img "daijro"
+  - strong:
+    - link "camoufox" [e23]:
+      - /url: /daijro/camoufox
+  - text: Public
+  - list:
+    - listitem:
+      - button "Sponsor daijro/camoufox" [e24]: Sponsor
+    - listitem:
+      - link "You must be signed in to change notification settings" [e25]:
+        - /url: /login?return_to=%2Fdaijro%2Fcamoufox
+        - text: Notifications
+    - listitem:
+      - link "You must be signed in to fork a repository" [e26]:
+        - /url: /login?return_to=%2Fdaijro%2Fcamoufox
+        - text: Fork (1k)
+    - listitem:
+      - link "Star (12.4k)" [e27]:
+        - /url: /login?return_to=%2Fdaijro%2Fcamoufox
+  - button "main branch" [e28]: main
+  - link "7 Branches" [e29]:
+    - /url: /daijro/camoufox/branches
+    - strong: "7"
+    - text: Branches
+  - link "52 Tags" [e30]:
+    - /url: /daijro/camoufox/tags
+    - strong: "52"
+    - text: Tags
+  - combobox "Go to file"
+  - button "Code" [e31]
+  - heading "Latest commit" [level=2]
+  - link "daijro" [e32]:
+    - /url: /daijro
+    - img "daijro"
+  - link "commits by daijro" [e33]:
+    - /url: /daijro/camoufox/commits?author=daijro
+    - text: daijro
+  - link "Remove old sponsor" [e34]:
+    - /url: /daijro/camoufox/commit/e6a398849b28721beff7423e8a47e41c6a3b2312
+  - button "success" [e35]
+  - link "Commit e6a3988" [e36]:
+    - /url: /daijro/camoufox/commit/e6a398849b28721beff7423e8a47e41c6a3b2312
+    - text: e6a3988
+  - text: · Oct 8, 20262 days ago
+  - heading "History" [level=2]
+  - link "750 Commits" [e37]:
+    - /url: /daijro/camoufox/commits/main/
+  - heading "Folders and files" [level=2]
+  - table "Folders and files":
+    - rowgroup:
+      - row "Name Last commit message Last commit date":
+        - columnheader "Name"
+        - columnheader "Last commit message"
+        - columnheader "Last commit date"
+    - rowgroup:
+      - row ".github, (Directory) Publish the npm package as camoufox instead of @camoufox/camoufox (… Oct 6, 20263 days ago":
+        - cell ".github, (Directory)":
+          - link ".github, (Directory)" [e38]:
+            - /url: /daijro/camoufox/tree/main/.github
+            - text: .github
+        - cell "Publish the npm package as camoufox instead of @camoufox/camoufox (…":
+          - link "Publish the npm package as" [e39]:
+            - /url: /daijro/camoufox/commit/ac2ce31c0e875b4009e97bc86927b5ed5dbf49d7
+          - code:
+            - link "camoufox" [e40]:
+              - /url: /daijro/camoufox/commit/ac2ce31c0e875b4009e97bc86927b5ed5dbf49d7
+          - link "instead of" [e41]:
+            - /url: /daijro/camoufox/commit/ac2ce31c0e875b4009e97bc86927b5ed5dbf49d7
+          - code:
+            - link "@camoufox/camoufox" [e42]:
+              - /url: /daijro/camoufox/commit/ac2ce31c0e875b4009e97bc86927b5ed5dbf49d7
+          - link "(" [e43]:
+            - /url: /daijro/camoufox/commit/ac2ce31c0e875b4009e97bc86927b5ed5dbf49d7
+          - link "…" [e44]:
+            - /url: https://github.com/daijro/camoufox/pull/838
+        - cell "Oct 6, 20263 days ago"
+      - row "additions, (Directory) Update vendored cursory-js to 2.0.2 (#833) Oct 4, 20265 days ago":
+        - cell "additions, (Directory)":
+          - link "additions, (Directory)" [e45]:
+            - /url: /daijro/camoufox/tree/main/additions
+            - text: additions
+        - cell "Update vendored cursory-js to 2.0.2 (#833)":
+          - link "Update vendored cursory-js to 2.0.2 (" [e46]:
+            - /url: /daijro/camoufox/commit/0c43443b020794f8c3eb221917467eb0e3d39a7c
+          - link "#833" [e47]:
+            - /url: https://github.com/daijro/camoufox/pull/833
+          - link ")" [e48]:
+            - /url: /daijro/camoufox/commit/0c43443b020794f8c3eb221917467eb0e3d39a7c
+        - cell "Oct 4, 20265 days ago"
+      - row "assets, (Directory) Docs that match the code, one AGENTS.md, dead code removed, and the a… Sep 26, 20262 weeks ago":
+        - cell "assets, (Directory)":
+          - link "assets, (Directory)" [e49]:
+            - /url: /daijro/camoufox/tree/main/assets
+            - text: assets
+        - cell "Docs that match the code, one AGENTS.md, dead code removed, and the a…":
+          - link "Docs that match the code, one AGENTS.md, dead code removed, and the a…" [e50]:
+            - /url: /daijro/camoufox/commit/180e6553cc91996161a05c7c07557ffe07f3dd25
+        - cell "Sep 26, 20262 weeks ago"
+      - row "build-tester, (Directory) Docs that match the code, one AGENTS.md, dead code removed, and the a… Sep 26, 20262 weeks ago":
+        - cell "build-tester, (Directory)":
+          - link "build-tester, (Directory)" [e51]:
+            - /url: /daijro/camoufox/tree/main/build-tester
+            - text: build-tester
+        - cell "Docs that match the code, one AGENTS.md, dead code removed, and the a…":
+          - link "Docs that match the code, one AGENTS.md, dead code removed, and the a…" [e52]:
+            - /url: /daijro/camoufox/commit/180e6553cc91996161a05c7c07557ffe07f3dd25
+        - cell "Sep 26, 20262 weeks ago"
+      - 'row "bundle, (Directory) Stock-Firefox parity for native identities: input, fonts, locale, Web… Sep 25, 20262 weeks ago"':
+        - cell "bundle, (Directory)":
+          - link "bundle, (Directory)" [e53]:
+            - /url: /daijro/camoufox/tree/main/bundle
+            - text: bundle
+        - 'cell "Stock-Firefox parity for native identities: input, fonts, locale, Web…"':
+          - 'link "Stock-Firefox parity for native identities: input, fonts, locale, Web…"':
+            - /url: /daijro/camoufox/commit/6daae88dbcd164a61dae623e8ac1dc3800c9efa6
+        - cell "Sep 25, 20262 weeks ago"
+      - row "ci, (Directory) Publish the npm package as camoufox instead of @camoufox/camoufox (… Oct 6, 20263 days ago":
+        - cell "ci, (Directory)":
+          - link "ci, (Directory)" [e54]:
+            - /url: /daijro/camoufox/tree/main/ci
+            - text: ci
+        - cell "Publish the npm package as camoufox instead of @camoufox/camoufox (…":
+          - link "Publish the npm package as" [e55]:
+            - /url: /daijro/camoufox/commit/ac2ce31c0e875b4009e97bc86927b5ed5dbf49d7
+          - code:
+            - link "camoufox" [e56]:
+              - /url: /daijro/camoufox/commit/ac2ce31c0e875b4009e97bc86927b5ed5dbf49d7
+          - link "instead of" [e57]:
+            - /url: /daijro/camoufox/commit/ac2ce31c0e875b4009e97bc86927b5ed5dbf49d7
+          - code:
+            - link "@camoufox/camoufox" [e58]:
+              - /url: /daijro/camoufox/commit/ac2ce31c0e875b4009e97bc86927b5ed5dbf49d7
+          - link "(" [e59]:
+            - /url: /daijro/camoufox/commit/ac2ce31c0e875b4009e97bc86927b5ed5dbf49d7
+          - link "…" [e60]:
+            - /url: https://github.com/daijro/camoufox/pull/838
+        - cell "Oct 6, 20263 days ago"
+      - row "docs, (Directory) Prerelease on every tested merge, promote by tag, and pair each libra… Sep 29, 2026last week":
+        - cell "docs, (Directory)":
+          - link "docs, (Directory)" [e61]:
+            - /url: /daijro/camoufox/tree/main/docs
+            - text: docs
+        - cell "Prerelease on every tested merge, promote by tag, and pair each libra…":
+          - link "Prerelease on every tested merge, promote by tag, and pair each libra…" [e62]:
+            - /url: /daijro/camoufox/commit/11969fa44a9f5e9b94b30a3b1f410ee703e30627
+        - cell "Sep 29, 2026last week"
+      - row "example, (Directory) Service Test and Contributing Guides (#521) Mar 16, 20267 months ago":
+        - cell "example, (Directory)":
+          - link "example, (Directory)" [e63]:
+            - /url: /daijro/camoufox/tree/main/example
+            - text: example
+        - cell "Service Test and Contributing Guides (#521)":
+          - link "Service Test and Contributing Guides (" [e64]:
+            - /url: /daijro/camoufox/commit/d6540b52ce9b3e1bfac05614e2bf439b540e2841
+          - link "#521" [e65]:
+            - /url: https://github.com/daijro/camoufox/pull/521
+          - link ")" [e66]:
+            - /url: /daijro/camoufox/commit/d6540b52ce9b3e1bfac05614e2bf439b540e2841
+        - cell "Mar 16, 20267 months ago"
+      - row "native-tests, (Directory) Keep config keys that older libraries send declared in properties.json ( Oct 6, 20264 days ago":
+        - cell "native-tests, (Directory)":
+          - link "native-tests, (Directory)" [e67]:
+            - /url: /daijro/camoufox/tree/main/native-tests
+            - text: native-tests
+        - cell "Keep config keys that older libraries send declared in properties.json (":
+          - link "Keep config keys that older libraries send declared in properties.json (" [e68]:
+            - /url: /daijro/camoufox/commit/7a4ac0d4dca2dfdeb277f521824a26efb0b6a7b6
+        - cell "Oct 6, 20264 days ago"
+      - row "patches, (Directory) Update to Firefox 156.0.1 (#806) Sep 28, 20262 weeks ago":
+        - cell "patches, (Directory)":
+          - link "patches, (Directory)" [e69]:
+            - /url: /daijro/camoufox/tree/main/patches
+            - text: patches
+        - cell "Update to Firefox 156.0.1 (#806)":
+          - link "Update to Firefox 156.0.1 (" [e70]:
+            - /url: /daijro/camoufox/commit/ec37d722b78c07c011f76cfa3cd80f8222151c99
+          - link "#806" [e71]:
+            - /url: https://github.com/daijro/camoufox/pull/806
+          - link ")" [e72]:
+            - /url: /daijro/camoufox/commit/ec37d722b78c07c011f76cfa3cd80f8222151c99
+        - cell "Sep 28, 20262 weeks ago"
+      - row "pythonlib, (Directory) Install the paired browser on first launch, and refuse a browser the … Oct 6, 20264 days ago":
+        - cell "pythonlib, (Directory)":
+          - link "pythonlib, (Directory)" [e73]:
+            - /url: /daijro/camoufox/tree/main/pythonlib
+            - text: pythonlib
+        - cell "Install the paired browser on first launch, and refuse a browser the …":
+          - link "Install the paired browser on first launch, and refuse a browser the …" [e74]:
+            - /url: /daijro/camoufox/commit/1569b98c984b6d1aac08d63b1e0ef1456186faaa
+        - cell "Oct 6, 20264 days ago"
+      - row "scripts, (Directory) Update to Firefox 156.0.1 (#806) Sep 28, 20262 weeks ago":
+        - cell "scripts, (Directory)":
+          - link "scripts, (Directory)" [e75]:
+            - /url: /daijro/camoufox/tree/main/scripts
+            - text: scripts
+        - cell "Update to Firefox 156.0.1 (#806)":
+          - link "Update to Firefox 156.0.1 (" [e76]:
+            - /url: /daijro/camoufox/commit/ec37d722b78c07c011f76cfa3cd80f8222151c99
+          - link "#806" [e77]:
+            - /url: https://github.com/daijro/camoufox/pull/806
+          - link ")" [e78]:
+            - /url: /daijro/camoufox/commit/ec37d722b78c07c011f76cfa3cd80f8222151c99
+        - cell "Sep 28, 20262 weeks ago"
+      - row "service-tester, (Directory) Docs that match the code, one AGENTS.md, dead code removed, and the a… Sep 26, 20262 weeks ago":
+        - cell "service-tester, (Directory)":
+          - link "service-tester, (Directory)" [e79]:
+            - /url: /daijro/camoufox/tree/main/service-tester
+            - text: service-tester
+        - cell "Docs that match the code, one AGENTS.md, dead code removed, and the a…":
+          - link "Docs that match the code, one AGENTS.md, dead code removed, and the a…" [e80]:
+            - /url: /daijro/camoufox/commit/180e6553cc91996161a05c7c07557ffe07f3dd25
+        - cell "Sep 26, 20262 weeks ago"
+      - row "settings, (Directory) Keep config keys that older libraries send declared in properties.json ( Oct 6, 20264 days ago":
+        - cell "settings, (Directory)":
+          - link "settings, (Directory)" [e81]:
+            - /url: /daijro/camoufox/tree/main/settings
+            - text: settings
+        - cell "Keep config keys that older libraries send declared in properties.json (":
+          - link "Keep config keys that older libraries send declared in properties.json (" [e82]:
+            - /url: /daijro/camoufox/commit/7a4ac0d4dca2dfdeb277f521824a26efb0b6a7b6
+        - cell "Oct 6, 20264 days ago"
+      - 'row "tests, (Directory) test(locale): guard explicit locales and regions against the spoofed … Oct 3, 2026last week"':
+        - cell "tests, (Directory)":
+          - link "tests, (Directory)" [e83]:
+            - /url: /daijro/camoufox/tree/main/tests
+            - text: tests
+        - 'cell "test(locale): guard explicit locales and regions against the spoofed …"':
+          - 'link "test(locale): guard explicit locales and regions against the spoofed …"':
+            - /url: /daijro/camoufox/commit/9cc18faf92ba79ac1edeb09718dc7ae299f8cacf
+        - cell "Oct 3, 2026last week"
+      - row "typescript, (Directory) Publish the npm package as camoufox instead of @camoufox/camoufox (… Oct 6, 20263 days ago":
+        - cell "typescript, (Directory)":
+          - link "typescript, (Directory)" [e84]:
+            - /url: /daijro/camoufox/tree/main/typescript
+            - text: typescript
+        - cell "Publish the npm package as camoufox instead of @camoufox/camoufox (…":
+          - link "Publish the npm package as" [e85]:
+            - /url: /daijro/camoufox/commit/ac2ce31c0e875b4009e97bc86927b5ed5dbf49d7
+          - code:
+            - link "camoufox" [e86]:
+              - /url: /daijro/camoufox/commit/ac2ce31c0e875b4009e97bc86927b5ed5dbf49d7
+          - link "instead of" [e87]:
+            - /url: /daijro/camoufox/commit/ac2ce31c0e875b4009e97bc86927b5ed5dbf49d7
+          - code:
+            - link "@camoufox/camoufox" [e88]:
+              - /url: /daijro/camoufox/commit/ac2ce31c0e875b4009e97bc86927b5ed5dbf49d7
+          - link "(" [e89]:
+            - /url: /daijro/camoufox/commit/ac2ce31c0e875b4009e97bc86927b5ed5dbf49d7
+          - link "…" [e90]:
+            - /url: https://github.com/daijro/camoufox/pull/838
+        - cell "Oct 6, 20263 days ago"
+      - row ".dockerignore, (File) Docs that match the code, one AGENTS.md, dead code removed, and the a… Sep 26, 20262 weeks ago":
+        - cell ".dockerignore, (File)":
+          - link ".dockerignore, (File)" [e91]:
+            - /url: /daijro/camoufox/blob/main/.dockerignore
+            - text: .dockerignore
+        - cell "Docs that match the code, one AGENTS.md, dead code removed, and the a…":
+          - link "Docs that match the code, one AGENTS.md, dead code removed, and the a…" [e92]:
+            - /url: /daijro/camoufox/commit/180e6553cc91996161a05c7c07557ffe07f3dd25
+        - cell "Sep 26, 20262 weeks ago"
+      - row ".gitattributes, (File) Add Playwright tests Nov 3, 20242 years ago":
+        - cell ".gitattributes, (File)":
+          - link ".gitattributes, (File)" [e93]:
+            - /url: /daijro/camoufox/blob/main/.gitattributes
+            - text: .gitattributes
+        - cell "Add Playwright tests":
+          - link "Add Playwright tests" [e94]:
+            - /url: /daijro/camoufox/commit/68216153f3d1459c5f1e649697c9f20d07b7a2e4
+        - cell "Nov 3, 20242 years ago"
+      - row ".gitignore, (File) Docs that match the code, one AGENTS.md, dead code removed, and the a… Sep 26, 20262 weeks ago":
+        - cell ".gitignore, (File)":
+          - link ".gitignore, (File)" [e95]:
+            - /url: /daijro/camoufox/blob/main/.gitignore
+            - text: .gitignore
+        - cell "Docs that match the code, one AGENTS.md, dead code removed, and the a…":
+          - link "Docs that match the code, one AGENTS.md, dead code removed, and the a…" [e96]:
+            - /url: /daijro/camoufox/commit/180e6553cc91996161a05c7c07557ffe07f3dd25
+        - cell "Sep 26, 20262 weeks ago"
+      - row "AGENTS.md, (File) Keep config keys that older libraries send declared in properties.json ( Oct 6, 20264 days ago":
+        - cell "AGENTS.md, (File)":
+          - link "AGENTS.md, (File)" [e97]:
+            - /url: /daijro/camoufox/blob/main/AGENTS.md
+            - text: AGENTS.md
+        - cell "Keep config keys that older libraries send declared in properties.json (":
+          - link "Keep config keys that older libraries send declared in properties.json (" [e98]:
+            - /url: /daijro/camoufox/commit/7a4ac0d4dca2dfdeb277f521824a26efb0b6a7b6
+        - cell "Oct 6, 20264 days ago"
+      - row "CLAUDE.md, (File) Docs that match the code, one AGENTS.md, dead code removed, and the a… Sep 26, 20262 weeks ago":
+        - cell "CLAUDE.md, (File)":
+          - link "CLAUDE.md, (File)" [e99]:
+            - /url: /daijro/camoufox/blob/main/CLAUDE.md
+            - text: CLAUDE.md
+        - cell "Docs that match the code, one AGENTS.md, dead code removed, and the a…":
+          - link "Docs that match the code, one AGENTS.md, dead code removed, and the a…" [e100]:
+            - /url: /daijro/camoufox/commit/180e6553cc91996161a05c7c07557ffe07f3dd25
+        - cell "Sep 26, 20262 weeks ago"
+      - 'row "CONTRIBUTING.md, (File) CI: release npm with PyPI, split the patch guards by kind, run memory… Sep 27, 20262 weeks ago"':
+        - cell "CONTRIBUTING.md, (File)":
+          - link "CONTRIBUTING.md, (File)" [e101]:
+            - /url: /daijro/camoufox/blob/main/CONTRIBUTING.md
+            - text: CONTRIBUTING.md
+        - 'cell "CI: release npm with PyPI, split the patch guards by kind, run memory…"':
+          - 'link "CI: release npm with PyPI, split the patch guards by kind, run memory…"':
+            - /url: /daijro/camoufox/commit/e92caec332e70abfa3100f4d58a060160e784965
+        - cell "Sep 27, 20262 weeks ago"
+      - row "Dockerfile, (File) Docs that match the code, one AGENTS.md, dead code removed, and the a… Sep 26, 20262 weeks ago":
+        - cell "Dockerfile, (File)":
+          - link "Dockerfile, (File)" [e102]:
+            - /url: /daijro/camoufox/blob/main/Dockerfile
+            - text: Dockerfile
+        - cell "Docs that match the code, one AGENTS.md, dead code removed, and the a…":
+          - link "Docs that match the code, one AGENTS.md, dead code removed, and the a…" [e103]:
+            - /url: /daijro/camoufox/commit/180e6553cc91996161a05c7c07557ffe07f3dd25
+        - cell "Sep 26, 20262 weeks ago"
+      - row "LICENSE, (File) Initial release v128.0-1 Jul 26, 20242 years ago":
+        - cell "LICENSE, (File)":
+          - link "LICENSE, (File)" [e104]:
+            - /url: /daijro/camoufox/blob/main/LICENSE
+            - text: LICENSE
+        - cell "Initial release v128.0-1":
+          - link "Initial release v128.0-1" [e105]:
+            - /url: /daijro/camoufox/commit/1090f6a2128d0ab3ec533e4fc48166873caa8010
+        - cell "Jul 26, 20242 years ago"
+      - row "Makefile, (File) Docs that match the code, one AGENTS.md, dead code removed, and the a… Sep 26, 20262 weeks ago":
+        - cell "Makefile, (File)":
+          - link "Makefile, (File)" [e106]:
+            - /url: /daijro/camoufox/blob/main/Makefile
+            - text: Makefile
+        - cell "Docs that match the code, one AGENTS.md, dead code removed, and the a…":
+          - link "Docs that match the code, one AGENTS.md, dead code removed, and the a…" [e107]:
+            - /url: /daijro/camoufox/commit/180e6553cc91996161a05c7c07557ffe07f3dd25
+        - cell "Sep 26, 20262 weeks ago"
+      - row "README.md, (File) Remove old sponsor Oct 8, 20262 days ago":
+        - cell "README.md, (File)":
+          - link "README.md, (File)" [e108]:
+            - /url: /daijro/camoufox/blob/main/README.md
+            - text: README.md
+        - cell "Remove old sponsor":
+          - link "Remove old sponsor" [e109]:
+            - /url: /daijro/camoufox/commit/e6a398849b28721beff7423e8a47e41c6a3b2312
+        - cell "Oct 8, 20262 days ago"
+      - row "ROADMAP.md, (File) Docs that match the code, one AGENTS.md, dead code removed, and the a… Sep 26, 20262 weeks ago":
+        - cell "ROADMAP.md, (File)":
+          - link "ROADMAP.md, (File)" [e110]:
+            - /url: /daijro/camoufox/blob/main/ROADMAP.md
+            - text: ROADMAP.md
+        - cell "Docs that match the code, one AGENTS.md, dead code removed, and the a…":
+          - link "Docs that match the code, one AGENTS.md, dead code removed, and the a…" [e111]:
+            - /url: /daijro/camoufox/commit/180e6553cc91996161a05c7c07557ffe07f3dd25
+        - cell "Sep 26, 20262 weeks ago"
+      - row "multibuild.py, (File) Drop Linux i686 support for future releases Jul 15, 20263 months ago":
+        - cell "multibuild.py, (File)":
+          - link "multibuild.py, (File)" [e112]:
+            - /url: /daijro/camoufox/blob/main/multibuild.py
+            - text: multibuild.py
+        - cell "Drop Linux i686 support for future releases":
+          - link "Drop Linux i686 support for future releases" [e113]:
+            - /url: /daijro/camoufox/commit/fb6d475fd37fdd98aea3757a7e40e0744d0d303c
+        - cell "Jul 15, 20263 months ago"
+      - row "upstream.sh, (File) Update to Firefox 156.0.1 (#806) Sep 28, 20262 weeks ago":
+        - cell "upstream.sh, (File)":
+          - link "upstream.sh, (File)" [e114]:
+            - /url: /daijro/camoufox/blob/main/upstream.sh
+            - text: upstream.sh
+        - cell "Update to Firefox 156.0.1 (#806)":
+          - link "Update to Firefox 156.0.1 (" [e115]:
+            - /url: /daijro/camoufox/commit/ec37d722b78c07c011f76cfa3cd80f8222151c99
+          - link "#806" [e116]:
+            - /url: https://github.com/daijro/camoufox/pull/806
+          - link ")" [e117]:
+            - /url: /daijro/camoufox/commit/ec37d722b78c07c011f76cfa3cd80f8222151c99
+        - cell "Sep 28, 20262 weeks ago"
+  - heading "Repository files navigation" [level=2]
+  - navigation "Repository files":
+    - list:
+      - listitem:
+        - link "README" [e118]:
+          - /url: "#"
+      - listitem:
+        - link "Contributing" [e119]:
+          - /url: "#"
+      - listitem:
+        - link "MPL-2.0 license" [e120]:
+          - /url: "#"
+  - button "Outline" [e121]
+  - article:
+    - paragraph:
+      - link [e122]:
+        - /url: https://camo.githubusercontent.com/4aef635d51f471da8e10044e88967e018c896db6c8fcc40944b78ce5dae88790/68747470733a2f2f63616d6f75666f782e636f6d2f7374617469632f62616e6e65722e737667
+        - img
+    - heading "Camoufox" [level=1]
+    - 'link "Permalink: Camoufox"':
+      - /url: "#camoufox"
+    - heading "Camoufox is an open source anti-detect browser built for webscraping & AI agents. 🦊" [level=4]
+    - 'link "Permalink: Camoufox is an open source anti-detect browser built for webscraping & AI agents. 🦊"':
+      - /url: "#camoufox-is-an-open-source-anti-detect-browser-built-for-webscraping--ai-agents-"
+    - link "daijro%2Fcamoufox | Trendshift" [e123]:
+      - /url: https://trendshift.io/repositories/12224
+      - img "daijro%2Fcamoufox | Trendshift"
+    - link "Total Downloads" [e124]:
+      - /url: https://pepy.tech/projects/camoufox
+      - img "Total Downloads"
+    - link "Monthly Downloads" [e125]:
+      - /url: https://pepy.tech/projects/camoufox
+      - img "Monthly Downloads"
+    - link "Weekly Downloads" [e126]:
+      - /url: https://pepy.tech/projects/camoufox
+      - img "Weekly Downloads"
+    - heading "⚠️ This project is under development. It may not be suitable for stable production use. ⚠️" [level=4]
+    - 'link "Permalink: ⚠️ This project is under development. It may not be suitable for stable production use. ⚠️"':
+      - /url: "#️-this-project-is-under-development-it-may-not-be-suitable-for-stable-production-use-️"
+    - separator
+    - paragraph: Note
+    - paragraph:
+      - strong:
+        - text: All of the latest documentation is available at
+        - link "camoufox.com" [e127]:
+          - /url: https://camoufox.com
+        - text: .
+    - separator
+    - heading "Sponsors" [level=1]
+    - 'link "Permalink: Sponsors"':
+      - /url: "#sponsors"
+    - group:
+      - text: View/Collapse All
+      - heading "Premium" [level=2]
+      - 'link "Permalink: Premium"':
+        - /url: "#premium"
+      - paragraph
+      - table:
+        - rowgroup:
+          - 'row "nodemaven NodeMaven: The most efficient proxy provider for Web Scrapping and Automation with the Highest Quality IP on the market. Why NodeMaven? • 99.9% uptime • ZIP Targeting • IP filtering: all proxies have fraud score <97% • No KYC required • Unique free tools: Proxy Bandwidth Checker, Meta Tag Checker, IP Lookup and others! Special codes for Camoufox users: • CAMOUFOX35 - 35% off to Mobile and Residential Proxies • CAMOUFOX40 - 40% off to ISP (Static) Proxies"':
+            - cell "nodemaven":
+              - link "nodemaven" [e128]:
+                - /url: https://go.nodemaven.com/camoufoxghsept
+                - img "nodemaven"
+            - 'cell "NodeMaven: The most efficient proxy provider for Web Scrapping and Automation with the Highest Quality IP on the market. Why NodeMaven? • 99.9% uptime • ZIP Targeting • IP filtering: all proxies have fraud score <97% • No KYC required • Unique free tools: Proxy Bandwidth Checker, Meta Tag Checker, IP Lookup and others! Special codes for Camoufox users: • CAMOUFOX35 - 35% off to Mobile and Residential Proxies • CAMOUFOX40 - 40% off to ISP (Static) Proxies"':
+              - link "NodeMaven" [e129]:
+                - /url: https://go.nodemaven.com/camoufoxghsept
+              - text: ": The most efficient proxy provider for Web Scrapping and Automation with the Highest Quality IP on the market."
+              - strong:
+                - text: Why
+                - link "NodeMaven" [e130]:
+                  - /url: https://go.nodemaven.com/camoufoxghsept
+                - text: "?"
+              - text: "• 99.9% uptime • ZIP Targeting • IP filtering: all proxies have fraud score <97% • No KYC required • Unique free tools: Proxy Bandwidth Checker, Meta Tag Checker, IP Lookup and others!"
+              - strong: "Special codes for Camoufox users:"
+              - text: •
+              - code: CAMOUFOX35
+              - text: "- 35% off to Mobile and Residential Proxies •"
+              - code: CAMOUFOX40
+              - text: "- 40% off to ISP (Static) Proxies"
+          - row "nodeproxy Need proxies for Camoufox? Use Node Proxy — a provider of datacenter, residential and mobile proxies offering high speed, security and near-100% uptime. Fully tested and supported in Camoufox. What sets them apart from other providers • 90+ IP score • HTTP + SOCKS5 — multiprotocol support • Discounts for retail customers • Full B2B support • Ethically sourced IP addresses • Special terms for Enterprise clients Want to support Camoufox? Just use my promo code CAMOUFOX — it gets you a 30% discount and supports the developer at the same time. Get started at node-proxy.com →":
+            - cell "nodeproxy":
+              - link "nodeproxy" [e131]:
+                - /url: https://node-proxy.com
+                - img "nodeproxy"
+            - cell "Need proxies for Camoufox? Use Node Proxy — a provider of datacenter, residential and mobile proxies offering high speed, security and near-100% uptime. Fully tested and supported in Camoufox. What sets them apart from other providers • 90+ IP score • HTTP + SOCKS5 — multiprotocol support • Discounts for retail customers • Full B2B support • Ethically sourced IP addresses • Special terms for Enterprise clients Want to support Camoufox? Just use my promo code CAMOUFOX — it gets you a 30% discount and supports the developer at the same time. Get started at node-proxy.com →":
+              - strong: Need proxies for Camoufox?
+              - text: Use
+              - strong:
+                - link "Node Proxy" [e132]:
+                  - /url: https://node-proxy.com
+              - text: — a provider of
+              - strong: datacenter, residential and mobile proxies
+              - text: offering high speed, security and near-100% uptime.
+              - strong: Fully tested and supported in Camoufox.
+              - strong: What sets them apart from other providers
+              - text: • 90+ IP score • HTTP + SOCKS5 — multiprotocol support • Discounts for retail customers • Full B2B support • Ethically sourced IP addresses • Special terms for Enterprise clients
+              - strong: Want to support Camoufox?
+              - text: Just use my promo code
+              - strong:
+                - code: CAMOUFOX
+              - text: — it gets you a
+              - strong: 30% discount
+              - text: and supports the developer at the same time.
+              - strong:
+                - link "Get started at node-proxy.com →" [e133]:
+                  - /url: https://node-proxy.com
+          - 'row "byteful Byteful is a UK-based web data infrastructure platform that provides ethically sourced residential, mobile, static residential (ISP) and datacenter proxies alongside API-first tools for web scraping, data collection, and AI-driven automation. Processing tens of billions of requests per month for thousands of customers, Byteful powers browser-based AI agents, automation systems, and data workflows. It is a member of the Internet Watch Foundation and the Ethical Web Data Collection Initiative. Get 10% off Byteful Residential Bandwidth with the code: CAMOUFOX10"':
+            - cell "byteful":
+              - link "byteful" [e134]:
+                - /url: https://byteful.com/?utm_source=github&utm_medium=github-sponsor&utm_campaign=camoufox_github_website_sponsor
+                - img "byteful"
+            - 'cell "Byteful is a UK-based web data infrastructure platform that provides ethically sourced residential, mobile, static residential (ISP) and datacenter proxies alongside API-first tools for web scraping, data collection, and AI-driven automation. Processing tens of billions of requests per month for thousands of customers, Byteful powers browser-based AI agents, automation systems, and data workflows. It is a member of the Internet Watch Foundation and the Ethical Web Data Collection Initiative. Get 10% off Byteful Residential Bandwidth with the code: CAMOUFOX10"':
+              - link "Byteful" [e135]:
+                - /url: https://byteful.com/?utm_source=github&utm_medium=github-sponsor&utm_campaign=camoufox_github_website_sponsor
+              - text: is a UK-based web data infrastructure platform that provides ethically sourced residential, mobile, static residential (ISP) and datacenter proxies alongside API-first tools for web scraping, data collection, and AI-driven automation.
+              - paragraph: Processing tens of billions of requests per month for thousands of customers, Byteful powers browser-based AI agents, automation systems, and data workflows. It is a member of the Internet Watch Foundation and the Ethical Web Data Collection Initiative.
+              - paragraph: "Get 10% off Byteful Residential Bandwidth with the code: CAMOUFOX10"
+          - 'row "layer3 Layer3 Intel | See your proxies the way anti-bots see them Camoufox hides your browser. Your proxy IP is the part it can''t hide. Layer3 Intel is the residential proxy detection engine used to catch proxy traffic — check whether the IPs your provider sells you are clean, or already known and flagged. • 🔍 Live threat score for any IP • 🗂️ Proxy pool membership - identify IP resellers • 📡 70M+ residential, mobile & ISP proxy IPs tracked across 200+ providers • ⚡ <40ms API responses — vet IPs inline before your scraper uses them Check your IPs: https://layer3intel.com"':
+            - cell "layer3":
+              - link "layer3" [e136]:
+                - /url: https://layer3intel.com/?utm_source=github&utm_medium=sponsoring&utm_campaign=camoufox
+                - img "layer3"
+            - 'cell "Layer3 Intel | See your proxies the way anti-bots see them Camoufox hides your browser. Your proxy IP is the part it can''t hide. Layer3 Intel is the residential proxy detection engine used to catch proxy traffic — check whether the IPs your provider sells you are clean, or already known and flagged. • 🔍 Live threat score for any IP • 🗂️ Proxy pool membership - identify IP resellers • 📡 70M+ residential, mobile & ISP proxy IPs tracked across 200+ providers • ⚡ <40ms API responses — vet IPs inline before your scraper uses them Check your IPs: https://layer3intel.com"':
+              - strong:
+                - link "Layer3 Intel" [e137]:
+                  - /url: https://layer3intel.com/?utm_source=github&utm_medium=sponsoring&utm_campaign=camoufox
+                - text: "| See your proxies the way anti-bots see them"
+              - text: "Camoufox hides your browser. Your proxy IP is the part it can't hide. Layer3 Intel is the residential proxy detection engine used to catch proxy traffic — check whether the IPs your provider sells you are clean, or already known and flagged. • 🔍 Live threat score for any IP • 🗂️ Proxy pool membership - identify IP resellers • 📡 70M+ residential, mobile & ISP proxy IPs tracked across 200+ providers • ⚡ <40ms API responses — vet IPs inline before your scraper uses them Check your IPs:"
+              - link "https://layer3intel.com" [e138]:
+                - /url: https://layer3intel.com/?utm_source=github&utm_medium=sponsoring&utm_campaign=camoufox
+      - heading "Tools & Services" [level=2]
+      - 'link "Permalink: Tools & Services"':
+        - /url: "#tools--services"
+      - paragraph
+      - table:
+        - rowgroup:
+          - 'row "Scrapfly.io Scrapfly is an enterprise-grade solution providing Web Scraping API that aims to simplify the scraping process by managing everything: real browser rendering, rotating proxies, and fingerprints (TLS, HTTP, browser) to bypass all major anti-bots. Scrapfly also unlocks the observability by providing an analytical dashboard and measuring the success rate/block rate in detail."':
+            - cell "Scrapfly.io":
+              - link "Scrapfly.io" [e139]:
+                - /url: https://scrapfly.io/?utm_source=github&utm_medium=sponsoring&utm_campaign=camoufox
+                - img "Scrapfly.io"
+            - 'cell "Scrapfly is an enterprise-grade solution providing Web Scraping API that aims to simplify the scraping process by managing everything: real browser rendering, rotating proxies, and fingerprints (TLS, HTTP, browser) to bypass all major anti-bots. Scrapfly also unlocks the observability by providing an analytical dashboard and measuring the success rate/block rate in detail."':
+              - link "Scrapfly" [e140]:
+                - /url: https://scrapfly.io/?utm_source=github&utm_medium=sponsoring&utm_campaign=camoufox
+              - text: "is an enterprise-grade solution providing Web Scraping API that aims to simplify the scraping process by managing everything: real browser rendering, rotating proxies, and fingerprints (TLS, HTTP, browser) to bypass all major anti-bots. Scrapfly also unlocks the observability by providing an analytical dashboard and measuring the success rate/block rate in detail."
+          - row "cloverlabs.ai Clover Labs is a Toronto based venture studio building AI agents for growth and distribution.":
+            - cell "cloverlabs.ai":
+              - link "cloverlabs.ai" [e141]:
+                - /url: https://cloverlabs.ai/?utm_source=github&utm_medium=sponsoring&utm_campaign=camoufox
+                - img "cloverlabs.ai"
+            - cell "Clover Labs is a Toronto based venture studio building AI agents for growth and distribution.":
+              - link "Clover Labs" [e142]:
+                - /url: https://cloverlabs.ai/?utm_source=github&utm_medium=sponsoring&utm_campaign=camoufox
+              - text: is a Toronto based venture studio building AI agents for growth and distribution.
+          - row "color horizontal SerpApi, a web search API to scrape Google and other search engines with a simple API.":
+            - cell "color horizontal":
+              - link "color horizontal" [e143]:
+                - /url: https://serpapi.com/use-cases/web-search-api?utm_source=camoufox
+                - img "color horizontal"
+            - cell "SerpApi, a web search API to scrape Google and other search engines with a simple API.":
+              - link "SerpApi, a web search API" [e144]:
+                - /url: https://serpapi.com/use-cases/web-search-api?utm_source=camoufox
+              - text: to scrape Google and other search engines with a simple API.
+          - 'row "color horizontal Web data that survives the anti-bots. Crawlbase gives developers and AI teams reliable data at scale: a 99% success-rate Crawler, Crawling API, Smart AI Proxies, and Web MCP Server that get through, so your scrapers and agents don''t break. You build, we handle the infrastructure. Get 15% off your first 3 months with code CAMOUFOX → crawlbase.com"':
+            - cell "color horizontal":
+              - link "color horizontal" [e145]:
+                - /url: https://crawlbase.com/?utm_source=github&utm_medium=sponsorship&utm_campaign=camoufox
+                - img "color horizontal"
+            - 'cell "Web data that survives the anti-bots. Crawlbase gives developers and AI teams reliable data at scale: a 99% success-rate Crawler, Crawling API, Smart AI Proxies, and Web MCP Server that get through, so your scrapers and agents don''t break. You build, we handle the infrastructure. Get 15% off your first 3 months with code CAMOUFOX → crawlbase.com"':
+              - strong: Web data that survives the anti-bots.
+              - link "Crawlbase" [e146]:
+                - /url: https://crawlbase.com/?utm_source=github&utm_medium=sponsorship&utm_campaign=camoufox
+              - text: "gives developers and AI teams reliable data at scale: a 99% success-rate Crawler, Crawling API, Smart AI Proxies, and Web MCP Server that get through, so your scrapers and agents don't break. You build, we handle the infrastructure."
+              - paragraph:
+                - strong: Get 15% off your first 3 months with code CAMOUFOX
+                - text: →
+                - link "crawlbase.com" [e147]:
+                  - /url: https://crawlbase.com/?utm_source=github&utm_medium=sponsorship&utm_campaign=camoufox
+          - row "scrappey Scrappey is a Web Scraping API that only charges successful scrapes with pay as you go - no subscriptions. Scrape complex sites. Residential proxies included, no hidden proxy fees, or expiring balances. One API for direct HTTP, full-browser rendering, JavaScript-heavy pages, screenshots, sessions, 30+ browser actions and 200+ concurrent sessions at a time - trusted by 1000+ developers and AI agents. Get 10% off with code CAMOUFOX.":
+            - cell "scrappey":
+              - link "scrappey" [e148]:
+                - /url: https://scrappey.com/?utm_source=camoufox&utm_medium=sponsorship&utm_campaign=camoufox_sponsorship
+                - img "scrappey"
+            - cell "Scrappey is a Web Scraping API that only charges successful scrapes with pay as you go - no subscriptions. Scrape complex sites. Residential proxies included, no hidden proxy fees, or expiring balances. One API for direct HTTP, full-browser rendering, JavaScript-heavy pages, screenshots, sessions, 30+ browser actions and 200+ concurrent sessions at a time - trusted by 1000+ developers and AI agents. Get 10% off with code CAMOUFOX.":
+              - link "Scrappey" [e149]:
+                - /url: https://scrappey.com/?utm_source=camoufox&utm_medium=sponsorship&utm_campaign=camoufox_sponsorship
+              - text: is a Web Scraping API that only charges successful scrapes with pay as you go - no subscriptions. Scrape complex sites. Residential proxies included, no hidden proxy fees, or expiring balances. One API for direct HTTP, full-browser rendering, JavaScript-heavy pages, screenshots, sessions, 30+ browser actions and 200+ concurrent sessions at a time - trusted by 1000+ developers and AI agents. Get 10% off with code CAMOUFOX.
+          - row "Cloro Cloro is a SERP and AI search API. Get structured results from Google, ChatGPT, Perplexity, Gemini, Copilot and Grok.":
+            - cell "Cloro":
+              - link "Cloro" [e150]:
+                - /url: https://cloro.dev/?utm_source=referral&utm_medium=camoufox
+                - img "Cloro"
+            - cell "Cloro is a SERP and AI search API. Get structured results from Google, ChatGPT, Perplexity, Gemini, Copilot and Grok.":
+              - link "Cloro" [e151]:
+                - /url: https://cloro.dev/?utm_source=referral&utm_medium=camoufox
+              - text: is a SERP and AI search API. Get structured results from Google, ChatGPT, Perplexity, Gemini, Copilot and Grok.
+      - heading "Proxy Providers" [level=2]
+      - 'link "Permalink: Proxy Providers"':
+        - /url: "#proxy-providers"
+      - paragraph: "Camoufox is intended to be used with rotating proxies (preferably residential IPs). Check out these providers:"
+      - table:
+        - rowgroup:
+          - 'row "proxyempire 🚀 Camoufox × ProxyEmpire Running Camoufox? Your proxy layer decides whether you scale — or get blocked. ProxyEmpire delivers: • 🌍 30M+ Residential IPs (170+ countries) • 📱 4G/5G Mobile Proxies • 🔄 Rotating & Sticky Sessions • ⚡ Unlimited Concurrent Sessions • 🎯 Precise geo-targeting • HTTP, HTTPS & SOCKS5 Support Built for scraping, automation, and high-stealth workflows. 🔥 Exclusive Offer - Use code Camoufox30 Get 30% recurring discount (not just first month). Upgrade your proxies. Reduce bans. Scale properly"':
+            - cell "proxyempire":
+              - link "proxyempire" [e152]:
+                - /url: https://proxyempire.io/?ref=camoufox&utm_source=github&utm_medium=paid_referral&utm_campaign=open_source_sponsorship&utm_content=camoufox
+                - img "proxyempire"
+            - 'cell "🚀 Camoufox × ProxyEmpire Running Camoufox? Your proxy layer decides whether you scale — or get blocked. ProxyEmpire delivers: • 🌍 30M+ Residential IPs (170+ countries) • 📱 4G/5G Mobile Proxies • 🔄 Rotating & Sticky Sessions • ⚡ Unlimited Concurrent Sessions • 🎯 Precise geo-targeting • HTTP, HTTPS & SOCKS5 Support Built for scraping, automation, and high-stealth workflows. 🔥 Exclusive Offer - Use code Camoufox30 Get 30% recurring discount (not just first month). Upgrade your proxies. Reduce bans. Scale properly"':
+              - text: 🚀 Camoufox × ProxyEmpire Running Camoufox? Your proxy layer decides whether you scale — or get blocked.
+              - link "ProxyEmpire" [e153]:
+                - /url: https://proxyempire.io/?ref=camoufox&utm_source=github&utm_medium=paid_referral&utm_campaign=open_source_sponsorship&utm_content=camoufox
+              - text: "delivers: • 🌍 30M+ Residential IPs (170+ countries) • 📱 4G/5G Mobile Proxies • 🔄 Rotating & Sticky Sessions • ⚡ Unlimited Concurrent Sessions • 🎯 Precise geo-targeting • HTTP, HTTPS & SOCKS5 Support Built for scraping, automation, and high-stealth workflows. 🔥 Exclusive Offer - Use code Camoufox30 Get 30% recurring discount (not just first month). Upgrade your proxies. Reduce bans. Scale properly"
+          - row "rapidproxy RapidProxy - Power Your Data with Premium Proxies. 🎁 Try proxies for free + Use code RAPID10 for 10% OFF Why Choose RapidProxy? • 🌍 90M+ IPs in 200+ countries & regions • ♾️ No expiration on traffic — use anytime, no pressure • 🔥 Unlimited concurrency for maximum performance • 💰 Starting from just $0.65/GB — built for scale • 📍 City-level targeting for precise geo access • 🔄 Flexible session control tailored to your needs Don’t miss out — start your free trial today and experience fast, stable, and scalable proxy performance with RapidProxy.":
+            - cell "rapidproxy":
+              - link "rapidproxy" [e154]:
+                - /url: https://www.rapidproxy.io/?ref=daijro
+                - img "rapidproxy"
+            - cell "RapidProxy - Power Your Data with Premium Proxies. 🎁 Try proxies for free + Use code RAPID10 for 10% OFF Why Choose RapidProxy? • 🌍 90M+ IPs in 200+ countries & regions • ♾️ No expiration on traffic — use anytime, no pressure • 🔥 Unlimited concurrency for maximum performance • 💰 Starting from just $0.65/GB — built for scale • 📍 City-level targeting for precise geo access • 🔄 Flexible session control tailored to your needs Don’t miss out — start your free trial today and experience fast, stable, and scalable proxy performance with RapidProxy.":
+              - link "RapidProxy" [e155]:
+                - /url: https://www.rapidproxy.io/?ref=daijro
+              - text: "- Power Your Data with Premium Proxies. 🎁 Try proxies for free + Use code"
+              - strong: RAPID10
+              - text: for
+              - strong: 10% OFF
+              - strong: Why Choose RapidProxy?
+              - text: • 🌍 90M+ IPs in 200+ countries & regions • ♾️ No expiration on traffic — use anytime, no pressure • 🔥 Unlimited concurrency for maximum performance • 💰 Starting from just $0.65/GB — built for scale • 📍 City-level targeting for precise geo access • 🔄 Flexible session control tailored to your needs Don’t miss out — start your free trial today and experience fast, stable, and scalable proxy performance with
+              - link "RapidProxy" [e156]:
+                - /url: https://www.rapidproxy.io/?ref=daijro
+              - text: .
+          - 'row "swiftproxy Swiftproxy - High-Performance Residential Proxies for Scalable Data Collection Built for developers who need reliable, anti-detection proxy infrastructure. Swiftproxy delivers stable connections, high success rates, and flexible control for large-scale scraping and automation. • 🌍 195+ locations with ethically sourced residential IPs • 🔄 Rotating & sticky sessions with precise geo-targeting • ⚡ Optimized for anti-ban & high success rate • 🔌 HTTP / HTTPS / SOCKS5 support • 🧪 Free 500MB trial for testing • 💸 Special discount code for Camoufox users: PROXY90 - 10% Best for: Web scraping, automation, multi-accounting, and large-scale data extraction"':
+            - cell "swiftproxy":
+              - link "swiftproxy" [e157]:
+                - /url: https://www.swiftproxy.net/?ref=daijro
+                - img "swiftproxy"
+            - 'cell "Swiftproxy - High-Performance Residential Proxies for Scalable Data Collection Built for developers who need reliable, anti-detection proxy infrastructure. Swiftproxy delivers stable connections, high success rates, and flexible control for large-scale scraping and automation. • 🌍 195+ locations with ethically sourced residential IPs • 🔄 Rotating & sticky sessions with precise geo-targeting • ⚡ Optimized for anti-ban & high success rate • 🔌 HTTP / HTTPS / SOCKS5 support • 🧪 Free 500MB trial for testing • 💸 Special discount code for Camoufox users: PROXY90 - 10% Best for: Web scraping, automation, multi-accounting, and large-scale data extraction"':
+              - link "Swiftproxy" [e158]:
+                - /url: https://www.swiftproxy.net/?ref=daijro
+              - text: "-"
+              - strong: High-Performance Residential Proxies for Scalable Data Collection
+              - text: Built for developers who need
+              - strong: reliable
+              - text: ", anti-detection proxy infrastructure. Swiftproxy delivers stable connections, high success rates, and flexible control for large-scale scraping and automation. • 🌍 195+ locations with ethically sourced residential IPs • 🔄"
+              - strong: Rotating
+              - text: "&"
+              - strong: sticky
+              - text: sessions with precise geo-targeting • ⚡ Optimized for
+              - strong: anti-ban
+              - text: "&"
+              - strong: high success rate
+              - text: • 🔌 HTTP / HTTPS / SOCKS5 support • 🧪
+              - strong: Free 500MB trial
+              - text: for testing • 💸
+              - strong: Special discount
+              - text: "code for Camoufox users:"
+              - strong: PROXY90 - 10%
+              - text: "Best for: Web scraping, automation, multi-accounting, and large-scale data extraction"
+          - row "mangoproxy MangoProxy is a Residential, ISP, Mobile and Datacenter proxy service designed for professional tasks where stability, speed, and anonymity matter. Use code DAIJRO for 8% OFF ISP Static Proxies":
+            - cell "mangoproxy":
+              - link "mangoproxy" [e159]:
+                - /url: https://mangoproxy.com/?utm_source=github&utm_medium=partner&utm_campaign=daijro
+                - img "mangoproxy"
+            - cell "MangoProxy is a Residential, ISP, Mobile and Datacenter proxy service designed for professional tasks where stability, speed, and anonymity matter. Use code DAIJRO for 8% OFF ISP Static Proxies":
+              - link "MangoProxy" [e160]:
+                - /url: https://mangoproxy.com/?utm_source=github&utm_medium=partner&utm_campaign=daijro
+              - text: is a Residential, ISP, Mobile and Datacenter proxy service designed for professional tasks where stability, speed, and anonymity matter. Use code DAIJRO for 8% OFF ISP Static Proxies
+          - 'row "proxidize Proxidize | Mobile and Residential Proxies for Camoufox Running Camoufox at scale? Your browser setup is only half the stack. Your proxy layer matters too. Proxidize provides mobile and residential proxies built for scraping, browser automation, SEO monitoring, AI agents, and data collection workflows. Why Proxidize? • Real 4G and 5G mobile proxies • Residential proxies in 195+ countries • Rotating and sticky sessions • City-level and carrier targeting • Unlimited concurrency • HTTP(S), SOCKS5, and UDP over SOCKS support • No hardware or DIY setup required Built for teams that need reliable proxy infrastructure without managing devices, servers, or proxy rotation themselves. Special offer for Camoufox users: Use code CAMOUFOX20 for 20% off. Start now: https://proxidize.com"':
+            - cell "proxidize":
+              - link "proxidize" [e161]:
+                - /url: https://proxidize.com/?utm_source=github&utm_medium=sponsorship&utm_campaign=camoufox&utm_content=daijro
+                - img "proxidize"
+            - 'cell "Proxidize | Mobile and Residential Proxies for Camoufox Running Camoufox at scale? Your browser setup is only half the stack. Your proxy layer matters too. Proxidize provides mobile and residential proxies built for scraping, browser automation, SEO monitoring, AI agents, and data collection workflows. Why Proxidize? • Real 4G and 5G mobile proxies • Residential proxies in 195+ countries • Rotating and sticky sessions • City-level and carrier targeting • Unlimited concurrency • HTTP(S), SOCKS5, and UDP over SOCKS support • No hardware or DIY setup required Built for teams that need reliable proxy infrastructure without managing devices, servers, or proxy rotation themselves. Special offer for Camoufox users: Use code CAMOUFOX20 for 20% off. Start now: https://proxidize.com"':
+              - strong:
+                - link "Proxidize" [e162]:
+                  - /url: https://proxidize.com/?utm_source=github&utm_medium=sponsorship&utm_campaign=camoufox&utm_content=daijro
+                - text: "| Mobile and Residential Proxies for Camoufox"
+              - text: Running Camoufox at scale? Your browser setup is only half the stack. Your proxy layer matters too. Proxidize provides mobile and residential proxies built for scraping, browser automation, SEO monitoring, AI agents, and data collection workflows.
+              - strong: Why Proxidize?
+              - text: • Real 4G and 5G mobile proxies • Residential proxies in 195+ countries • Rotating and sticky sessions • City-level and carrier targeting • Unlimited concurrency • HTTP(S), SOCKS5, and UDP over SOCKS support • No hardware or DIY setup required Built for teams that need reliable proxy infrastructure without managing devices, servers, or proxy rotation themselves.
+              - strong: Special offer for Camoufox users
+              - text: ": Use code"
+              - strong: CAMOUFOX20
+              - text: for
+              - strong: 20% off
+              - text: ". Start now:"
+              - link "https://proxidize.com" [e163]:
+                - /url: https://proxidize.com/?utm_source=github&utm_medium=sponsorship&utm_campaign=camoufox&utm_content=daijro
+          - 'row "Thordata 🔍 Camoufox × Thordata Real Residential IPs for Smarter AI Agents & Automation With 100M+ residential IPs, Thordata helps your scraper access the web through real user IPs across 195+ countries. Target specific locations with precision — including city, ISP, and ASN-level targeting — so your Camoufox automation runs with a more authentic network identity. • 🔄 Rotating & Sticky Sessions (up to 90 minutes) • ⚡ 99.99% uptime with unlimited concurrent sessions • 🌍 Global residential coverage for AI agents, scraping, and automation workflows 🎁 Exclusive for Camoufox users: Get free trial traffic after signup + use code Camoufox for 10% OFF. Start your free trial with Thordata"':
+            - cell "Thordata":
+              - link "Thordata" [e164]:
+                - /url: https://www.thordata.com/?ls=dcx&lk=dcx
+                - img "Thordata"
+            - 'cell "🔍 Camoufox × Thordata Real Residential IPs for Smarter AI Agents & Automation With 100M+ residential IPs, Thordata helps your scraper access the web through real user IPs across 195+ countries. Target specific locations with precision — including city, ISP, and ASN-level targeting — so your Camoufox automation runs with a more authentic network identity. • 🔄 Rotating & Sticky Sessions (up to 90 minutes) • ⚡ 99.99% uptime with unlimited concurrent sessions • 🌍 Global residential coverage for AI agents, scraping, and automation workflows 🎁 Exclusive for Camoufox users: Get free trial traffic after signup + use code Camoufox for 10% OFF. Start your free trial with Thordata"':
+              - text: 🔍 Camoufox × Thordata Real Residential IPs for Smarter AI Agents & Automation With
+              - strong: 100M+ residential IPs
+              - text: ", Thordata helps your scraper access the web through real user IPs across"
+              - strong: 195+ countries
+              - text: . Target specific locations with precision — including
+              - strong: city, ISP, and ASN-level targeting
+              - text: — so your Camoufox automation runs with a more authentic network identity. • 🔄
+              - strong: Rotating & Sticky Sessions
+              - text: (up to 90 minutes) • ⚡
+              - strong: 99.99% uptime
+              - text: with unlimited concurrent sessions • 🌍
+              - strong: Global residential coverage
+              - text: for AI agents, scraping, and automation workflows 🎁
+              - strong: "Exclusive for Camoufox users:"
+              - text: Get free trial traffic after signup + use code
+              - strong: Camoufox
+              - text: for
+              - strong: 10% OFF
+              - text: .
+              - link "Start your free trial with Thordata" [e165]:
+                - /url: https://www.thordata.com/?ls=dcx&lk=dcx
+          - row "Webshare Webshare gives you instant access to a proxy pool of 80M+ ethically-sourced IPs across 195+ countries, with rotating residential, static ISP, and datacenter options plus a full API. It includes a 100+ Gbps backbone, country/city/state/ZIP/ASN-level targeting, and requires no credit card to start. 🏷️ Get 20% OFF your first purchase with promo code CAMOUFOX20":
+            - cell "Webshare":
+              - link "Webshare" [e166]:
+                - /url: https://www.webshare.io/
+                - img "Webshare"
+            - cell "Webshare gives you instant access to a proxy pool of 80M+ ethically-sourced IPs across 195+ countries, with rotating residential, static ISP, and datacenter options plus a full API. It includes a 100+ Gbps backbone, country/city/state/ZIP/ASN-level targeting, and requires no credit card to start. 🏷️ Get 20% OFF your first purchase with promo code CAMOUFOX20":
+              - strong:
+                - link "Webshare" [e167]:
+                  - /url: https://www.webshare.io/
+              - text: gives you instant access to a proxy pool of 80M+ ethically-sourced IPs across 195+ countries, with rotating residential, static ISP, and datacenter options plus a full API. It includes a 100+ Gbps backbone, country/city/state/ZIP/ASN-level targeting, and requires no credit card to start. 🏷️ Get
+              - strong: 20% OFF your first purchase
+              - text: with promo code
+              - strong:
+                - code: CAMOUFOX20
+          - row "Roamproxy Roam — Residential & static residential proxies, pay-as-you-go per GB. Use code CAMOUFOX15 for 15% extra credit on your first top-up.":
+            - cell "Roamproxy":
+              - link "Roamproxy" [e168]:
+                - /url: https://roamproxy.com
+                - img "Roamproxy"
+            - cell "Roam — Residential & static residential proxies, pay-as-you-go per GB. Use code CAMOUFOX15 for 15% extra credit on your first top-up.":
+              - strong:
+                - link "Roam" [e169]:
+                  - /url: https://roamproxy.com
+              - text: — Residential & static residential proxies, pay-as-you-go per GB. Use code CAMOUFOX15 for 15% extra credit on your first top-up.
+    - separator
+    - heading "Introduction" [level=1]
+    - 'link "Permalink: Introduction"':
+      - /url: "#introduction"
+    - paragraph: Camoufox is a Firefox fork engineered for web scraping and AI agents. It is headless, undetectable, and optimized to run at scale. Every run gets a fresh identity drawn from the real-world distribution of devices, so it blends into normal traffic instead of standing out.
+    - heading "Highlights" [level=2]
+    - 'link "Permalink: Highlights"':
+      - /url: "#highlights"
+    - list:
+      - listitem:
+        - strong: Built for AI agents
+        - text: 🤖
+        - list:
+          - listitem: Minimal, debloated Firefox - fast to launch, cheap to run
+          - listitem: Drop-in Playwright compatibility from Python and JavaScript/TypeScript
+          - listitem: Invisible to anti-bot systems so you can run your agent cluster locally or in the cloud without being flagged
+    - list:
+      - listitem:
+        - strong: Undetectable by design
+        - text: 🎭
+        - list:
+          - listitem:
+            - text: Page automation hidden from JavaScript inspection. See the
+            - link "stealth page" [e170]:
+              - /url: https://camoufox.com/stealth
+            - text: for more details.
+    - list:
+      - listitem:
+        - strong: Fingerprint injection & rotation (without JS injection!)
+        - list:
+          - listitem: All navigator properties (device, OS, hardware, browser, etc.) ✅
+          - listitem: Screen size, resolution, window, & viewport properties ✅
+          - listitem: Geolocation, timezone, locale, & Intl spoofing ✅
+          - listitem: WebRTC IP spoofing at the protocol level ✅
+          - listitem: Voices, speech playback rate, etc. ✅
+          - listitem: And much, much more!
+    - list:
+      - listitem:
+        - strong: Anti Graphical fingerprinting
+        - list:
+          - listitem: WebGL parameters, supported extensions, context attributes, & shader precision formats ✅
+          - listitem: Font spoofing & anti-fingerprinting ✅
+    - list:
+      - listitem:
+        - strong: Optimized for automation
+        - list:
+          - listitem: Human-like mouse movement 🖱️
+          - listitem: Blocks & circumvents ads 🛡️
+          - listitem:
+            - text: Optional instant animations (
+            - code: instantAnimations
+            - text: ), so Playwright never waits on one 💨
+    - list:
+      - listitem: Debloated & optimized for memory efficiency ⚡
+      - listitem:
+        - link "PyPI" [e171]:
+          - /url: https://pypi.org/project/camoufox/
+        - text: and npm packages for updates & auto fingerprint injection 📦
+      - listitem: Stays up to date with the latest Firefox version 🕓
+    - separator
+    - heading "Fingerprint Injection" [level=2]
+    - 'link "Permalink: Fingerprint Injection"':
+      - /url: "#fingerprint-injection"
+    - paragraph: In Camoufox, data is intercepted at the C++ implementation level, making the changes undetectable through JavaScript inspection.
+    - paragraph:
+      - text: To spoof individual fingerprint properties, pass a JSON containing properties to spoof to the
+      - link "Python" [e172]:
+        - /url: /daijro/camoufox/blob/main/pythonlib
+      - text: or
+      - link "TypeScript" [e173]:
+        - /url: /daijro/camoufox/blob/main/typescript
+      - text: "interface:"
+    - text: ">>> with Camoufox(config={\"property\": \"value\"}) as browser:"
+    - button "Copy code to clipboard" [e174]
+    - paragraph:
+      - text: Config data not set by the user is populated from
+      - link "fpgen" [e175]:
+        - /url: https://github.com/scrapfly/fingerprint-generator
+      - text: ", a model of the statistical distribution of device characteristics in real-world traffic. The assembled identity is then checked for coherence, so parts that are each plausible cannot combine into a machine that does not exist."
+    - paragraph:
+      - text: "["
+      - link "See implemented properties" [e176]:
+        - /url: https://camoufox.com/fingerprint/
+      - text: "]"
+    - separator
+    - heading "Usage" [level=2]
+    - 'link "Permalink: Usage"':
+      - /url: "#usage"
+    - paragraph: Camoufox is compatible with your existing Playwright code. You only have to change your browser initialization.
+    - paragraph:
+      - strong: Python, sync API
+    - text: "from camoufox.sync_api import Camoufox with Camoufox() as browser: page = browser.new_page() page.goto(\"https://example.com\")"
+    - button "Copy code to clipboard" [e177]
+    - paragraph:
+      - strong: Python, async API
+    - text: "from camoufox.async_api import AsyncCamoufox async with AsyncCamoufox() as browser: page = await browser.new_page() await page.goto(\"https://example.com\")"
+    - button "Copy code to clipboard" [e178]
+    - paragraph:
+      - strong: JavaScript / TypeScript
+    - text: "import { Camoufox } from \"camoufox\"; const browser = await Camoufox({ headless: true }); const page = await browser.newPage(); await page.goto(\"https://example.com\"); await browser.close();"
+    - button "Copy code to clipboard" [e179]
+    - paragraph:
+      - text: "["
+      - link "Python installation & usage" [e180]:
+        - /url: https://camoufox.com/python/
+      - text: "] · ["
+      - link "TypeScript package" [e181]:
+        - /url: /daijro/camoufox/blob/main/typescript/README.md
+      - text: "]"
+    - separator
+    - heading "Capabilities" [level=2]
+    - 'link "Permalink: Capabilities"':
+      - /url: "#capabilities"
+    - paragraph: Below is a list of patches and features implemented in Camoufox.
+    - heading "Fingerprint spoofing" [level=3]
+    - 'link "Permalink: Fingerprint spoofing"':
+      - /url: "#fingerprint-spoofing"
+    - list:
+      - listitem: Navigator properties spoofing (device, browser, locale, etc.)
+      - listitem: Support for emulating screen size, resolution, etc.
+      - listitem: Spoof WebGL parameters, supported extensions, context attributes, and shader precision formats.
+      - listitem: Spoof inner and outer window viewport sizes
+      - listitem: Spoof AudioContext sample rate, output latency, and max channel count
+      - listitem: Spoof device voices & playback rates
+      - listitem: Spoof the amount of microphones, webcams, and speakers available.
+      - listitem: Network headers (Accept-Languages and User-Agent) are spoofed to match the navigator properties
+      - listitem: WebRTC IP spoofing at the protocol level
+      - listitem: Geolocation, timezone, and locale spoofing
+      - listitem: etc.
+    - heading "Stealth patches" [level=3]
+    - 'link "Permalink: Stealth patches"':
+      - /url: "#stealth-patches"
+    - list:
+      - listitem: Avoids main world execution leaks. All page agent javascript is sandboxed
+      - listitem: Avoids frame execution context leaks
+      - listitem:
+        - text: Fixes
+        - code: navigator.webdriver
+        - text: detection
+      - listitem:
+        - text: Fixes Firefox headless detection via pointer type (
+        - link "#26" [e182]:
+          - /url: https://github.com/daijro/camoufox/issues/26
+        - text: )
+      - listitem: Removed potentially leaking anti-zoom/meta viewport handling patches
+      - listitem: Uses non-default screen & window sizes
+      - listitem: Re-enable fission content isolations
+      - listitem: Re-enable PDF.js
+      - listitem: Other leaking config properties changed
+      - listitem: Human-like cursor movement
+    - heading "Anti font fingerprinting" [level=3]
+    - 'link "Permalink: Anti font fingerprinting"':
+      - /url: "#anti-font-fingerprinting"
+    - list:
+      - listitem: Automatically uses the correct system fonts for your User Agent
+      - listitem: Bundled with Windows, Mac, and Linux system fonts
+      - listitem: "No glyph-spacing noise: measured text widths are the ones the same font gives on a real machine"
+    - heading "Playwright support" [level=3]
+    - 'link "Permalink: Playwright support"':
+      - /url: "#playwright-support"
+    - list:
+      - listitem: Custom implementation of Playwright for the latest Firefox
+      - listitem: Various config patches to evade bot detection
+    - heading "Debloat/Optimizations" [level=3]
+    - 'link "Permalink: Debloat/Optimizations"':
+      - /url: "#debloatoptimizations"
+    - list:
+      - listitem:
+        - text: Stripped out/disabled
+        - emphasis: many, many
+        - text: Mozilla services. Runs faster than the original Mozilla Firefox, and uses less memory (200mb)
+      - listitem: Patches from LibreWolf & Ghostery to help remove telemetry & bloat
+      - listitem: Debloat config from PeskyFox, LibreWolf, and others
+      - listitem: Speed & network optimizations from FastFox
+      - listitem:
+        - text: Animations run on stock timing;
+        - code: "instantAnimations: True"
+        - text: finishes them at once, at the cost of being detectable
+      - listitem: Minimalistic theming
+      - listitem: etc.
+    - heading "Addons" [level=3]
+    - 'link "Permalink: Addons"':
+      - /url: "#addons"
+    - list:
+      - listitem:
+        - text: Load Firefox addons without a debug server by passing a list of paths to the
+        - code: addons
+        - text: property
+      - listitem: Added uBlock Origin with custom privacy filters
+      - listitem: Addons are not allowed to open tabs
+      - listitem: Addons are automatically enabled in Private Browsing mode
+      - listitem: Addons are automatically pinned to the toolbar
+      - listitem: Fixes DNS leaks with uBO prefetching
+    - heading "Python & TypeScript Interfaces" [level=3]
+    - 'link "Permalink: Python & TypeScript Interfaces"':
+      - /url: "#python--typescript-interfaces"
+    - list:
+      - listitem: Automatically generates & injects unique device characteristics into Camoufox based on their real-world distribution
+      - listitem: WebGL fingerprint injection & rotation
+      - listitem: Uses the correct system fonts and subpixel antialiasing & hinting based on your target OS
+      - listitem: Avoid proxy detection by calculating your target geolocation, timezone, & locale from your proxy's target region
+      - listitem: Calculate and spoof the browser's language based on the distribution of language speakers in the proxy's target region
+      - listitem: Remote server hosting to use Camoufox with other languages that support Playwright
+      - listitem: Built-in virtual display buffer to run Camoufox headfully on a headless server
+      - listitem: Toggle image loading, WebRTC, and WebGL
+      - listitem: etc.
+    - paragraph: Note
+    - paragraph:
+      - text: Camoufox does
+      - strong: not
+      - text: fully support injecting Chromium fingerprints. Some WAFs (such as
+      - link "Interstitial" [e183]:
+        - /url: https://nopecha.com/demo/cloudflare
+      - text: ) test for Spidermonkey engine behavior, which is impossible to spoof.
+    - separator
+    - heading "Stealth Overview" [level=1]
+    - 'link "Permalink: Stealth Overview"':
+      - /url: "#stealth-overview"
+    - heading "How Camoufox hides its automation library" [level=2]
+    - 'link "Permalink: How Camoufox hides its automation library"':
+      - /url: "#how-camoufox-hides-its-automation-library"
+    - paragraph: In Camoufox, all of Playwright's internal Page Agent's code is sandboxed and isolated. This makes it impossible for a page to detect the presence of Playwright through Javascript inspection.
+    - paragraph:
+      - text: Normally, Playwright injects some JavaScript into the page such as
+      - code: window.__playwright__binding__
+      - text: and to perform actions like querying elements, evaluating javascript, or running init scripts, which can be detected by websites. In Camoufox, these actions are handled in an isolated scope outside of the page. In other words, websites can no longer "see" any JavaScript that Playwright would typically inject. This prevents traces of Playwright altogether.
+    - paragraph: However, even with hiding its automation library, Camoufox is not immune to inconsistencies in fingerprint rotation. This still requires maintenance to spot and fix.
+    - heading "Page Interactions" [level=3]
+    - 'link "Permalink: Page Interactions"':
+      - /url: "#page-interactions"
+    - paragraph: Anti-bot systems also run client-side scripts to monitor your behavior. For example, they look for patterns in mouse movements, clicks, scrolling, and the timing between actions.
+    - paragraph:
+      - link "Cursor paths Camoufox produced with humanize=True, replayed at their recorded speed" [e184]:
+        - /url: /daijro/camoufox/blob/main/assets/humanize-cursor.svg
+        - img "Cursor paths Camoufox produced with humanize=True, replayed at their recorded speed"
+    - paragraph:
+      - text: Every dot above is a
+      - code: mousemove
+      - text: event the page received from six
+      - code: page.mouse.move()
+      - text: calls, replayed at the speed it arrived. Close dots mean the hand slowed down.
+      - code: scripts/cursor-demo.py
+      - text: regenerates the figure from a build.
+    - paragraph:
+      - text: Camoufox does not draw its cursor paths. With
+      - code: humanize=True
+      - text: it uses
+      - link "Cursory" [e185]:
+        - /url: https://github.com/Vinyzu/cursory
+        - strong: Cursory
+      - text: by
+      - link "Vinyzu" [e186]:
+        - /url: https://github.com/Vinyzu
+      - text: ", which holds 2356 mouse movements recorded from real people: it picks a recording whose direction, distance and wander suit the move being made, morphs it onto the requested start and end points, and replays it with that recording's own timing — pauses, overshoots and all."
+    - paragraph: "That last part matters as much as the shape. Camoufox previously walked a Bézier curve through two random knots and emitted a point every 10ms. Both halves of that are tells: an analytic curve sampled at a fixed rate has velocity and jerk profiles that separate cleanly from a hand's, and the acceleration came entirely from one easing function, so every movement Camoufox ever made sped up and slowed down the same way. A replayed recording has neither property."
+    - paragraph:
+      - text: Camoufox ships
+      - link "cursory-js" [e187]:
+        - /url: https://github.com/JWriter20/cursory-js
+      - text: ", a TypeScript port of Cursory, vendored into Juggler at"
+      - code: additions/juggler/input/cursory/
+      - text: . It reproduces the Python original bit for bit, so a path can be reproduced against
+      - code: pip install cursory
+      - text: .
+      - strong: Cursory is LGPLv3-or-later, not MPL-2.0 like the rest of the browser
+      - text: ; its licence and full provenance are in
+      - code: additions/juggler/input/cursory/NOTICE
+      - text: .
+    - paragraph: However, this isn't perfect. It may still be detected with sophisticated enough analysis. (WIP for the future)
+    - separator
+    - heading "How Camoufox rotates identities" [level=2]
+    - 'link "Permalink: How Camoufox rotates identities"':
+      - /url: "#how-camoufox-rotates-identities"
+    - paragraph:
+      - text: AI agents need to operate across many sessions without getting flagged or rate-limited. Rotating your IP address isn't enough — every browser session carries thousands of signals that create a unique
+      - strong: fingerprint
+      - text: . A website can see your OS, GPU, screen resolution, fonts, timezone, and more. If those signals are inconsistent or unusual, you get blocked.
+    - heading "Market Share Distribution" [level=3]
+    - 'link "Permalink: Market Share Distribution"':
+      - /url: "#market-share-distribution"
+    - paragraph: Even if you are rotating your IP for each running bot instance, web access firewalls can still use mach
+[... truncated at char 74800 of 97164. Call snapshot with offset=74800 to see more. Pagination links below. ...]
+this project" [level=2]
+  - list:
+    - listitem:
+      - link "@daijro" [e241]:
+        - /url: /daijro
+        - img "@daijro"
+      - link "daijro" [e242]:
+        - /url: /daijro
+        - strong: daijro
+      - link "Sponsor @daijro" [e243]:
+        - /url: /sponsors/daijro
+  - list:
+    - listitem:
+      - link "ko-fi.com/daijro" [e244]:
+        - /url: https://ko-fi.com/daijro
+  - link "Learn more about GitHub Sponsors" [e245]:
+    - /url: /sponsors
+  - heading "Used by (340)" [level=2]:
+    - link "Used by" [e246]:
+      - /url: /daijro/camoufox/network/dependents
+    - text: (340)
+  - link "@hezhijie0327 @iloveitaly @smeinecke @LOX2018 @o6uoq + 334" [e247]:
+    - /url: /daijro/camoufox/network/dependents
+    - img "@hezhijie0327"
+    - img "@iloveitaly"
+    - img "@smeinecke"
+    - img "@LOX2018"
+    - img "@o6uoq"
+    - text: + 334
+  - heading "Contributors (48)" [level=2]:
+    - link "Contributors" [e248]:
+      - /url: /daijro/camoufox/graphs/contributors
+    - text: (48)
+  - list:
+    - listitem:
+      - link "@daijro" [e249]:
+        - /url: /daijro
+        - img "@daijro"
+    - listitem:
+      - link "@claude" [e250]:
+        - /url: /claude
+        - img "@claude"
+    - listitem:
+      - link "@heydryft" [e251]:
+        - /url: /heydryft
+        - img "@heydryft"
+    - listitem:
+      - link "@JWriter20" [e252]:
+        - /url: /JWriter20
+        - img "@JWriter20"
+    - listitem:
+      - link "@icepaq" [e253]:
+        - /url: /icepaq
+        - img "@icepaq"
+    - listitem:
+      - link "@pratyush618" [e254]:
+        - /url: /pratyush618
+        - img "@pratyush618"
+    - listitem:
+      - link "@rubenvereecken" [e255]:
+        - /url: /rubenvereecken
+        - img "@rubenvereecken"
+    - listitem:
+      - link "@coffeegrind123" [e256]:
+        - /url: /coffeegrind123
+        - img "@coffeegrind123"
+    - listitem:
+      - link "@D4Vinci" [e257]:
+        - /url: /D4Vinci
+        - img "@D4Vinci"
+    - listitem:
+      - link "@alternativshik" [e258]:
+        - /url: /alternativshik
+        - img "@alternativshik"
+    - listitem:
+      - link "@Cloudymap1e" [e259]:
+        - /url: /Cloudymap1e
+        - img "@Cloudymap1e"
+    - listitem:
+      - link "@PopcornDev1" [e260]:
+        - /url: /PopcornDev1
+        - img "@PopcornDev1"
+    - listitem:
+      - link "@neuregex" [e261]:
+        - /url: /neuregex
+        - img "@neuregex"
+    - listitem:
+      - link "@julien-duponchelle" [e262]:
+        - /url: /julien-duponchelle
+        - img "@julien-duponchelle"
+  - link "+ 34 contributors" [e263]:
+    - /url: /daijro/camoufox/graphs/contributors
+  - heading "Languages" [level=2]
+  - 'progressbar "Python: 37.9%"'
+  - 'progressbar "C++: 26.1%"'
+  - 'progressbar "TypeScript: 21.5%"'
+  - 'progressbar "JavaScript: 11.3%"'
+  - 'progressbar "QML: 1.4%"'
+  - 'progressbar "Shell: 0.8%"'
+  - 'progressbar "Other: 1%"'
+  - list:
+    - listitem:
+      - link "Python 37.9%" [e264]:
+        - /url: /daijro/camoufox/search?l=python
+    - listitem:
+      - link "C++ 26.1%" [e265]:
+        - /url: /daijro/camoufox/search?l=c%2B%2B
+    - listitem:
+      - link "TypeScript 21.5%" [e266]:
+        - /url: /daijro/camoufox/search?l=typescript
+    - listitem:
+      - link "JavaScript 11.3%" [e267]:
+        - /url: /daijro/camoufox/search?l=javascript
+    - listitem:
+      - link "QML 1.4%" [e268]:
+        - /url: /daijro/camoufox/search?l=qml
+    - listitem:
+      - link "Shell 0.8%" [e269]:
+        - /url: /daijro/camoufox/search?l=shell
+    - listitem:
+      - link "Other 1%" [e270]:
+        - /url: /daijro/camoufox/search?l=Other
+- contentinfo:
+  - heading "Footer" [level=2]
+  - link "GitHub Homepage" [e271]:
+    - /url: https://github.com
+  - text: © 2026 GitHub, Inc.
+  - navigation "Footer":
+    - heading "Footer navigation" [level=3]
+    - list "Footer navigation":
+      - listitem:
+        - link "Terms" [e272]:
+          - /url: https://docs.github.com/site-policy/github-terms/github-terms-of-service
+      - listitem:
+        - link "Privacy" [e273]:
+          - /url: https://docs.github.com/site-policy/privacy-policies/github-privacy-statement
+      - listitem:
+        - link "Security" [e274]:
+          - /url: https://github.com/security
+      - listitem:
+        - link "Status" [e275]:
+          - /url: https://www.githubstatus.com/
+      - listitem:
+        - link "Community" [e276]:
+          - /url: https://github.community/
+      - listitem:
+        - link "Docs" [e277]:
+          - /url: https://docs.github.com/
+      - listitem:
+        - link "Contact" [e278]:
+          - /url: https://support.github.com?tags=dotcom-footer
+      - listitem:
+        - button "Manage cookies" [e279]
+      - listitem:
+        - button "Do not share my personal information" [e280]
+- alert
+- iframe "41c1c2fb-68af-4c51-a772":
+  - button "Zoom in" [e281]
+  - button "Zoom out" [e282]
+  - button "Reset view" [e283]
+  - button "Pan up" [e284]
+  - button "Pan down" [e285]
+  - button "Pan left" [e286]
+  - button "Pan right" [e287]

@@ -1,0 +1,86 @@
+/**
+ * Engine ordering and the fallback rule.
+ *
+ * The chain tries engines in config order, but only for outcomes where another engine could
+ * realistically help. Transport failures are not an engine problem, so walking the chain after
+ * `gateway_unreachable` just multiplies the same timeout.
+ */
+
+import type { EngineConfig } from "../config.ts";
+import { GatewayError, type GatewayErrorCode } from "../errors.ts";
+import { duckduckgoEngine } from "./duckduckgo.ts";
+import { googleEngine } from "./google.ts";
+import type { Engine, EngineContext, EngineOutcome } from "./types.ts";
+
+const BY_NAME: Record<string, () => Engine> = {
+  google: googleEngine,
+  duckduckgo: duckduckgoEngine,
+};
+
+/** Outcomes where trying a different engine is pointless. */
+const TERMINAL_CODES: GatewayErrorCode[] = ["gateway_unreachable", "gateway_unauthorized", "timeout", "host_blocked"];
+
+export interface TriedStep {
+  engine: string;
+  /** "ok" when that engine served the answer, otherwise the code it failed with. */
+  code: GatewayErrorCode | "ok";
+  message: string;
+}
+
+export interface ChainOutcome extends EngineOutcome {
+  tried: TriedStep[];
+}
+
+export function enginesFromConfig(engines: EngineConfig[]): Engine[] {
+  return engines
+    .filter((entry) => entry.enabled)
+    .map((entry) => {
+      const factory = BY_NAME[entry.name];
+      if (!factory) {
+        throw new GatewayError("unsupported", `no adapter for engine "${entry.name}" (known: ${Object.keys(BY_NAME).join(", ")})`);
+      }
+      return factory();
+    });
+}
+
+export async function searchWithFallback(
+  query: string,
+  engines: Engine[],
+  context: EngineContext,
+): Promise<ChainOutcome> {
+  if (engines.length === 0) {
+    throw new GatewayError("unsupported", "no search engines are enabled in the camoufox config");
+  }
+
+  const tried: TriedStep[] = [];
+  let firstError: GatewayError | undefined;
+
+  for (const engine of engines) {
+    try {
+      const outcome = await engine.search(query, context);
+      if (outcome.results.length === 0) {
+        // An engine can answer cleanly with nothing; that is a fallback trigger, not a success.
+        tried.push({ engine: engine.name, code: "empty_results", message: "no results" });
+        firstError ??= new GatewayError("empty_results", `no engine returned results for "${query}"`);
+        continue;
+      }
+      tried.push({ engine: engine.name, code: "ok", message: "served" });
+      return { ...outcome, engine: outcome.servedBy ?? engine.name, tried };
+    } catch (error) {
+      const gatewayError = error instanceof GatewayError ? error : new GatewayError("gateway_error", String(error));
+      tried.push({ engine: engine.name, code: gatewayError.code, message: gatewayError.message });
+      firstError ??= gatewayError;
+
+      if (TERMINAL_CODES.includes(gatewayError.code)) {
+        throw withTried(gatewayError, tried);
+      }
+    }
+  }
+
+  throw withTried(firstError ?? new GatewayError("empty_results", "no engine returned results"), tried);
+}
+
+function withTried(error: GatewayError, tried: TriedStep[]): GatewayError {
+  if (error.details?.tried) return error;
+  return new GatewayError(error.code, error.message, { details: { ...(error.details ?? {}), tried }, retryable: error.retryable });
+}

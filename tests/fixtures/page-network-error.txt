@@ -1,0 +1,7 @@
+- heading "Network Protocol Error" [level=1]
+- paragraph: Camoufox has experienced a network protocol violation that cannot be repaired.
+- paragraph
+- paragraph: The page you are trying to view cannot be shown because an error in the network protocol was detected.
+- list:
+  - listitem: Please contact the website owners to inform them of this problem.
+- button "Try Again" [e1]

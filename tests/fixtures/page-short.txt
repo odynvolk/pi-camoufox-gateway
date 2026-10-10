@@ -1,0 +1,5 @@
+- heading "Tiny page" [level=1]
+- paragraph
+  - text: First paragraph of the page.
+- link "Docs" [e1]:
+  - /url: https://camoufox.com/docs

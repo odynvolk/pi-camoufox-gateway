@@ -1,0 +1,415 @@
+- link "DuckDuckGo home" [e1]:
+  - /url: /
+  - text: DuckDuckGo
+- combobox "Search privately": camoufox anti-detect
+- button "Search" [e2]:
+  - img
+- link "Protection. Privacy. Peace of mind." [e3]:
+  - /url: /compare-privacy
+- button "Open menu" [e4]:
+  - text: Open menu
+  - img
+- navigation:
+  - list:
+    - listitem:
+      - link "All" [e5]:
+        - /url: /?q=camoufox+anti-detect&ia=web
+        - strong:
+          - img
+          - text: All
+    - listitem:
+      - link "Images" [e6]:
+        - /url: /?q=camoufox+anti-detect&ia=images&iax=images
+        - strong: Images
+    - listitem:
+      - link "Videos" [e7]:
+        - /url: /?q=camoufox+anti-detect&ia=videos&iax=videos
+        - strong: Videos
+    - listitem:
+      - link "News" [e8]:
+        - /url: /?q=camoufox+anti-detect&ia=news&iar=news
+        - strong: News
+    - listitem:
+      - button "More" [e9]:
+        - strong: More
+  - list:
+    - listitem:
+      - link "Search Assist" [e10]:
+        - /url: /?q=camoufox+anti-detect&ia=web&assist=true
+    - listitem:
+      - link "Duck.ai" [e11]:
+        - /url: /?q=camoufox+anti-detect&ia=chat&entry=serp
+        - img
+        - text: Duck.ai
+    - listitem:
+      - button "Search Settings ✀" [e12]:
+        - img
+        - text: Search Settings ✀
+- navigation:
+  - button "Private" [e13]:
+    - strong: Private
+  - switch "Filter by the selected region" [e14]
+  - button "Sweden" [e15]:
+    - strong: Sweden
+  - 'button "Safe search: moderate"':
+    - strong: "Safe search: moderate"
+  - button "Any time" [e16]:
+    - strong: Any time
+- list:
+  - listitem:
+    - article:
+      - button [e17]:
+        - img
+      - link "Search domain github.com" [e18]:
+        - /url: /?q=camoufox%20anti%2Ddetect+site:github.com
+        - img
+      - paragraph: Github
+      - link "https://github.com › daijro › camoufox" [e19]:
+        - /url: https://github.com/daijro/camoufox
+        - paragraph: https://github.com › daijro › camoufox
+      - 'heading "GitHub - daijro/camoufox: Anti-detect browser" [level=2]':
+        - 'link "GitHub - daijro/camoufox: Anti-detect browser"':
+          - /url: https://github.com/daijro/camoufox
+      - text: 🦊 Anti-detect browser. Contribute to daijro/camoufox development by creating an account on GitHub.
+      - list:
+        - listitem:
+          - 'link "Issues 125 Issues 125 - GitHub - daijro/camoufox: Anti-detect browser"':
+            - /url: https://github.com/daijro/camoufox/issues
+            - heading "Issues 125" [level=3]
+            - paragraph: "Issues 125 - GitHub - daijro/camoufox: Anti-detect browser"
+        - listitem:
+          - 'link "Pull requests 7 Pull requests 7 - GitHub - daijro/camoufox: Anti-detect browser"':
+            - /url: https://github.com/daijro/camoufox/pulls
+            - heading "Pull requests 7" [level=3]
+            - paragraph: "Pull requests 7 - GitHub - daijro/camoufox: Anti-detect browser"
+        - listitem:
+          - link "Discussions Explore the GitHub Discussions forum for daijro camoufox. Discuss code, ask questions & collaborate with the developer community." [e20]:
+            - /url: https://github.com/daijro/camoufox/discussions
+            - heading "Discussions" [level=3]
+            - paragraph: Explore the GitHub Discussions forum for daijro camoufox. Discuss code, ask questions & collaborate with the developer community.
+        - listitem:
+          - link "Security GitHub is where people build software. More than 150 million people use GitHub to discover, fork, and contribute to over 420 million projects." [e21]:
+            - /url: https://github.com/daijro/camoufox/security
+            - heading "Security" [level=3]
+            - paragraph: GitHub is where people build software. More than 150 million people use GitHub to discover, fork, and contribute to over 420 million projects.
+        - listitem:
+          - 'link "Insights Insights - GitHub - daijro/camoufox: Anti-detect browser"':
+            - /url: https://github.com/daijro/camoufox/pulse
+            - heading "Insights" [level=3]
+            - paragraph: "Insights - GitHub - daijro/camoufox: Anti-detect browser"
+        - listitem:
+          - 'link "210 Forks 210 Forks - GitHub - daijro/camoufox: Anti-detect browser"':
+            - /url: https://github.com/daijro/camoufox/forks
+            - heading "210 Forks" [level=3]
+            - paragraph: "210 Forks - GitHub - daijro/camoufox: Anti-detect browser"
+  - listitem:
+    - article:
+      - button [e22]:
+        - img
+      - link "Search domain github.com" [e23]:
+        - /url: /?q=camoufox%20anti%2Ddetect+site:github.com
+        - img
+      - paragraph: Github
+      - link "https://github.com › jo-inc › camofox-browser" [e24]:
+        - /url: https://github.com/jo-inc/camofox-browser
+        - paragraph: https://github.com › jo-inc › camofox-browser
+      - 'heading "GitHub - jo-inc/camofox-browser: Stealth headless browser for AI agents ..." [level=2]':
+        - 'link "GitHub - jo-inc/camofox-browser: Stealth headless browser for AI agents ..."':
+          - /url: https://github.com/jo-inc/camofox-browser
+      - text: Feb 11, 2026·Anti-detection browser server for AI agents, powered by Camoufox Standing on the mighty shoulders of Camoufox - a Firefox fork with fingerprint spoofing at the C++ level.
+  - listitem:
+    - article:
+      - button [e25]:
+        - img
+      - link "Search domain camoufox.com" [e26]:
+        - /url: /?q=camoufox%20anti%2Ddetect+site:camoufox.com
+        - img
+      - paragraph: camoufox.com
+      - link "https://camoufox.com" [e27]:
+        - /url: https://camoufox.com/
+        - paragraph: https://camoufox.com
+      - heading "Introduction | Camoufox" [level=2]:
+        - link "Introduction | Camoufox" [e28]:
+          - /url: https://camoufox.com/
+      - text: Layer3 Intel | See your proxies the way anti-bots see them Camoufox hides your browser. Your proxy IP is the part it can't hide. Layer3 Intel is the residential proxy detection engine used to catch proxy traffic — check whether the IPs your provider sells you are clean, or already known and flagged. 🔍 Live threat score for any IP
+  - listitem:
+    - article:
+      - button [e29]:
+        - img
+      - link "Search domain scrapingbee.com" [e30]:
+        - /url: /?q=camoufox%20anti%2Ddetect+site:www.scrapingbee.com
+        - img
+      - paragraph: ScrapingBee
+      - link "https://www.scrapingbee.com › blog › how-to-scrape-with-camoufox-to-bypass-antibot-technology" [e31]:
+        - /url: https://www.scrapingbee.com/blog/how-to-scrape-with-camoufox-to-bypass-antibot-technology/
+        - paragraph: https://www.scrapingbee.com › blog › how-to-scrape-with-camoufox-to-bypass-antibot-technology
+      - heading "The Complete Guide to Camoufox and Anti-Detect Scraping in 2026" [level=2]:
+        - link "The Complete Guide to Camoufox and Anti-Detect Scraping in 2026" [e32]:
+          - /url: https://www.scrapingbee.com/blog/how-to-scrape-with-camoufox-to-bypass-antibot-technology/
+      - text: Sep 17, 2026·Camoufox is an open-source, Firefox-based anti-detect browser for Python that spoofs browser fingerprints inside Firefox's C++ code, not through injected JavaScript. Pair it with a residential proxy and a matching geolocation, and it presents an identity that anti-bot systems struggle to distinguish from a real visitor. In this guide, we install Camoufox in Python, build a first scraper, set ...
+  - listitem:
+    - article:
+      - button [e33]:
+        - img
+      - link "Search domain hireaclawd.com" [e34]:
+        - /url: /?q=camoufox%20anti%2Ddetect+site:hireaclawd.com
+        - img
+      - paragraph: hireaclawd.com
+      - link "https://hireaclawd.com › blog › camoufox-anti-detect-browser-guide.html" [e35]:
+        - /url: https://hireaclawd.com/blog/camoufox-anti-detect-browser-guide.html
+        - paragraph: https://hireaclawd.com › blog › camoufox-anti-detect-browser-guide.html
+      - 'heading "Camoufox: the anti-detect browser for undetected scraping" [level=2]':
+        - 'link "Camoufox: the anti-detect browser for undetected scraping"':
+          - /url: https://hireaclawd.com/blog/camoufox-anti-detect-browser-guide.html
+      - text: Camoufox is a Firefox-based anti-detect browser for undetected web scraping. What it is, how it beats Selenium and undetected-chromedriver, install steps, a working Python example, residential proxy setup, and when it's overkill.
+  - listitem:
+    - article:
+      - button [e36]:
+        - img
+      - link "Search domain proxycove.com" [e37]:
+        - /url: /?q=camoufox%20anti%2Ddetect+site:proxycove.com
+        - img
+      - paragraph: proxycove.com
+      - link "https://proxycove.com › en › blog › stealth-browsers-2026-nodriver-camoufox-patchright-benchmark" [e38]:
+        - /url: https://proxycove.com/en/blog/stealth-browsers-2026-nodriver-camoufox-patchright-benchmark
+        - paragraph: https://proxycove.com › en › blog › stealth-browsers-2026-nodriver-camoufox-patchright-benchmark
+      - 'heading "Stealth browsers 2026: nodriver, Camoufox, Patchright" [level=2]':
+        - 'link "Stealth browsers 2026: nodriver, Camoufox, Patchright"':
+          - /url: https://proxycove.com/en/blog/stealth-browsers-2026-nodriver-camoufox-patchright-benchmark
+      - text: "Aug 13, 2026·Stealth Browsers 2026: 651 Benchmark Verdict - Who Truly Passes? Camoufox is in one study in the middle of the table, and in another — among the best. We analyze two benchmarks from 2026 with an open methodology (651 verdicts, 31 targets), explain why nodriver wins on live targets under Cloudflare, and show the detection layer that neither of them measures — IP reputation."
+  - listitem:
+    - article:
+      - button [e39]:
+        - img
+      - link "Search domain webscraping.app" [e40]:
+        - /url: /?q=camoufox%20anti%2Ddetect+site:www.webscraping.app
+        - img
+      - paragraph: webscraping.app
+      - link "https://www.webscraping.app › tools › camoufox" [e41]:
+        - /url: https://www.webscraping.app/tools/camoufox
+        - paragraph: https://www.webscraping.app › tools › camoufox
+      - 'heading "Camoufox: Anti-detect browser with fingerprint injection - webscraping.app" [level=2]':
+        - 'link "Camoufox: Anti-detect browser with fingerprint injection - webscraping.app"':
+          - /url: https://www.webscraping.app/tools/camoufox
+      - text: Jul 14, 2026·Camoufox is an open-source anti-detect browser based on Firefox with robust fingerprint injection to evade bot detection systems.
+  - listitem:
+    - article:
+      - button [e42]:
+        - img
+      - link "Search domain deepwiki.com" [e43]:
+        - /url: /?q=camoufox%20anti%2Ddetect+site:deepwiki.com
+        - img
+      - paragraph: deepwiki.com
+      - link "https://deepwiki.com › jo-inc › camofox-browser › 6-anti-detection-features" [e44]:
+        - /url: https://deepwiki.com/jo-inc/camofox-browser/6-anti-detection-features
+        - paragraph: https://deepwiki.com › jo-inc › camofox-browser › 6-anti-detection-features
+      - heading "Anti-Detection Features | jo-inc/camofox-browser | DeepWiki" [level=2]:
+        - link "Anti-Detection Features | jo-inc/camofox-browser | DeepWiki" [e45]:
+          - /url: https://deepwiki.com/jo-inc/camofox-browser/6-anti-detection-features
+      - text: May 9, 2026·Camoufox Engine Architecture What is Camoufox Camoufox is a Firefox fork that patches the browser's C++ implementation to spoof fingerprinting properties. Unlike traditional anti-detection solutions that inject JavaScript to override browser APIs, Camoufox modifies the underlying C++ code that implements these APIs, making the spoofed values indistinguishable from genuine browser behavior.
+  - listitem:
+    - article:
+      - button [e46]:
+        - img
+      - link "Search domain camoufox.com" [e47]:
+        - /url: /?q=camoufox%20anti%2Ddetect+site:camoufox.com
+        - img
+      - paragraph: camoufox.com
+      - link "https://camoufox.com › features" [e48]:
+        - /url: https://camoufox.com/features/
+        - paragraph: https://camoufox.com › features
+      - heading "Features List - Camoufox" [level=2]:
+        - link "Features List - Camoufox" [e49]:
+          - /url: https://camoufox.com/features/
+      - text: Fixes navigator.webdriver detection Fixes Firefox headless detection via pointer type (#26) Removed potentially leaking anti-zoom/meta viewport handling patches Uses non-default screen & window sizes Re-enable fission content isolations Re-enable PDF.js Other leaking config properties changed Human-like cursor movement Anti font fingerprinting
+  - listitem:
+    - article:
+      - button [e50]:
+        - img
+      - link "Search domain centinelanalytica.com" [e51]:
+        - /url: /?q=camoufox%20anti%2Ddetect+site:www.centinelanalytica.com
+        - img
+      - paragraph: centinelanalytica.com
+      - link "https://www.centinelanalytica.com › blog › what-is-camoufox" [e52]:
+        - /url: https://www.centinelanalytica.com/blog/what-is-camoufox
+        - paragraph: https://www.centinelanalytica.com › blog › what-is-camoufox
+      - heading "What is Camoufox? Anti-detect Firefox explained | Centinel" [level=2]:
+        - link "What is Camoufox? Anti-detect Firefox explained | Centinel" [e53]:
+          - /url: https://www.centinelanalytica.com/blog/what-is-camoufox
+      - text: Sep 3, 2026·Camoufox is an open-source Firefox fork that spoofs fingerprints in C++ for Playwright. What it changes, the limits its docs admit, and how it gets detected.
+  - listitem:
+    - article:
+      - button [e54]:
+        - img
+      - link "GoLogin https://gologin.com › browser › compare" [e55]:
+        - /url: https://duckduckgo.com/y.js?ad_domain=gologin.com&ad_provider=bingv7aa&ad_type=txad&click_metadata=nQNIgiiutNsvVHImDs80cZ%2Dkbw3Q0Bg4kRRJaz5BK1JAZeUkVrKWlQhURsOapqxRmFlgWIwnNNs0avlQo0zIThsNIZEmu4H2Uwk3K5doHbHjMOXBp1IFMhyPmtsnZK%2DA%2DzBfiCon%2DvK9DAcifRXwaA.yi9JxOJD%2DUHgnVKLq6PaBg&eddgt=cYLj_ZVI0WUgnqQpz30S7g%3D%3D&rut=f3c8b948a8e3629a9e62f7642754611c0c3d9c68a1ce1ae19f1a343c40d4c831&u3=https%3A%2F%2Fwww.bing.com%2Faclick%3Fld%3De8OYrr5C32l%2DSdGwkmR9CraTVUCUwxBCEAU54D3EJ3L0UPyWtVhJMXmnY8t6g83SRLdG%2DFWzsXQ5EeOw%2DWDW0gXjQqQLR%2D9Be%2DKwsAzYvsobkNsuxmgLBLI_AQ50zDaZxuBBFEdKsUwiHWafFYPVTcd7XFUgJ2vhWUlgg3QuDXex1iXIZ6fZvjM1_jypJK7XVVlkNXVfyKvdRajzfbLy5cPI4aucw%26u%3DaHR0cHMlM2ElMmYlMmZnb2xvZ2luLmNvbSUzZnV0bV9zb3VyY2UlM2RiaW5nJTI2dXRtX21lZGl1bSUzZGNwYyUyNnV0bV9jYW1wYWlnbiUzZFNlYXJjaC1iaW5nX2dvbG9naW5fY29tcGV0X3QxJTI2dXRtX2lkJTNkNTMzNjM4MzM1JTI2dXRtX2NvbnRlbnQlM2Q4NDgwMDQzMTQ1NDAzNSUyNnV0bV90ZXJtJTNkY2Ftb3Vmb3glMjZtc2Nsa2lkJTNkNmIzMGRhOWIyOTdjMTVjYWU0YTViMDUyNzkxZDc3MzQ%26rlid%3D6b30da9b297c15cae4a5b052791d7734&vqd=4-182359031844194403898447211987360817744&iurl=%7B1%7DIG%3DC6E05FF46B374A2FBBC833D093804A22%26CID%3D3E57F7006A2D6F3C1F9DE0ED6B786E28%26ID%3DDevEx%2C5037.1
+        - img
+        - paragraph: GoLogin
+        - paragraph: https://gologin.com › browser › compare
+      - heading "Explore Profile Management - See Current Plans and Pricing Ad" [level=2]:
+        - link "Explore Profile Management - See Current Plans and Pricing" [e56]:
+          - /url: https://duckduckgo.com/y.js?ad_domain=gologin.com&ad_provider=bingv7aa&ad_type=txad&click_metadata=nQNIgiiutNsvVHImDs80cZ%2Dkbw3Q0Bg4kRRJaz5BK1JAZeUkVrKWlQhURsOapqxRmFlgWIwnNNs0avlQo0zIThsNIZEmu4H2Uwk3K5doHbHjMOXBp1IFMhyPmtsnZK%2DA%2DzBfiCon%2DvK9DAcifRXwaA.yi9JxOJD%2DUHgnVKLq6PaBg&eddgt=cYLj_ZVI0WUgnqQpz30S7g%3D%3D&rut=f3c8b948a8e3629a9e62f7642754611c0c3d9c68a1ce1ae19f1a343c40d4c831&u3=https%3A%2F%2Fwww.bing.com%2Faclick%3Fld%3De8OYrr5C32l%2DSdGwkmR9CraTVUCUwxBCEAU54D3EJ3L0UPyWtVhJMXmnY8t6g83SRLdG%2DFWzsXQ5EeOw%2DWDW0gXjQqQLR%2D9Be%2DKwsAzYvsobkNsuxmgLBLI_AQ50zDaZxuBBFEdKsUwiHWafFYPVTcd7XFUgJ2vhWUlgg3QuDXex1iXIZ6fZvjM1_jypJK7XVVlkNXVfyKvdRajzfbLy5cPI4aucw%26u%3DaHR0cHMlM2ElMmYlMmZnb2xvZ2luLmNvbSUzZnV0bV9zb3VyY2UlM2RiaW5nJTI2dXRtX21lZGl1bSUzZGNwYyUyNnV0bV9jYW1wYWlnbiUzZFNlYXJjaC1iaW5nX2dvbG9naW5fY29tcGV0X3QxJTI2dXRtX2lkJTNkNTMzNjM4MzM1JTI2dXRtX2NvbnRlbnQlM2Q4NDgwMDQzMTQ1NDAzNSUyNnV0bV90ZXJtJTNkY2Ftb3Vmb3glMjZtc2Nsa2lkJTNkNmIzMGRhOWIyOTdjMTVjYWU0YTViMDUyNzkxZDc3MzQ%26rlid%3D6b30da9b297c15cae4a5b052791d7734&vqd=4-182359031844194403898447211987360817744&iurl=%7B1%7DIG%3DC6E05FF46B374A2FBBC833D093804A22%26CID%3D3E57F7006A2D6F3C1F9DE0ED6B786E28%26ID%3DDevEx%2C5037.1
+        - button "Ad" [e57]
+      - link "Manage browser profiles with folders, proxy settings and team access permissions. See current Gologin pricing and choose the profile plan that fits your needs." [e58]:
+        - /url: https://duckduckgo.com/y.js?ad_domain=gologin.com&ad_provider=bingv7aa&ad_type=txad&click_metadata=nQNIgiiutNsvVHImDs80cZ%2Dkbw3Q0Bg4kRRJaz5BK1JAZeUkVrKWlQhURsOapqxRmFlgWIwnNNs0avlQo0zIThsNIZEmu4H2Uwk3K5doHbHjMOXBp1IFMhyPmtsnZK%2DA%2DzBfiCon%2DvK9DAcifRXwaA.yi9JxOJD%2DUHgnVKLq6PaBg&eddgt=cYLj_ZVI0WUgnqQpz30S7g%3D%3D&rut=f3c8b948a8e3629a9e62f7642754611c0c3d9c68a1ce1ae19f1a343c40d4c831&u3=https%3A%2F%2Fwww.bing.com%2Faclick%3Fld%3De8OYrr5C32l%2DSdGwkmR9CraTVUCUwxBCEAU54D3EJ3L0UPyWtVhJMXmnY8t6g83SRLdG%2DFWzsXQ5EeOw%2DWDW0gXjQqQLR%2D9Be%2DKwsAzYvsobkNsuxmgLBLI_AQ50zDaZxuBBFEdKsUwiHWafFYPVTcd7XFUgJ2vhWUlgg3QuDXex1iXIZ6fZvjM1_jypJK7XVVlkNXVfyKvdRajzfbLy5cPI4aucw%26u%3DaHR0cHMlM2ElMmYlMmZnb2xvZ2luLmNvbSUzZnV0bV9zb3VyY2UlM2RiaW5nJTI2dXRtX21lZGl1bSUzZGNwYyUyNnV0bV9jYW1wYWlnbiUzZFNlYXJjaC1iaW5nX2dvbG9naW5fY29tcGV0X3QxJTI2dXRtX2lkJTNkNTMzNjM4MzM1JTI2dXRtX2NvbnRlbnQlM2Q4NDgwMDQzMTQ1NDAzNSUyNnV0bV90ZXJtJTNkY2Ftb3Vmb3glMjZtc2Nsa2lkJTNkNmIzMGRhOWIyOTdjMTVjYWU0YTViMDUyNzkxZDc3MzQ%26rlid%3D6b30da9b297c15cae4a5b052791d7734&vqd=4-182359031844194403898447211987360817744&iurl=%7B1%7DIG%3DC6E05FF46B374A2FBBC833D093804A22%26CID%3D3E57F7006A2D6F3C1F9DE0ED6B786E28%26ID%3DDevEx%2C5037.1
+      - link "Use Cases, Trading Platforms, Email Services and more" [e59]:
+        - /url: https://duckduckgo.com/y.js?ad_domain=gologin.com&ad_provider=bingv7aa&ad_type=txad&click_metadata=nQNIgiiutNsvVHImDs80cZ%2Dkbw3Q0Bg4kRRJaz5BK1JAZeUkVrKWlQhURsOapqxRmFlgWIwnNNs0avlQo0zIThsNIZEmu4H2Uwk3K5doHbHjMOXBp1IFMhyPmtsnZK%2DA%2DzBfiCon%2DvK9DAcifRXwaA.yi9JxOJD%2DUHgnVKLq6PaBg&eddgt=cYLj_ZVI0WUgnqQpz30S7g%3D%3D&rut=f3c8b948a8e3629a9e62f7642754611c0c3d9c68a1ce1ae19f1a343c40d4c831&u3=https%3A%2F%2Fwww.bing.com%2Faclick%3Fld%3De8OYrr5C32l%2DSdGwkmR9CraTVUCUwxBCEAU54D3EJ3L0UPyWtVhJMXmnY8t6g83SRLdG%2DFWzsXQ5EeOw%2DWDW0gXjQqQLR%2D9Be%2DKwsAzYvsobkNsuxmgLBLI_AQ50zDaZxuBBFEdKsUwiHWafFYPVTcd7XFUgJ2vhWUlgg3QuDXex1iXIZ6fZvjM1_jypJK7XVVlkNXVfyKvdRajzfbLy5cPI4aucw%26u%3DaHR0cHMlM2ElMmYlMmZnb2xvZ2luLmNvbSUzZnV0bV9zb3VyY2UlM2RiaW5nJTI2dXRtX21lZGl1bSUzZGNwYyUyNnV0bV9jYW1wYWlnbiUzZFNlYXJjaC1iaW5nX2dvbG9naW5fY29tcGV0X3QxJTI2dXRtX2lkJTNkNTMzNjM4MzM1JTI2dXRtX2NvbnRlbnQlM2Q4NDgwMDQzMTQ1NDAzNSUyNnV0bV90ZXJtJTNkY2Ftb3Vmb3glMjZtc2Nsa2lkJTNkNmIzMGRhOWIyOTdjMTVjYWU0YTViMDUyNzkxZDc3MzQ%26rlid%3D6b30da9b297c15cae4a5b052791d7734&vqd=4-182359031844194403898447211987360817744&iurl=%7B1%7DIG%3DC6E05FF46B374A2FBBC833D093804A22%26CID%3D3E57F7006A2D6F3C1F9DE0ED6B786E28%26ID%3DDevEx%2C5037.1
+      - paragraph: 4/5
+      - link "(350 Reviews)" [e60]:
+        - /url: https://duckduckgo.com/y.js?ad_domain=gologin.com&ad_provider=bing&ad_type=mradext&click_metadata=qWR%2DPbw7wtXRKLDXqlfHvxCciGPzqv%2DpGDQ6vNyxgyrSiCa8EXvIOsWdLJg5Eozstanl8FuY4P_unTyHdllYBTYGzsMkPLzu6mTwYtcfCZkuGFh9D%2DaSAWP9oBxPV3MNAgCBfloe1c30bzgNFJ9Irg.M2lPfSxSNz9if7on4bvmZg&eddgt=cYLj_ZVI0WUgnqQpz30S7g%3D%3D&rut=56ba662e88ffe405b395bf1630d2e67b08ec9e690c0dee865b478c8592d4f0c5&u3=https%3A%2F%2Fwww.bing.com%2Fmerchant%2Freviews%3Fmid%3Dgologin.com%26FORM%3DMRANNO&vqd=4-5149691289727925047888981094530273830&iurl=%7B1%7DIG%3DC6E05FF46B374A2FBBC833D093804A22%26CID%3D3E57F7006A2D6F3C1F9DE0ED6B786E28%26ID%3DDevEx%2C5041.1
+- button "More results" [e61]
+- list:
+  - listitem:
+    - button "Copy to clipboard" [e62]:
+      - img
+      - img
+    - button "Learn more about Search Assist and Explore More" [e63]
+    - button "Change Search Assist settings" [e64]
+    - paragraph: Camoufox is an open-source anti-detect browser built on a modified Firefox base for browser automation and web scraping. It tries to reduce bot detection by changing browser behavior and fingerprint details at the engine level (not just with JavaScript tricks).
+    - link "brightdata.com" [e65]:
+      - /url: https://brightdata.com/blog/web-data/web-scraping-with-camoufox
+      - img
+      - text: brightdata.com
+    - link "nextbrowser.com" [e66]:
+      - /url: https://nextbrowser.com/blog/open-source-anti-detect-browser-alternatives-2026/
+      - img
+      - text: nextbrowser.com
+    - button "Expand content" [e67]:
+      - img
+- list:
+  - button "Close menu" [e68]:
+    - text: Close menu
+    - img
+  - list:
+    - listitem: Search
+    - listitem:
+      - link "Homepage" [e69]:
+        - /url: https://start.duckduckgo.com/
+    - listitem:
+      - link "Themes" [e70]:
+        - /url: /settings#appearance
+    - listitem:
+      - link "Settings" [e71]:
+        - /url: /settings
+  - list:
+    - listitem: Share Feedback
+    - listitem:
+      - button "Positive feedback" [e72]:
+        - img
+      - button "Negative feedback" [e73]:
+        - img
+  - list:
+    - listitem: Downloads
+    - listitem:
+      - link "iOS Browser" [e74]:
+        - /url: https://apps.apple.com/app/duckduckgo-private-browser/id663592361?platform=iphone&pt=866401&mt=8&ct=serp-atb-serp
+    - listitem:
+      - link "Android Browser" [e75]:
+        - /url: https://play.google.com/store/apps/details?id=com.duckduckgo.mobile.android&referrer=utm_campaign%3Dserp-atb-serp%26origin%3Dfunnel_playstore_searchresults
+    - listitem:
+      - link "Mac Browser" [e76]:
+        - /url: /mac?origin=funnel_browser_searchresults
+    - listitem:
+      - link "Windows Browser" [e77]:
+        - /url: /windows?origin=funnel_browser_searchresults
+    - listitem:
+      - link "Browser Extensions" [e78]:
+        - /url: /duckduckgo-help-pages/desktop/adding-duckduckgo-to-your-browser/
+  - list:
+    - listitem: More From DuckDuckGo
+    - listitem
+    - listitem:
+      - link "DuckDuckGo Subscription" [e79]:
+        - /url: /pro?origin=funnel_pro_searchresults
+    - listitem:
+      - link "Duck.ai" [e80]:
+        - /url: https://duck.ai
+    - listitem:
+      - link "Email Protection" [e81]:
+        - /url: /email
+    - listitem:
+      - link "Newsletter" [e82]:
+        - /url: /newsletter
+    - listitem:
+      - link "Blog" [e83]:
+        - /url: /blog
+    - listitem:
+      - link "Podcast" [e84]:
+        - /url: https://insideduckduckgo.substack.com/?showWelcome=true
+    - listitem:
+      - link "Collaborations" [e85]:
+        - /url: /collaborations
+  - list:
+    - listitem: Learn More
+    - listitem:
+      - link "What’s New" [e86]:
+        - /url: /updates
+    - listitem:
+      - link "Compare Privacy" [e87]:
+        - /url: /compare-privacy
+    - listitem:
+      - link "About Our Browser" [e88]:
+        - /url: /app
+    - listitem:
+      - link "About DuckDuckGo" [e89]:
+        - /url: /about
+  - list:
+    - listitem: Other Resources
+    - listitem:
+      - link "Help" [e90]:
+        - /url: /duckduckgo-help-pages
+    - listitem:
+      - link "Community" [e91]:
+        - /url: https://www.reddit.com/r/duckduckgo/
+    - listitem:
+      - link "Careers" [e92]:
+        - /url: /careers
+    - listitem:
+      - link "Privacy Policy" [e93]:
+        - /url: /privacy
+    - listitem:
+      - link "Terms of Service" [e94]:
+        - /url: /terms
+    - listitem:
+      - link "Press Kit" [e95]:
+        - /url: /press
+    - listitem:
+      - link "Advertise on Search" [e96]:
+        - /url: /duckduckgo-help-pages/company/advertise-on-duckduckgo-search
+- img
+- heading "See What’s DuckDuckNew" [level=3]
+- paragraph: Explore DuckDuckGo’s latest product updates.
+- link "Learn More" [e97]:
+  - /url: https://duckduckgo.com/updates
+- heading "Learn More" [level=3]
+- list:
+  - listitem:
+    - link "What's New" [e98]:
+      - /url: https://duckduckgo.com/updates
+  - listitem:
+    - link "Compare Privacy" [e99]:
+      - /url: https://duckduckgo.com/compare-privacy
+  - listitem:
+    - link "Search Shortcuts" [e100]:
+      - /url: https://duckduckgo.com/bangs
+  - listitem:
+    - link "Help Pages" [e101]:
+      - /url: https://duckduckgo.com/duckduckgo-help-pages/
+- heading "Get More" [level=3]
+- list:
+  - listitem:
+    - link "Subscription" [e102]:
+      - /url: https://duckduckgo.com/pro
+  - listitem:
+    - link "Email Protection" [e103]:
+      - /url: https://duckduckgo.com/email
+  - listitem:
+    - link "Podcast" [e104]:
+      - /url: https://insideduckduckgo.substack.com/?showWelcome=true
+    - text: "&"
+    - link "Newsletter" [e105]:
+      - /url: https://duckduckgo.com/newsletter
+  - listitem:
+    - link "Collaborations" [e106]:
+      - /url: https://duckduckgo.com/collaborations
+- button "Share Feedback" [e107]

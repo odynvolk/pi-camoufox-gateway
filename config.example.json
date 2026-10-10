@@ -1,0 +1,12 @@
+{
+  "gatewayUrl": "http://192.168.8.110:9377",
+  "engines": [
+    { "name": "google", "enabled": true },
+    { "name": "duckduckgo", "enabled": true }
+  ],
+  "cache": { "serpMs": 1800000, "pageMs": 600000 },
+  "read": { "defaultMaxChars": 12000 },
+  "search": { "maxResults": 10 },
+  "blockedHosts": [],
+  "timeoutMs": 30000
+}

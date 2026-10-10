@@ -1,0 +1,175 @@
+- link "DuckDuckGo" [e1]:
+  - /url: /html/
+- textbox [e2]: camoufox anti-detect
+- button "Submit" [e3]
+- combobox:
+  - option "All Regions" [selected]
+  - option "Argentina"
+  - option "Australia"
+  - option "Austria"
+  - option "Belgium (fr)"
+  - option "Belgium (nl)"
+  - option "Brazil"
+  - option "Bulgaria"
+  - option "Canada (en)"
+  - option "Canada (fr)"
+  - option "Catalonia"
+  - option "Chile"
+  - option "China"
+  - option "Colombia"
+  - option "Croatia"
+  - option "Czech Republic"
+  - option "Denmark"
+  - option "Estonia"
+  - option "Finland"
+  - option "France"
+  - option "Germany"
+  - option "Greece"
+  - option "Hong Kong"
+  - option "Hungary"
+  - option "Iceland"
+  - option "India (en)"
+  - option "Indonesia (en)"
+  - option "Ireland"
+  - option "Israel (en)"
+  - option "Italy"
+  - option "Japan"
+  - option "Korea"
+  - option "Latvia"
+  - option "Lithuania"
+  - option "Malaysia (en)"
+  - option "Mexico"
+  - option "Netherlands"
+  - option "New Zealand"
+  - option "Norway"
+  - option "Pakistan (en)"
+  - option "Peru"
+  - option "Philippines (en)"
+  - option "Poland"
+  - option "Portugal"
+  - option "Romania"
+  - option "Russia"
+  - option "Saudi Arabia"
+  - option "Singapore"
+  - option "Slovakia"
+  - option "Slovenia"
+  - option "South Africa"
+  - option "Spain (ca)"
+  - option "Spain (es)"
+  - option "Sweden"
+  - option "Switzerland (de)"
+  - option "Switzerland (fr)"
+  - option "Taiwan"
+  - option "Thailand (en)"
+  - option "Turkey"
+  - option "US (English)"
+  - option "US (Spanish)"
+  - option "Ukraine"
+  - option "United Kingdom"
+  - option "Vietnam (en)"
+- combobox:
+  - option "Any Time" [selected]
+  - option "Past Day"
+  - option "Past Week"
+  - option "Past Month"
+  - option "Past Year"
+- 'heading "GitHub - daijro/camoufox: Anti-detect browser" [level=2]':
+  - 'link "GitHub - daijro/camoufox: Anti-detect browser"':
+    - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fgithub.com%2Fdaijro%2Fcamoufox&rut=ef9cf701d6bd8c4113524e74f1e22517d26704a925a94714efe8120230bc7979
+- link [e4]:
+  - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fgithub.com%2Fdaijro%2Fcamoufox&rut=ef9cf701d6bd8c4113524e74f1e22517d26704a925a94714efe8120230bc7979
+- link "github.com/daijro/camoufox" [e5]:
+  - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fgithub.com%2Fdaijro%2Fcamoufox&rut=ef9cf701d6bd8c4113524e74f1e22517d26704a925a94714efe8120230bc7979
+- link "🦊 Anti-detect browser. Contribute to daijro/camoufox development by creating an account on GitHub." [e6]:
+  - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fgithub.com%2Fdaijro%2Fcamoufox&rut=ef9cf701d6bd8c4113524e74f1e22517d26704a925a94714efe8120230bc7979
+- 'heading "GitHub - jo-inc/camofox-browser: Stealth headless browser for AI agents ..." [level=2]':
+  - 'link "GitHub - jo-inc/camofox-browser: Stealth headless browser for AI agents ..."':
+    - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fgithub.com%2Fjo%2Dinc%2Fcamofox%2Dbrowser&rut=7f9cdf5df1ac110d640b59cefa4bbdd2603b5afa609790204e1ffde3fe7226c7
+- link [e7]:
+  - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fgithub.com%2Fjo%2Dinc%2Fcamofox%2Dbrowser&rut=7f9cdf5df1ac110d640b59cefa4bbdd2603b5afa609790204e1ffde3fe7226c7
+- link "github.com/jo-inc/camofox-browser" [e8]:
+  - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fgithub.com%2Fjo%2Dinc%2Fcamofox%2Dbrowser&rut=7f9cdf5df1ac110d640b59cefa4bbdd2603b5afa609790204e1ffde3fe7226c7
+- text: 2026-02-11T00:00:00.0000000
+- link "Anti-detection browser server for AI agents, powered by Camoufox Standing on the mighty shoulders of Camoufox - a Firefox fork with fingerprint spoofing at the C++ level." [e9]:
+  - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fgithub.com%2Fjo%2Dinc%2Fcamofox%2Dbrowser&rut=7f9cdf5df1ac110d640b59cefa4bbdd2603b5afa609790204e1ffde3fe7226c7
+- heading "Introduction | Camoufox" [level=2]:
+  - link "Introduction | Camoufox" [e10]:
+    - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fcamoufox.com%2F&rut=b0cee577f2f550b31fddb63581844acc1d5aec21f583cbe30e4b8fa601169404
+- link [e11]:
+  - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fcamoufox.com%2F&rut=b0cee577f2f550b31fddb63581844acc1d5aec21f583cbe30e4b8fa601169404
+- link "camoufox.com" [e12]:
+  - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fcamoufox.com%2F&rut=b0cee577f2f550b31fddb63581844acc1d5aec21f583cbe30e4b8fa601169404
+- link "Layer3 Intel | See your proxies the way anti-bots see them Camoufox hides your browser. Your proxy IP is the part it can't hide. Layer3 Intel is the residential proxy detection engine used to catch proxy traffic — check whether the IPs your provider sells you are clean, or already known and flagged. 🔍 Live threat score for any IP" [e13]:
+  - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fcamoufox.com%2F&rut=b0cee577f2f550b31fddb63581844acc1d5aec21f583cbe30e4b8fa601169404
+- heading "The Complete Guide to Camoufox and Anti-Detect Scraping in 2026" [level=2]:
+  - link "The Complete Guide to Camoufox and Anti-Detect Scraping in 2026" [e14]:
+    - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.scrapingbee.com%2Fblog%2Fhow%2Dto%2Dscrape%2Dwith%2Dcamoufox%2Dto%2Dbypass%2Dantibot%2Dtechnology%2F&rut=45bef6eb5dbdabd74e0541b217ad8b3b9c0973c29184db6b830e184e09b02a47
+- link [e15]:
+  - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.scrapingbee.com%2Fblog%2Fhow%2Dto%2Dscrape%2Dwith%2Dcamoufox%2Dto%2Dbypass%2Dantibot%2Dtechnology%2F&rut=45bef6eb5dbdabd74e0541b217ad8b3b9c0973c29184db6b830e184e09b02a47
+- link "www.scrapingbee.com/blog/how-to-scrape-with-camoufox-to-bypass-antibot-technology/" [e16]:
+  - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.scrapingbee.com%2Fblog%2Fhow%2Dto%2Dscrape%2Dwith%2Dcamoufox%2Dto%2Dbypass%2Dantibot%2Dtechnology%2F&rut=45bef6eb5dbdabd74e0541b217ad8b3b9c0973c29184db6b830e184e09b02a47
+- text: 2026-09-17T00:00:00.0000000
+- link "Camoufox is an open-source, Firefox-based anti-detect browser for Python that spoofs browser fingerprints inside Firefox's C++ code, not through injected JavaScript. Pair it with a residential proxy and a matching geolocation, and it presents an identity that anti-bot systems struggle to distinguish from a real visitor. In this guide, we install Camoufox in Python, build a first scraper, set ..." [e17]:
+  - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.scrapingbee.com%2Fblog%2Fhow%2Dto%2Dscrape%2Dwith%2Dcamoufox%2Dto%2Dbypass%2Dantibot%2Dtechnology%2F&rut=45bef6eb5dbdabd74e0541b217ad8b3b9c0973c29184db6b830e184e09b02a47
+- 'heading "Camoufox: the anti-detect browser for undetected scraping" [level=2]':
+  - 'link "Camoufox: the anti-detect browser for undetected scraping"':
+    - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fhireaclawd.com%2Fblog%2Fcamoufox%2Danti%2Ddetect%2Dbrowser%2Dguide.html&rut=44418c8998a473d5e699b7836c7300e4edd9736b497efbb8aa193e39bfc6e118
+- link [e18]:
+  - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fhireaclawd.com%2Fblog%2Fcamoufox%2Danti%2Ddetect%2Dbrowser%2Dguide.html&rut=44418c8998a473d5e699b7836c7300e4edd9736b497efbb8aa193e39bfc6e118
+- link "hireaclawd.com/blog/camoufox-anti-detect-browser-guide.html" [e19]:
+  - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fhireaclawd.com%2Fblog%2Fcamoufox%2Danti%2Ddetect%2Dbrowser%2Dguide.html&rut=44418c8998a473d5e699b7836c7300e4edd9736b497efbb8aa193e39bfc6e118
+- link "Camoufox is a Firefox-based anti-detect browser for undetected web scraping. What it is, how it beats Selenium and undetected-chromedriver, install steps, a working Python example, residential proxy setup, and when it's overkill." [e20]:
+  - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fhireaclawd.com%2Fblog%2Fcamoufox%2Danti%2Ddetect%2Dbrowser%2Dguide.html&rut=44418c8998a473d5e699b7836c7300e4edd9736b497efbb8aa193e39bfc6e118
+- 'heading "Stealth browsers 2026: nodriver, Camoufox, Patchright" [level=2]':
+  - 'link "Stealth browsers 2026: nodriver, Camoufox, Patchright"':
+    - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fproxycove.com%2Fen%2Fblog%2Fstealth%2Dbrowsers%2D2026%2Dnodriver%2Dcamoufox%2Dpatchright%2Dbenchmark&rut=1c198801ba57173daa5f3274c7a79a80f295693e46406498c576f3c47b94680b
+- link [e21]:
+  - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fproxycove.com%2Fen%2Fblog%2Fstealth%2Dbrowsers%2D2026%2Dnodriver%2Dcamoufox%2Dpatchright%2Dbenchmark&rut=1c198801ba57173daa5f3274c7a79a80f295693e46406498c576f3c47b94680b
+- link "proxycove.com/en/blog/stealth-browsers-2026-nodriver-camoufox-patchright-benchmark" [e22]:
+  - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fproxycove.com%2Fen%2Fblog%2Fstealth%2Dbrowsers%2D2026%2Dnodriver%2Dcamoufox%2Dpatchright%2Dbenchmark&rut=1c198801ba57173daa5f3274c7a79a80f295693e46406498c576f3c47b94680b
+- text: 2026-08-13T00:00:00.0000000
+- 'link "Stealth Browsers 2026: 651 Benchmark Verdict - Who Truly Passes? Camoufox is in one study in the middle of the table, and in another — among the best. We analyze two benchmarks from 2026 with an open methodology (651 verdicts, 31 targets), explain why nodriver wins on live targets under Cloudflare, and show the detection layer that neither of them measures — IP reputation."':
+  - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fproxycove.com%2Fen%2Fblog%2Fstealth%2Dbrowsers%2D2026%2Dnodriver%2Dcamoufox%2Dpatchright%2Dbenchmark&rut=1c198801ba57173daa5f3274c7a79a80f295693e46406498c576f3c47b94680b
+- heading "Stealth Overview | Camoufox" [level=2]:
+  - link "Stealth Overview | Camoufox" [e23]:
+    - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fcamoufox.com%2Fstealth%2F&rut=eb3688eb61cd8304a4f6e41447334f75ce2c067fe6aa0e3902ed81abba5e60b8
+- link [e24]:
+  - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fcamoufox.com%2Fstealth%2F&rut=eb3688eb61cd8304a4f6e41447334f75ce2c067fe6aa0e3902ed81abba5e60b8
+- link "camoufox.com/stealth/" [e25]:
+  - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fcamoufox.com%2Fstealth%2F&rut=eb3688eb61cd8304a4f6e41447334f75ce2c067fe6aa0e3902ed81abba5e60b8
+- link "Page Interactions Anti-bot systems also run client-side scripts to monitor your behavior. For example, they look for patterns in mouse movements, clicks, scrolling, and the timing between actions. Camoufox tries its best with its human-like mouse movement algorithm. The natural motion algorithm was originally from riflosnake's HumanCursor and has been rewritten in C++ and modified for more ..." [e26]:
+  - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fcamoufox.com%2Fstealth%2F&rut=eb3688eb61cd8304a4f6e41447334f75ce2c067fe6aa0e3902ed81abba5e60b8
+- 'heading "Camoufox: Anti-detect browser with fingerprint injection - webscraping.app" [level=2]':
+  - 'link "Camoufox: Anti-detect browser with fingerprint injection - webscraping.app"':
+    - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.webscraping.app%2Ftools%2Fcamoufox&rut=f10bf1be077ac2eaef80aa09339eec64a2e667a346558e611fe284c8d0fdc05d
+- link [e27]:
+  - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.webscraping.app%2Ftools%2Fcamoufox&rut=f10bf1be077ac2eaef80aa09339eec64a2e667a346558e611fe284c8d0fdc05d
+- link "www.webscraping.app/tools/camoufox" [e28]:
+  - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.webscraping.app%2Ftools%2Fcamoufox&rut=f10bf1be077ac2eaef80aa09339eec64a2e667a346558e611fe284c8d0fdc05d
+- text: 2026-07-14T00:00:00.0000000
+- link "Camoufox is an open-source anti-detect browser based on Firefox with robust fingerprint injection to evade bot detection systems." [e29]:
+  - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.webscraping.app%2Ftools%2Fcamoufox&rut=f10bf1be077ac2eaef80aa09339eec64a2e667a346558e611fe284c8d0fdc05d
+- heading "Anti-Detection Features | jo-inc/camofox-browser | DeepWiki" [level=2]:
+  - link "Anti-Detection Features | jo-inc/camofox-browser | DeepWiki" [e30]:
+    - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fdeepwiki.com%2Fjo%2Dinc%2Fcamofox%2Dbrowser%2F6%2Danti%2Ddetection%2Dfeatures&rut=f59b6e20bab084546a033bd3b9b34e9a009f3849ae353575337f790796778a12
+- link [e31]:
+  - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fdeepwiki.com%2Fjo%2Dinc%2Fcamofox%2Dbrowser%2F6%2Danti%2Ddetection%2Dfeatures&rut=f59b6e20bab084546a033bd3b9b34e9a009f3849ae353575337f790796778a12
+- link "deepwiki.com/jo-inc/camofox-browser/6-anti-detection-features" [e32]:
+  - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fdeepwiki.com%2Fjo%2Dinc%2Fcamofox%2Dbrowser%2F6%2Danti%2Ddetection%2Dfeatures&rut=f59b6e20bab084546a033bd3b9b34e9a009f3849ae353575337f790796778a12
+- text: 2026-05-09T00:00:00.0000000
+- link "Camoufox Engine Architecture What is Camoufox Camoufox is a Firefox fork that patches the browser's C++ implementation to spoof fingerprinting properties. Unlike traditional anti-detection solutions that inject JavaScript to override browser APIs, Camoufox modifies the underlying C++ code that implements these APIs, making the spoofed values indistinguishable from genuine browser behavior." [e33]:
+  - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fdeepwiki.com%2Fjo%2Dinc%2Fcamofox%2Dbrowser%2F6%2Danti%2Ddetection%2Dfeatures&rut=f59b6e20bab084546a033bd3b9b34e9a009f3849ae353575337f790796778a12
+- heading "What is Camoufox? Anti-detect Firefox explained | Centinel" [level=2]:
+  - link "What is Camoufox? Anti-detect Firefox explained | Centinel" [e34]:
+    - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.centinelanalytica.com%2Fblog%2Fwhat%2Dis%2Dcamoufox&rut=60628b153b422c9cc3d8735aa717ff6ef9b93b57dbb5175677f0f498d7cb4245
+- link [e35]:
+  - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.centinelanalytica.com%2Fblog%2Fwhat%2Dis%2Dcamoufox&rut=60628b153b422c9cc3d8735aa717ff6ef9b93b57dbb5175677f0f498d7cb4245
+- link "www.centinelanalytica.com/blog/what-is-camoufox" [e36]:
+  - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.centinelanalytica.com%2Fblog%2Fwhat%2Dis%2Dcamoufox&rut=60628b153b422c9cc3d8735aa717ff6ef9b93b57dbb5175677f0f498d7cb4245
+- text: 2026-09-03T00:00:00.0000000
+- link "Camoufox is an open-source Firefox fork that spoofs fingerprints in C++ for Playwright. What it changes, the limits its docs admit, and how it gets detected." [e37]:
+  - /url: //duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.centinelanalytica.com%2Fblog%2Fwhat%2Dis%2Dcamoufox&rut=60628b153b422c9cc3d8735aa717ff6ef9b93b57dbb5175677f0f498d7cb4245
+- button "Next" [e38]
+- link "Feedback" [e39]:
+  - /url: //duckduckgo.com/feedback.html
+- img

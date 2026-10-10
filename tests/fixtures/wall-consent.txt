@@ -1,0 +1,94 @@
+- main:
+  - link "Sign in" [e1]:
+    - /url: https://accounts.google.com/ServiceLogin?hl=en&continue=https://www.google.com/search?q%3Dx%26hl%3Den%26gl%3Dus%26gbv%3D1&gae=cb-bip
+  - img "Google"
+  - heading "Before you continue to Google" [level=1]
+  - paragraph:
+    - text: We use
+    - link "cookies (Opens in a new tab)" [e2]:
+      - /url: https://policies.google.com/technologies/cookies?hl=en&utm_source=ucb
+      - text: cookies
+      - img
+    - text: and data, including IP addresses, to
+  - list:
+    - listitem: Deliver and maintain Google services
+    - listitem: Track outages and protect against spam, fraud, and abuse
+    - listitem: Measure audience engagement and site statistics to understand how our services are used and enhance the quality of those services
+  - paragraph: If you choose to “Accept all,” we will also use cookies and data, including IP addresses, to
+  - list:
+    - listitem: Develop and improve new services
+    - listitem: Deliver and measure the effectiveness of ads
+    - listitem: Show personalized content, depending on your settings
+    - listitem: Show personalized ads, depending on your settings
+  - paragraph: If you choose to “Reject all,” we will not use cookies or IP addresses for these additional purposes.
+  - paragraph: Non-personalized content is influenced by things like the content you’re currently viewing, activity in your active Search session, and your location. Non-personalized ads are influenced by the content you’re currently viewing and your general location. Personalized content and ads can also include more relevant results, recommendations, and tailored ads based on past activity from this browser, like previous Google searches. We also use cookies and data to tailor the experience to be age-appropriate, if relevant.
+  - paragraph: Select “More options” to see additional information, including details about managing your privacy settings. You can also visit g.co/privacytools at any time.
+  - button "Reject all" [e3]
+  - button "Accept all" [e4]
+  - link "More options for personalization settings and cookies" [e5]:
+    - /url: https://consent.google.com/dl?continue=https://www.google.com/search?q%3Dx%26hl%3Den%26gl%3Dus%26gbv%3D1&gl=SE&hl=en&cm=2&pc=srp&uxe=bip&src=1&escs=AUjHKwdCLDuVw5oYXm86SHlbZWlvjoxUuPWF0Doe2wP4D5vL0lf3M4jhfvP4QeoEqTTSObU1zgnzQz6vfa4Nlc6j9I_NBBqpgDOt
+    - text: More options
+  - 'combobox "Language: English"':
+    - option "Afrikaans"
+    - option "azərbaycan"
+    - option "bosanski"
+    - option "català"
+    - option "Čeština"
+    - option "Cymraeg"
+    - option "Dansk"
+    - option "Deutsch"
+    - option "eesti"
+    - option "English (United Kingdom)"
+    - option "English (United States)" [selected]
+    - option "Español (España)"
+    - option "Español (Latinoamérica)"
+    - option "euskara"
+    - option "Filipino"
+    - option "Français (Canada)"
+    - option "Français (France)"
+    - option "Gaeilge"
+    - option "galego"
+    - option "Hrvatski"
+    - option "Indonesia"
+    - option "isiZulu"
+    - option "íslenska"
+    - option "Italiano"
+    - option "Kiswahili"
+    - option "latviešu"
+    - option "lietuvių"
+    - option "magyar"
+    - option "Melayu"
+    - option "Nederlands"
+    - option "norsk"
+    - option "o‘zbek"
+    - option "polski"
+    - option "Português (Brasil)"
+    - option "Português (Portugal)"
+    - option "română"
+    - option "shqip"
+    - option "Slovenčina"
+    - option "slovenščina"
+    - option "srpski (latinica)"
+    - option "Suomi"
+    - option "Svenska"
+    - option "Tiếng Việt"
+    - option "Türkçe"
+    - option "Ελληνικά"
+    - option "беларуская"
+    - option "български"
+    - option "кыргызча"
+    - option "қазақ тілі"
+    - option "македонски"
+    - option "монгол"
+    - option "Русский"
+    - option "српски"
+    - option "Українська"
+    - option "ქართული"
+    - option "հայերեն"
+    - option "עברית"
+    - option "اردو"
+    - option "العربية"
+    - option "فارسی"
+    - option "አማርኛ"
+    - option "नेपाली"
+    - option "मर

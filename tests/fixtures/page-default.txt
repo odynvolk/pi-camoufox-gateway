@@ -1,0 +1,380 @@
+- banner:
+  - link "Camoufox" [e1]:
+    - /url: https://camoufox.com/
+  - text: Docs
+  - navigation:
+    - list:
+      - listitem:
+        - link "GitHub" [e2]:
+          - /url: https://github.com/daijro/camoufox
+      - listitem:
+        - link "Issues" [e3]:
+          - /url: https://github.com/daijro/camoufox/issues
+      - listitem:
+        - link "Discussions" [e4]:
+          - /url: https://github.com/daijro/camoufox/discussions
+      - listitem:
+        - link "PyPi" [e5]:
+          - /url: https://pypi.org/project/camoufox
+      - listitem:
+        - link "Donate" [e6]:
+          - /url: https://camoufox.com/donate
+  - button "Search" [e7]:
+    - img
+    - text: Search docs... ⌘K
+  - button "Change theme" [e8]
+  - button "History" [e9]
+- complementary:
+  - textbox "Filter" [e10]
+  - list:
+    - region "scrollable content":
+      - listitem:
+        - link "Introduction" [e11]:
+          - /url: ./
+      - listitem:
+        - link "Stealth Overview" [e12]:
+          - /url: ./stealth/
+      - listitem:
+        - link "Features List" [e13]:
+          - /url: ./features/
+      - listitem:
+        - link "Python Interface" [e14]:
+          - /url: ./python/
+        - button [e15]
+        - list:
+          - listitem:
+            - link "Installation" [e16]:
+              - /url: ./python/installation/
+          - listitem:
+            - link "Usage" [e17]:
+              - /url: ./python/usage/
+          - listitem:
+            - link "GeoIP & Proxy Support" [e18]:
+              - /url: ./python/geoip/
+          - listitem:
+            - link "Main World Execution" [e19]:
+              - /url: ./python/main-world-eval/
+          - listitem:
+            - link "Remote Server" [e20]:
+              - /url: ./python/remote-server/
+          - listitem:
+            - link "Virtual Display" [e21]:
+              - /url: ./python/virtual-display/
+          - listitem:
+            - link "BrowserForge Integration" [e22]:
+              - /url: ./python/browserforge/
+          - listitem:
+            - link "Passing Config" [e23]:
+              - /url: ./python/config/
+      - listitem:
+        - link "Fingerprint Injection" [e24]:
+          - /url: ./fingerprint/
+        - button [e25]
+      - listitem:
+        - link "Development" [e26]:
+          - /url: ./development/
+        - button [e27]
+      - listitem:
+        - link "Community Projects" [e28]:
+          - /url: ./community/
+      - listitem:
+        - link "Liability Disclaimer" [e29]:
+          - /url: ./legal/
+      - listitem:
+        - link "About Me" [e30]:
+          - /url: ./about/
+  - link "Powered by" [e31]:
+    - /url: https://retype.com/
+    - text: Powered by
+    - img
+- main:
+  - heading "Introduction Copy page as Markdown" [level=1]:
+    - text: Introduction
+    - button "Copy page as Markdown" [e32]: Copy
+  - img
+  - heading "An open source anti-detect browser built for AI agents. 🦊" [level=3]
+  - paragraph:
+    - link "daijro%2Fcamoufox | Trendshift" [e33]:
+      - /url: https://trendshift.io/repositories/12224
+      - img "daijro%2Fcamoufox | Trendshift"
+  - separator
+  - text: Sponsors (Click to hide)
+  - link "color horizontal" [e34]:
+    - /url: https://serpapi.com/use-cases/web-search-api?utm_source=camoufox
+    - img "color horizontal"
+  - link "SerpApi, a web search API" [e35]:
+    - /url: https://serpapi.com/use-cases/web-search-api?utm_source=camoufox
+  - text: to scrape Google and other search engines with a simple API.
+  - link "NodeMaven Banner" [e36]:
+    - /url: https://go.nodemaven.com/camoufoxwebsept
+    - img "NodeMaven Banner"
+  - paragraph:
+    - link "NodeMaven" [e37]:
+      - /url: https://go.nodemaven.com/camoufoxwebsept
+    - text: ": The most efficient proxy provider for Web Scrapping and Automation with the Highest Quality IP on the market."
+    - strong:
+      - text: Why
+      - link "NodeMaven" [e38]:
+        - /url: https://go.nodemaven.com/camoufoxwebsept
+      - text: "?"
+  - list:
+    - listitem: 99.9% uptime,
+    - listitem: ZIP Targeting,
+    - listitem: "IP filtering: all proxies have fraud score <97%,"
+    - listitem: No KYC required,
+    - listitem: "Unique free tools: Proxy Bandwidth Checker, Meta Tag Checker, IP Lookup and others!"
+  - paragraph: "Special codes for Camoufox users:"
+  - list:
+    - listitem:
+      - strong: CAMOUFOX35
+      - text: "- 35% off to Mobile and Residential Proxies,"
+    - listitem:
+      - strong: CAMOUFOX40
+      - text: "- 40% off to ISP (Static) Proxies"
+  - link "Roam" [e39]:
+    - /url: https://roamproxy.com
+    - img "Roam"
+  - link "Roam" [e40]:
+    - /url: https://roamproxy.com
+  - text: — Residential & static residential proxies, pay-as-you-go per GB. Use code CAMOUFOX15 for 15% extra credit on your first top-up.
+  - link "Layer3 Intel" [e41]:
+    - /url: https://layer3intel.com/?utm_source=github&utm_medium=sponsoring&utm_campaign=camoufox
+    - img "Layer3 Intel"
+  - paragraph:
+    - strong:
+      - link "Layer3 Intel" [e42]:
+        - /url: https://layer3intel.com/?utm_source=github&utm_medium=sponsoring&utm_campaign=camoufox
+      - text: "| See your proxies the way anti-bots see them"
+  - paragraph: Camoufox hides your browser. Your proxy IP is the part it can't hide. Layer3 Intel is the residential proxy detection engine used to catch proxy traffic — check whether the IPs your provider sells you are clean, or already known and flagged.
+  - list:
+    - listitem: 🔍 Live threat score for any IP,
+    - listitem: 🗂️ Proxy pool membership - identify IP resellers,
+    - listitem: 📡 70M+ residential, mobile & ISP proxy IPs tracked across 200+ providers,
+    - listitem: ⚡ <40ms API responses — vet IPs inline before your scraper uses them
+  - paragraph:
+    - text: "Check your IPs:"
+    - link "https://layer3intel.com" [e43]:
+      - /url: https://layer3intel.com/?utm_source=github&utm_medium=sponsoring&utm_campaign=camoufox
+  - link "Byteful" [e44]:
+    - /url: https://byteful.com/?utm_source=camoufox&utm_medium=github-sponsor&utm_campaign=camoufox_github_website_sponsor
+    - img "Byteful"
+  - paragraph:
+    - link "Byteful" [e45]:
+      - /url: https://byteful.com/?utm_source=camoufox&utm_medium=github-sponsor&utm_campaign=camoufox_github_website_sponsor
+    - text: is a UK-based web data infrastructure platform that provides ethically sourced residential, mobile, static residential (ISP) and datacenter proxies alongside API-first tools for web scraping, data collection, and AI-driven automation.
+  - paragraph: Processing tens of billions of requests per month for thousands of customers, Byteful powers browser-based AI agents, automation systems, and data workflows. It is a member of the Internet Watch Foundation and the Ethical Web Data Collection Initiative.
+  - paragraph:
+    - text: "Get 10% off Byteful Residential Proxies with the code:"
+    - strong: CAMOUFOX10
+  - link "Scrappey" [e46]:
+    - /url: https://scrappey.com/?utm_source=camoufox&utm_medium=sponsorship&utm_campaign=camoufox_sponsorship
+  - link "Scrappey" [e47]:
+    - /url: https://scrappey.com/?utm_source=camoufox&utm_medium=sponsorship&utm_campaign=camoufox_sponsorship
+  - text: is a Web Scraping API that only charges successful scrapes with pay as you go - no subscriptions. Scrape complex sites. Residential proxies included, no hidden proxy fees, or expiring balances. One API for direct HTTP, full-browser rendering, JavaScript-heavy pages, screenshots, sessions, 30+ browser actions and 200+ concurrent sessions at a time - trusted by 1000+ developers and AI agents. Get 10% off with code
+  - strong: CAMOUFOX
+  - text: .
+  - link "Cloro" [e48]:
+    - /url: https://cloro.dev/?utm_source=referral&utm_medium=camoufox
+    - img "Cloro"
+  - link "Cloro" [e49]:
+    - /url: https://cloro.dev/?utm_source=referral&utm_medium=camoufox
+  - text: is a SERP and AI search API. Get structured results from Google, ChatGPT, Perplexity, Gemini, Copilot and Grok.
+  - link "Thordata" [e50]:
+    - /url: https://www.thordata.com/?ls=dcx&lk=dcx
+    - img "Thordata"
+  - paragraph:
+    - strong: 🔍 Camoufox × Thordata
+    - strong: Real Residential IPs for Smarter AI Agents & Automation
+  - paragraph:
+    - text: With
+    - strong: 100M+ residential IPs
+    - text: ", Thordata helps your scraper access the web through real user IPs across"
+    - strong: 195+ countries
+    - text: .
+  - paragraph:
+    - text: Target specific locations with precision — including
+    - strong: city, ISP, and ASN-level targeting
+    - text: — so your Camoufox automation runs with a more authentic network identity.
+  - list:
+    - listitem:
+      - text: 🔄
+      - strong: Rotating & Sticky Sessions
+      - text: (up to 90 minutes),
+    - listitem:
+      - text: ⚡
+      - strong: 99.99% uptime
+      - text: with unlimited concurrent sessions,
+    - listitem:
+      - text: 🌍
+      - strong: Global residential coverage
+      - text: for AI agents, scraping, and automation workflows
+  - paragraph:
+    - strong: "🎁 Exclusive for Camoufox users:"
+    - text: Get free trial traffic after signup + use code
+    - strong: Camoufox
+    - text: for
+    - strong: 10% OFF
+    - text: .
+  - paragraph:
+    - link "Start your free trial with Thordata" [e51]:
+      - /url: https://www.thordata.com/?ls=dcx&lk=dcx
+  - link "Node Proxy" [e52]:
+    - /url: https://node-proxy.com
+  - paragraph:
+    - strong: Need proxies for Camoufox?
+    - text: Use
+    - link "Node Proxy" [e53]:
+      - /url: https://node-proxy.com
+      - strong: Node Proxy
+    - text: — a provider of
+    - strong: datacenter, residential and mobile proxies
+    - text: offering high speed, security and near-100% uptime.
+    - strong: Fully tested and supported in Camoufox.
+  - paragraph:
+    - strong: What sets them apart from other providers
+  - list:
+    - listitem:
+      - strong: 90+ IP score
+      - text: ","
+    - listitem:
+      - strong: HTTP + SOCKS5
+      - text: — multiprotocol support,
+    - listitem:
+      - strong: Discounts for retail customers
+      - text: ","
+    - listitem:
+      - strong: Full B2B support
+      - text: ","
+    - listitem:
+      - strong: Ethically sourced IP addresses
+      - text: ","
+    - listitem:
+      - strong: Special terms for Enterprise clients
+  - paragraph:
+    - strong: Want to support Camoufox?
+    - text: Just use my promo code
+    - strong: CAMOUFOX
+    - text: — it gets you a
+    - strong: 30% discount
+    - text: and supports the developer at the same time.
+  - paragraph:
+    - link "Get started at node-proxy.com →" [e54]:
+      - /url: https://node-proxy.com
+  - separator
+  - heading "Features" [level=2]
+  - list:
+    - listitem:
+      - strong: Built for AI agents
+      - text: 🤖
+      - list:
+        - listitem:
+          - text: Works with your existing
+          - link "Playwright" [e55]:
+            - /url: https://playwright.dev
+          - text: code out of the box
+        - listitem: Headless-first, <200MB footprint
+        - listitem: No CSS animations or telemetry noise making a cleaner DOM for LLMs
+    - listitem:
+      - strong: Undetectable by design
+      - text: 🎭
+      - list:
+        - listitem:
+          - text: See the
+          - link "stealth page" [e56]:
+            - /url: stealth/
+          - text: for more details
+    - listitem:
+      - strong: Fingerprint injection & rotation (without JS injection!)
+      - list:
+        - listitem: All navigator properties (device, OS, hardware, browser, etc.)
+        - listitem: Screen size, resolution, window, & viewport properties
+        - listitem: Geolocation, timezone, locale, & Intl spoofing
+        - listitem: WebRTC IP spoofing at the protocol level
+        - listitem: Voices, speech playback rate, etc.
+        - listitem: And much, much more!
+    - listitem:
+      - strong: Anti Graphical fingerprinting
+      - list:
+        - listitem: WebGL parameters, supported extensions, context attributes, & shader precision formats
+        - listitem: Font spoofing & anti-fingerprinting
+    - listitem:
+      - strong: Quality of life features
+      - list:
+        - listitem: Human-like mouse movement 🖱️
+        - listitem: Blocks & circumvents ads 🛡️
+        - listitem: No CSS animations 💨
+    - listitem: Debloated & optimized for memory efficiency ⚡
+    - listitem:
+      - link "PyPi package" [e57]:
+        - /url: https://pypi.org/project/camoufox/
+      - text: for updates & auto fingerprint injection 📦
+    - listitem: Stays up to date with the latest Firefox version 🕓
+  - paragraph
+  - text: Get started python/
+  - link [e58]:
+    - /url: python/
+  - paragraph
+  - separator
+  - heading "Design and Implementation" [level=2]
+  - paragraph: Camoufox is built around three principles that make it the right browser layer for AI agents operating at scale.
+  - text: 1. Lightweight
+  - link [e59]:
+    - /url: "#1-lightweight"
+  - paragraph: AI automations need to run several agents in parallel. Camoufox is a debloated Firefox build stripped of telemetry, background services, and UI overhead running at ~200MB vs Chrome's 800MB+.
+  - text: 2. Undetectable
+  - link [e60]:
+    - /url: "#2-undetectable"
+  - paragraph: Camoufox modifies fingerprint data at the C++ implementation level, not via JavaScript injection which leaves detectable traces. Built on Firefox and research from the Tor project, Arkenfox, and CreepJS, every property (navigator, WebGL, screen, fonts, WebRTC, and more) is intercepted before it reaches the page. Playwright's internal Page Agent runs in a sandboxed world, making automation nearly impossible to detect.
+  - text: 3. Consistent
+  - link [e61]:
+    - /url: "#3-consistent"
+  - paragraph:
+    - text: A realistic fingerprint must be
+    - emphasis: internally consistent
+    - text: . A Windows user agent with an Apple GPU, or a mobile screen resolution on a desktop browser, will be flagged immediately. Camoufox uses
+    - link "BrowserForge" [e62]:
+      - /url: https://github.com/daijro/browserforge
+    - text: to rotate device characteristics that match real-world traffic distributions, ensuring every session looks like a plausible human user.
+  - text: Why Firefox and not Chromium?
+  - link [e63]:
+    - /url: "#why-firefox-and-not-chromium"
+  - paragraph: "Camoufox is built on top of Firefox instead of Chromium for these main reasons:"
+  - list:
+    - listitem: Chrome is bundled with certain features that Chromium does not have. Anti-bot providers can detect if you are using Chromium rather than Chrome. Since Chrome is closed source, patching Chrome is significantly more difficult.
+    - listitem: CDP is more widely used and known, so it's a more common target for bot detection
+    - listitem: Juggler operates on a lower level than CDP, making it less prone to JS leaks.
+    - listitem: Firefox is more ideal for fingerprint rotation. More research has been made on Firefox for fingerprinting resistance than on Chromium.
+  - text: Is Camoufox open source?
+  - link [e64]:
+    - /url: "#is-camoufox-open-source"
+  - paragraph:
+    - text: As of v146.0.1-beta.25 (January 2026),
+    - strong: all of Camoufox's source is publicly avaliable
+    - text: . While some future patches may be closed source, the open sourced code will always remain buildable. However, the official GitHub releases for v135.0.1-beta.24 and lower do have a closed source Canvas patch. You can still build it yourself without the patch.
+  - paragraph:
+    - text: If you'd like to build Camoufox yourself, see the
+    - link "build guide" [e65]:
+      - /url: development/buildcli/
+    - text: .
+  - navigation:
+    - link "Next Stealth Overview" [e66]:
+      - /url: stealth/
+      - text: Next Stealth Overview
+      - img
+- contentinfo:
+  - list
+  - paragraph: © Copyright daijro 2026. All rights reserved.
+- region "scrollable content":
+  - link "Contents" [e67]:
+    - /url: /
+  - list:
+    - listitem:
+      - link "Features" [e68]:
+        - /url: "#features"
+    - listitem:
+      - link "Design and Implementation" [e69]:
+        - /url: "#design-and-implementation"
+- textbox "Search" [e70]:
+  - /placeholder: Search docs...
+- text: ⌘K
+- button "close Search" [e71]

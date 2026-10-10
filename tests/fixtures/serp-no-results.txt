@@ -1,0 +1,9 @@
+- heading "example - Sök på Google"
+- searchbox "Search" [e1]: nothing useful here
+- navigation:
+  - link "AI-läge" [e2]
+  - link "Allt" [e3]
+- link "Settings" [e4]:
+  - /url: https://www.google.com/preferences
+- link "Sign in" [e5]:
+  - /url: https://accounts.google.com/ServiceLogin
