@@ -1,7 +1,17 @@
+import { loadConfig } from "../src/config.ts";
 import { createGatewayClient } from "../src/gateway.ts";
 import { detectWall } from "../src/snapshot.ts";
 
-const client = createGatewayClient({ baseUrl: "http://localhost:9377", timeoutMs: 30000 });
+// Resolve the gateway the same way the extension does — defaults, then config file, then env — so
+// this diagnoses the deployment you actually have rather than the deployment in a hardcoded string.
+// The apiKey matters for the same reason: without it this script reports a spurious wall/timeout
+// against a gateway the extension is talking to happily.
+const config = loadConfig();
+const client = createGatewayClient({
+  baseUrl: config.gatewayUrl,
+  ...(config.apiKey ? { apiKey: config.apiKey } : {}),
+  timeoutMs: config.timeoutMs,
+});
 const url = process.argv[2] ?? "https://github.com/daijro/camoufox";
 const tab = await client.openTab({ userId: "pi-diag", url });
 const snap = await client.snapshot({ userId: "pi-diag", tabId: tab.tabId });

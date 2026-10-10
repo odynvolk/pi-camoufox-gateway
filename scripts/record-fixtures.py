@@ -6,10 +6,12 @@ This is evidence capture, not a test: it is never invoked by `npm test`.
 """
 
 import json
+import os
 import time
 import urllib.request
 
-BASE = "http://localhost:9377"
+# Same precedence as the extension: config/env first, shipped default as the fallback.
+BASE = os.environ.get("CAMOUFOX_GATEWAY_URL", "http://localhost:9377")
 USER = "pi-fixture-recorder"
 
 TARGETS = [
