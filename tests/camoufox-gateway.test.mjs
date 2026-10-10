@@ -10,7 +10,7 @@ import "./helpers/fetch_guard.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import registerExtension from "../src/index.ts";
+import registerExtension from "../src/camoufox-gateway.ts";
 import { DEFAULT_CONFIG, ENGINE_NAMES } from "../src/config.ts";
 import { MAX_RESULTS_HARD_LIMIT } from "../src/tools/search.ts";
 import { READ_DESCRIPTION, SEARCH_DESCRIPTION } from "../src/extension.ts";

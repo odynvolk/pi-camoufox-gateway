@@ -1,7 +1,7 @@
 /**
  * Extension core, free of pi imports so it can be driven from tests with the fake gateway.
  *
- * `index.ts` is the only file that knows about pi's registration API; everything that decides what a
+ * `camoufox-gateway.ts` is the only file that knows about pi's registration API; everything that decides what a
  * tool *does* lives here.
  */
 

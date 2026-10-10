@@ -4,7 +4,7 @@
   "private": false,
   "description": "Let pi search the web and read pages through a camoufox gateway",
   "type": "module",
-  "main": "src/index.ts",
+  "main": "src/camoufox-gateway.ts",
   "author": {
     "name": "Alexi Rahman",
     "url": "https://github.com/odynvolk"
@@ -12,7 +12,6 @@
   "keywords": [
     "pi",
     "pi-extension",
-    "pi-package",
     "web-search",
     "camoufox",
     "browser"
@@ -22,11 +21,11 @@
     "node": ">=23"
   },
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/camoufox-gateway.ts"
   },
   "pi": {
     "extensions": [
-      "./src/index.ts"
+      "./src/camoufox-gateway.ts"
     ]
   },
   "files": [
