@@ -70,6 +70,32 @@ test("a broken config file fails closed rather than falling through to the envir
   assert.equal(config.gatewayUrl, DEFAULT_CONFIG.gatewayUrl, "env must not silently repoint a broken config");
 });
 
+test("a misspelled key inside a section is a hard error, not a silent default", (t) => {
+  // `cache: { serpM: 1000 }` used to be accepted and keep its 30-minute default, which made a typo
+  // look exactly like a setting that took effect. A typo inside a section has to fail for the same
+  // reason `timeoutM` does, or the whole "unknown keys are errors" principle is decorative.
+  const configPath = withConfigFile(JSON.stringify({ cache: { serpM: 1000 } }), t);
+
+  assert.throws(
+    () => loadConfig({ configPath, env: {} }),
+    (err) => {
+      const message = err.message;
+      assert.match(message, /cache\.serpM/u, "names the section and the key together");
+      assert.match(message, /pageMs, serpMs/u, "lists what it meant to accept");
+      return true;
+    },
+  );
+});
+
+test("apiKey can be set in the file, and the environment still wins", (t) => {
+  // `apiKey` is optional in the type, so it is absent from DEFAULT_CONFIG — which is what the
+  // validator used to derive known keys from, making the documented setting unreadable from a file.
+  const configPath = withConfigFile(JSON.stringify({ apiKey: "from-file" }), t);
+
+  assert.equal(loadConfig({ configPath, env: {} }).apiKey, "from-file");
+  assert.equal(loadConfig({ configPath, env: { CAMOUFOX_API_KEY: "from-env" } }).apiKey, "from-env");
+});
+
 test("environment overrides the config file", (t) => {
   const configPath = withConfigFile(JSON.stringify({ gatewayUrl: "http://localhost:9377" }), t);
   const config = loadConfig({
