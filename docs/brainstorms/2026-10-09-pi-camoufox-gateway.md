@@ -4,6 +4,10 @@ Date: 2026-10-09
 Mode: CE Brainstorm
 Status: Ready for `02-plan`
 
+> Archived evidence: `gatewayUrl` later moved from the LAN address recorded here to
+> `http://localhost:9377` as the shipped default. Everything below describes what was probed on
+> 2026-10-09 and should not be edited to match today's default.
+
 ## Problem
 
 pi has no web access of its own: it ships no built-in `web_search` or `web_fetch`, and the
@@ -17,7 +21,7 @@ credentials. That leaves two gaps:
    a static HTML body is out of reach.
 
 The user already runs `camofox-browser` v1.14.0 — an anti-detection browser automation server —
-on their LAN (`http://localhost:9377`). It gives real browser execution, session isolation,
+on their LAN (`http://192.168.8.110:9377`). It gives real browser execution, session isolation,
 cookie import, and proxy rotation for free. What is missing is the bridge: a way for pi's model to
 call it.
 
@@ -96,7 +100,7 @@ Two specifics that fall out of live evidence rather than preference:
 
 ## Verified facts about the gateway
 
-Probe evidence gathered 2026-10-09 against `http://localhost:9377`:
+Probe evidence gathered 2026-10-09 against `http://192.168.8.110:9377`:
 
 - `GET /` → `{ok, enabled, running, engine:"camoufox", browserConnected, browserRunning}`.
   `GET /health` adds `activeTabs`, `activeSessions`, `consecutiveFailures`, `memory{rssMb,heapUsedMb}`.
