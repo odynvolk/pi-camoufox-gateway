@@ -1,6 +1,6 @@
 {
   "name": "pi-camoufox-gateway",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": false,
   "description": "Let pi search the web and read pages through a camoufox gateway",
   "type": "module",
@@ -12,6 +12,7 @@
   "keywords": [
     "pi",
     "pi-extension",
+    "pi-package",
     "web-search",
     "camoufox",
     "browser"
@@ -21,7 +22,8 @@
     "node": ">=23"
   },
   "exports": {
-    ".": "./src/camoufox-gateway.ts"
+    ".": "./src/camoufox-gateway.ts",
+    "./package.json": "./package.json"
   },
   "pi": {
     "extensions": [
