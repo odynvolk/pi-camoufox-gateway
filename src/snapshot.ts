@@ -46,9 +46,16 @@ const CHROME_TITLES =
 const INTERSTITIAL_MAX_CHARS = 3_000;
 
 /**
- * A page past this size with no link blocks is a parser failure rather than a thin query. Set below
- * `INTERSTITIAL_MAX_CHARS` so a long wall reports as `consent_wall` and only the unparseable
- * middle-to-long band reaches `parse_error`.
+ * A link-less page past this size is a parser failure rather than a thin query.
+ *
+ * Both engines ask `detectWall` first (google.ts:28, duckduckgo.ts:25), so host and phrase evidence
+ * owns everything up to `INTERSTITIAL_MAX_CHARS` — this threshold has no say in that, and the two
+ * values are not in competition. What it does decide is narrower: among the pages the wall check
+ * declined, link-less text inside this band reads as `parse_error`, and anything shorter reads as
+ * `empty_results`. Above `INTERSTITIAL_MAX_CHARS` the answer is `parse_error` regardless, so keeping
+ * this below it is what stops a link-less page inside the wall window being reported as "no results".
+ *
+ * If that call order ever changes, this threshold's meaning changes with it.
  */
 const PARSEABLE_MIN_CHARS = 2_000;
 

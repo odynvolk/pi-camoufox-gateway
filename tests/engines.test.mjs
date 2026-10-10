@@ -28,7 +28,8 @@ test("google goes open -> navigate(macro) -> snapshot and nothing else", async (
   const outcome = await googleEngine().search("camoufox", { client, userId: "u1", maxResults: 10 });
 
   assert.ok(outcome.results.length > 0);
-  assert.equal(outcome.engine, "google");
+  // No engine label here: identity is credited by the chain from Engine.name, so the adapter has
+  // nothing to claim. The sequence below is what proves this was the google path.
 
   const sequence = fake.state.calls
     .filter((c) => c.path !== "/")
@@ -74,11 +75,21 @@ test("duckduckgo navigates straight to its query url", async (t) => {
 });
 
 test("clamps the result count to what the engine can actually return", async (t) => {
-  const { client } = setup(t);
+  // The default fake SERP carries three links, so `results.length <= 10` would pass against any
+  // implementation. `wanted` only reaches GOOGLE_PAGE_SIZE when the page overflows one, so this is
+  // the input that decides whether the clamp exists at all.
+  const overflow = Array.from({ length: 12 }, (_, i) => `- link "R${i}" [e${i}]:
+  - /url: https://example.com/r${i}
+  - cite: https://example.com
+`).join("");
+
+  const { fake, client } = setup(t, {
+    pageContents: new Map([["https://www.google.com/search?q=camoufox", overflow]]),
+  });
   const outcome = await googleEngine().search("camoufox", { client, userId: "u1", maxResults: 99 });
 
-  assert.equal(outcome.engine, "google");
-  assert.ok(outcome.results.length <= 10, "the google macro returns a page of ten");
+  assert.equal(outcome.results.length, 10, "twelve links on the page, one google page handed back");
+  assert.equal(callsFor(fake, "/navigate").length, 1, "clamping is a slice, not a second navigation");
 });
 
 test("a page we cannot read as a results list is parse_error, not empty_results", async (t) => {
@@ -109,7 +120,7 @@ test("reports empty_results and keeps trying the chain", async (t) => {
   const { client } = setup(t);
   const empty = {
     name: "empty",
-    search: async () => ({ results: [], engine: "empty" }),
+    search: async () => ({ results: [] }),
   };
   const ddg = duckduckgoEngine();
 
@@ -147,6 +158,31 @@ test("does not walk the chain when the gateway itself is down", async (t) => {
   assert.equal(error.details.tried.length, 1, "the chain stopped at the first terminal code");
 });
 
+test("a link-less page inside the wall window is parse_error, empty_results is reserved for short pages", async (t) => {
+  // The boundary that PARSEABLE_MIN_CHARS actually decides. detectWall runs first and declines these
+  // (no host evidence, no wall phrase, both under INTERSTITIAL_MAX_CHARS), so which code the model
+  // gets is decided here and nowhere else.
+  const line = "- paragraph:\n  - text: page text without links.\n"; // 48 chars
+  const band = `- heading "Google Results" [level=1]\n${line.repeat(50)}`; // 2,438 chars
+  const short = `- heading "Google Results" [level=1]\n${line.repeat(35)}`; // 1,718 chars
+
+  assert.ok(band.length > 2_000 && band.length <= 3_000, `band fixture is ${band.length} chars`);
+  assert.ok(short.length <= 2_000, `short fixture is ${short.length} chars`);
+
+  const { client } = setup(t, {
+    pageContents: new Map([
+      ["https://www.google.com/search?q=band", band],
+      ["https://www.google.com/search?q=thin", short],
+    ]),
+  });
+
+  const bandError = await googleEngine().search("band", { client, userId: "u1", maxResults: 10 }).catch((e) => e);
+  assert.equal(bandError.code, "parse_error", "long enough to have been a real page, so blame the parser");
+
+  const shortError = await googleEngine().search("thin", { client, userId: "u1", maxResults: 10 }).catch((e) => e);
+  assert.equal(shortError.code, "empty_results", "a page this thin says something about the query, not us");
+});
+
 test("every terminal code stops the chain before the next engine is tried", async (t) => {
   const { client } = setup(t);
 
@@ -162,7 +198,7 @@ test("every terminal code stops the chain before the next engine is tried", asyn
       name: "second",
       search: async () => {
         secondRan = true;
-        return { engine: "second", results: [] };
+        return { results: [] };
       },
     };
 

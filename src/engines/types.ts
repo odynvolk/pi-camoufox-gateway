@@ -16,8 +16,11 @@ export interface EngineContext {
 }
 
 export interface EngineOutcome {
-  /** The engine that produced this outcome. A fallback shows up in `chain.ts`'s `tried`, not here. */
-  engine: EngineName;
+  /**
+   * Adapters return results only. Which engine is credited is decided by the chain from `Engine.name`,
+   * because that is the same value the tool's `engine?` filter matched on — a literal in the payload
+   * could disagree with it and type-check.
+   */
   results: SearchResult[];
 }
 

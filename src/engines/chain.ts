@@ -6,11 +6,12 @@
  * `gateway_unreachable` just multiplies the same timeout.
  */
 
-import type { EngineConfig } from "../config.ts";
+import type { EngineConfig, EngineName } from "../config.ts";
 import { GatewayError, type GatewayErrorCode } from "../errors.ts";
+import type { SearchResult } from "../snapshot.ts";
 import { duckduckgoEngine } from "./duckduckgo.ts";
 import { googleEngine } from "./google.ts";
-import type { Engine, EngineContext, EngineOutcome } from "./types.ts";
+import type { Engine, EngineContext } from "./types.ts";
 
 const BY_NAME: Record<string, () => Engine> = {
   google: googleEngine,
@@ -30,7 +31,10 @@ export interface TriedStep {
   message: string;
 }
 
-export interface ChainOutcome extends EngineOutcome {
+export interface ChainOutcome {
+  /** Credited by the chain, from `Engine.name` — never from the adapter's payload. */
+  engine: EngineName;
+  results: SearchResult[];
   tried: TriedStep[];
 }
 
@@ -68,7 +72,7 @@ export async function searchWithFallback(
         continue;
       }
       tried.push({ engine: engine.name, code: "ok", message: "served" });
-      return { ...outcome, tried };
+      return { engine: engine.name, results: outcome.results, tried };
     } catch (error) {
       const gatewayError = error instanceof GatewayError ? error : new GatewayError("gateway_error", String(error));
       tried.push({ engine: engine.name, code: gatewayError.code, message: gatewayError.message });
