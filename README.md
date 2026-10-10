@@ -33,13 +33,36 @@ Loads a page in the browser and returns its text.
 
 ## Install
 
-Load it directly for development:
+Install it as a pi package and pi wires it into your settings:
 
 ```bash
-pi --extension ./src/camoufox-gateway.ts
+pi install npm:pi-camoufox-gateway        # every session (~/.pi/agent/settings.json)
+pi install -l npm:pi-camoufox-gateway     # this project only (.pi/settings.json)
 ```
 
-Or point `pi.extensions` in `package.json` at `./src/camoufox-gateway.ts` and install the package.
+The `camoufox_search` and `camoufox_read` tools are then available the next time pi starts. Try it
+for a single run without writing to settings:
+
+```bash
+pi -e npm:pi-camoufox-gateway
+```
+
+Manage it with `pi list`, `pi remove npm:pi-camoufox-gateway` (`pi uninstall` is an alias) and
+`pi update`.
+
+Without npm, or straight from this checkout:
+
+```bash
+pi install git:github.com/odynvolk/pi-camoufox-gateway@v0.1.1   # pinned to a tag
+pi install ./pi-camoufox-gateway                                 # a local checkout
+pi -e ./src/camoufox-gateway.ts                                  # from this repo, nothing installed
+```
+
+You do not need to declare `pi.extensions` anywhere yourself — `package.json` points pi at
+`src/camoufox-gateway.ts`. Pointing the extension at your gateway is described below.
+
+Requires Node 23+ and a running `camofox-browser`; the extension is shipped as TypeScript and pi
+loads it directly.
 
 ## Configuration
 
