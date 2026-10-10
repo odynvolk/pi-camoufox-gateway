@@ -36,10 +36,10 @@ Loads a page in the browser and returns its text.
 Load it directly for development:
 
 ```bash
-pi --extension ./src/index.ts
+pi --extension ./src/camoufox-gateway.ts
 ```
 
-Or point `pi.extensions` in `package.json` at `./src/index.ts` and install the package.
+Or point `pi.extensions` in `package.json` at `./src/camoufox-gateway.ts` and install the package.
 
 ## Configuration
 
