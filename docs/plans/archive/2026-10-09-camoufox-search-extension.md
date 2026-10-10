@@ -2,6 +2,10 @@
 
 > Status: done
 
+> Archived evidence: `gatewayUrl` later moved from the LAN address recorded here to
+> `http://localhost:9377` as the shipped default. Everything below describes what was probed on
+> 2026-10-09 and should not be edited to match today's default.
+
 ## Problem summary
 
 pi has no web access: no built-in `web_search`/`web_fetch`, and the ecosystem option

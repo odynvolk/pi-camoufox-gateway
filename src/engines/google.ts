@@ -45,11 +45,7 @@ export function googleEngine(): Engine {
         }
 
         const wanted = Math.max(1, Math.min(context.maxResults, GOOGLE_PAGE_SIZE));
-        return {
-          engine: "google",
-          results: results.slice(0, wanted),
-          requestedCount: context.maxResults,
-        };
+        return { results: results.slice(0, wanted) };
       } finally {
         await client.closeTabQuietly({ userId, tabId: tab.tabId });
       }

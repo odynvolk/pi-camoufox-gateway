@@ -105,5 +105,5 @@ export function readTool(deps: ReadToolDeps) {
     }
   }
 
-  return { name: "camoufox_read", deps, read };
+  return { name: "camoufox_read", read };
 }

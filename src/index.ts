@@ -8,21 +8,23 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type, type Static } from "typebox";
 
-import { createExtension, formatError, resolveConfig, type Extension } from "./extension.ts";
+import { DEFAULT_CONFIG, ENGINE_NAMES } from "./config.ts";
+import { createExtension, formatError, resolveConfig, READ_DESCRIPTION, SEARCH_DESCRIPTION, type Extension } from "./extension.ts";
+import { MAX_RESULTS_HARD_LIMIT } from "./tools/search.ts";
 import { createCache } from "./cache.ts";
 import { createGatewayClient } from "./gateway.ts";
 import { gatewaySessionId } from "./session.ts";
 
 const SearchSchema = Type.Object({
   query: Type.String({ description: "Keywords to search for" }),
-  n: Type.Optional(Type.Number({ description: "Maximum results (engine returns a page of 10)" })),
-  engine: Type.Optional(Type.String({ description: "Force one engine: google | duckduckgo" })),
+  n: Type.Optional(Type.Number({ description: `Maximum results (engine returns a page of ${MAX_RESULTS_HARD_LIMIT})` })),
+  engine: Type.Optional(Type.String({ description: `Force one engine: ${ENGINE_NAMES.join(" | ")}` })),
   resolve: Type.Optional(Type.Boolean({ description: "Resolve google redirect urls to final urls" })),
 });
 
 const ReadSchema = Type.Object({
   url: Type.String({ description: "http(s) url to read" }),
-  maxChars: Type.Optional(Type.Number({ description: "Text budget, defaults to 12000" })),
+  maxChars: Type.Optional(Type.Number({ description: `Text budget, defaults to ${DEFAULT_CONFIG.read.defaultMaxChars}` })),
   offset: Type.Optional(Type.Number({ description: "Continue a previous read here" })),
   schema: Type.Optional(Type.Record(Type.String(), Type.Any(), { description: "JSON Schema with x-ref hints" })),
 });
@@ -72,7 +74,7 @@ export default function (pi: ExtensionAPI) {
   pi.registerTool({
     name: "camoufox_search",
     label: "Camoufox Search",
-    description: "Search the web through a self-hosted Camoufox browser gateway. Costs no API keys.",
+    description: SEARCH_DESCRIPTION,
     parameters: SearchSchema,
     annotations: { readOnlyHint: true, openWorldHint: true, idempotentHint: true },
     async execute(_id: string, args: Static<typeof SearchSchema>, signal, _onUpdate, ctx) {
@@ -90,7 +92,7 @@ export default function (pi: ExtensionAPI) {
   pi.registerTool({
     name: "camoufox_read",
     label: "Camoufox Read",
-    description: "Read any page through a self-hosted Camoufox browser gateway, including JavaScript-rendered pages.",
+    description: READ_DESCRIPTION,
     parameters: ReadSchema,
     annotations: { readOnlyHint: true, openWorldHint: true, idempotentHint: true },
     async execute(_id: string, args: Static<typeof ReadSchema>, signal, _onUpdate, ctx) {

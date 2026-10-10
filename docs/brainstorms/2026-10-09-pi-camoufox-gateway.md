@@ -4,6 +4,10 @@ Date: 2026-10-09
 Mode: CE Brainstorm
 Status: Ready for `02-plan`
 
+> Archived evidence: `gatewayUrl` later moved from the LAN address recorded here to
+> `http://localhost:9377` as the shipped default. Everything below describes what was probed on
+> 2026-10-09 and should not be edited to match today's default.
+
 ## Problem
 
 pi has no web access of its own: it ships no built-in `web_search` or `web_fetch`, and the

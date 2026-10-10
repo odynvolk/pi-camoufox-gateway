@@ -11,7 +11,13 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-export type EngineName = "google" | "duckduckgo";
+/**
+ * The engines we have adapters for. One source for the union type, config validation, and the
+ * model-facing hint in the tool schema, so a new engine cannot be half-registered.
+ */
+export const ENGINE_NAMES = ["google", "duckduckgo"] as const;
+
+export type EngineName = (typeof ENGINE_NAMES)[number];
 
 export interface EngineConfig {
   name: EngineName;
@@ -34,7 +40,7 @@ export interface CamoufoxConfig {
 }
 
 export const DEFAULT_CONFIG: CamoufoxConfig = {
-  gatewayUrl: "http://192.168.8.110:9377",
+  gatewayUrl: "http://localhost:9377",
   engines: [
     { name: "google", enabled: true },
     { name: "duckduckgo", enabled: true },
@@ -46,7 +52,7 @@ export const DEFAULT_CONFIG: CamoufoxConfig = {
   timeoutMs: 30_000,
 };
 
-const ENGINE_NAMES = new Set<string>(["google", "duckduckgo"]);
+const KNOWN_ENGINES = new Set<string>(ENGINE_NAMES);
 
 export class ConfigError extends Error {
   constructor(message: string) {
@@ -101,12 +107,42 @@ function parseGatewayUrl(raw: unknown, path: string): string {
   return url.replace(/\/+$/, "");
 }
 
-/** Unknown keys are a hard error: a typo'd setting would otherwise look like it took effect. */
+/**
+ * Keys that are valid but absent from `DEFAULT_CONFIG` because "unset" is their only default. The
+ * validator derives known keys from that object, so these have to be declared next to the type —
+ * `mergeOntoDefaults` already has a branch for `apiKey`, and without this a config file that sets it
+ * would be rejected before that branch can run.
+ */
+const OPTIONAL_KEYS: (keyof CamoufoxConfig)[] = ["apiKey"];
+
+/** Valid keys per section, derived from the defaults so a new setting validates itself. */
+const SECTION_FIELDS = new Map<string, Set<string>>(
+  Object.entries(DEFAULT_CONFIG).map(([key, value]) => [
+    key,
+    typeof value === "object" && value !== null && !Array.isArray(value) ? new Set(Object.keys(value as Record<string, unknown>)) : new Set<string>(),
+  ]),
+);
+
+const KNOWN_TOP_LEVEL = new Set<string>([...SECTION_FIELDS.keys(), ...OPTIONAL_KEYS]);
+
+/**
+ * Unknown keys are a hard error: a typo'd setting would otherwise look like it took effect. That
+ * applies inside `cache`/`read`/`search` exactly as it does at the top level, so a misspelled
+ * `cache.serpM` has to fail for the same reason `timeoutM` does.
+ */
 function rejectUnknownKeys(raw: Record<string, unknown>, path: string): void {
-  const known = new Set(Object.keys(DEFAULT_CONFIG) as string[]);
-  for (const key of Object.keys(raw)) {
-    if (!known.has(key)) {
-      fail(`${path}: unknown config key "${key}" (known: ${[...known].sort().join(", ")})`);
+  for (const [key, value] of Object.entries(raw)) {
+    if (!KNOWN_TOP_LEVEL.has(key)) {
+      fail(`${path}: unknown config key "${key}" (known: ${[...KNOWN_TOP_LEVEL].sort().join(", ")})`);
+    }
+    const fields = SECTION_FIELDS.get(key);
+    if (!fields || fields.size === 0) continue;
+    // A section that is not an object is the section parser's problem to explain, not ours.
+    if (value === null || typeof value !== "object" || Array.isArray(value)) continue;
+    for (const inner of Object.keys(value as Record<string, unknown>)) {
+      if (!fields.has(inner)) {
+        fail(`${path}: unknown config key "${key}.${inner}" (known: ${[...fields].sort().join(", ")})`);
+      }
     }
   }
 }
@@ -117,7 +153,7 @@ function parseEngines(raw: unknown, path: string): EngineConfig[] {
   const engines: EngineConfig[] = [];
   for (const entry of raw) {
     if (typeof entry === "string") {
-      if (!ENGINE_NAMES.has(entry)) fail(`${path}: unknown engine "${entry}" (known: google, duckduckgo)`);
+      if (!KNOWN_ENGINES.has(entry)) fail(`${path}: unknown engine "${entry}" (known: ${ENGINE_NAMES.join(", ")})`);
       engines.push({ name: entry as EngineName, enabled: true });
       continue;
     }
@@ -126,7 +162,7 @@ function parseEngines(raw: unknown, path: string): EngineConfig[] {
     }
     const record = entry as Record<string, unknown>;
     const name = assertString(record.name, "name", `${path}.engines[]`);
-    if (!ENGINE_NAMES.has(name)) fail(`${path}: unknown engine "${name}" (known: google, duckduckgo)`);
+    if (!KNOWN_ENGINES.has(name)) fail(`${path}: unknown engine "${name}" (known: ${ENGINE_NAMES.join(", ")})`);
     const enabled = record.enabled === undefined ? true : Boolean(record.enabled);
     engines.push({ name: name as EngineName, enabled });
   }

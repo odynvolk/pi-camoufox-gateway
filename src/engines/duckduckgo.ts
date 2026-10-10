@@ -39,11 +39,7 @@ export function duckduckgoEngine(): Engine {
           });
         }
 
-        return {
-          engine: "duckduckgo",
-          results: results.slice(0, Math.min(context.maxResults, results.length)),
-          requestedCount: context.maxResults,
-        };
+        return { results: results.slice(0, Math.min(context.maxResults, results.length)) };
       } finally {
         await client.closeTabQuietly({ userId, tabId: tab.tabId });
       }

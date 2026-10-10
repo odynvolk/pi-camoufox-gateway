@@ -42,7 +42,8 @@ export interface SearchOutcome {
   text: string;
 }
 
-const MAX_RESULTS_HARD_LIMIT = 10;
+/** Exported because the tool description quotes it and the tests must not re-hardcode it. */
+export const MAX_RESULTS_HARD_LIMIT = 10;
 
 function normalizeQuery(query: string): string {
   return query.trim().replace(/\s+/gu, " ").toLocaleLowerCase();
@@ -145,5 +146,5 @@ export function searchTool(deps: SearchToolDeps) {
     return { ...shaped, text: formatResults(shaped) };
   }
 
-  return { name: "camoufox_search", deps, search: run };
+  return { name: "camoufox_search", search: run };
 }

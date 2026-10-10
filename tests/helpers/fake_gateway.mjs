@@ -152,7 +152,7 @@ export function createFakeGateway(options = {}) {
       const tabId = crypto.randomUUID();
       const googleHost = /^https?:\/\/(www\.)?google\./u.test(body.url);
       const url =
-        state.consentWallOn?.has(body.userId) && googleHost && !state.consentWallOnResolved
+        state.consentWallOn?.has(body.userId) && googleHost
           ? `https://consent.google.com/ml?continue=${encodeURIComponent(body.url)}`
           : resolveTarget(body.url);
       // The real gateway creates the tab before we can lose the response, so hanging must happen
@@ -180,18 +180,16 @@ export function createFakeGateway(options = {}) {
       }
 
       if (method === "POST" && sub === "/navigate") {
-        if (state.consentWallOn?.has(body.userId) && body.macro && !state.consentWallOnResolved) {
-          tab.url = `https://consent.google.com/ml?continue=${encodeURIComponent(body.query ?? "")}`;
-          return json({ ok: true, tabId, url: tab.url, refsAvailable: false });
-        }
         if (body.macro) {
           const template = MACROS[body.macro];
           if (!template) return json({ error: `Unknown macro ${body.macro}` }, 400);
+          const target = template(body.query ?? "");
           if (state.consentWallOn?.has(body.userId)) {
-            tab.url = `https://consent.google.com/ml?continue=${encodeURIComponent(template(body.query ?? ""))}`;
+            // The macro ran, and Google answered with the interstitial instead of a results page.
+            tab.url = `https://consent.google.com/ml?continue=${encodeURIComponent(target)}`;
             return json({ ok: true, tabId, url: tab.url, refsAvailable: false });
           }
-          tab.url = template(body.query ?? "");
+          tab.url = target;
           tab.title = tab.url;
           return json({ ok: true, tabId, url: tab.url, refsAvailable: false, googleSerp: true });
         }

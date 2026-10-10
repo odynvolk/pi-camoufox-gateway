@@ -18,7 +18,7 @@ Searches through the browser and returns ranked titles, urls and snippets.
   render, so it would only ever waste a page load.
 - `n` is clamped to 10. The macro takes only a query, so a longer list is not reachable.
 - `resolve: true` turns Google's `google.com/goto?url=…` wrappers into final urls. It costs one
-  extra page load per result, so it is off by default.
+  extra page load per result and runs at most three tabs at a time, so it is off by default.
 
 ### `camoufox_read(url, maxChars?, offset?, schema?)`
 
@@ -52,7 +52,7 @@ Environment: `CAMOUFOX_GATEWAY_URL`, `CAMOUFOX_API_KEY`, `CAMOUFOX_CONFIG_PATH`.
 
 | Setting | Default | Notes |
 |---|---|---|
-| `gatewayUrl` | `http://192.168.8.110:9377` | must be absolute `http(s)` |
+| `gatewayUrl` | `http://localhost:9377` | must be absolute `http(s)` |
 | `apiKey` | unset | sent as `Bearer` only if set |
 | `engines` | google, duckduckgo | ordered fallback chain |
 | `cache.serpMs` / `cache.pageMs` | 30 min / 10 min | failures are never cached |
@@ -72,8 +72,10 @@ The tool output starts with the code so the model can react instead of guessing.
 
 | Code | Meaning |
 |---|---|
+| `config_error` | the config file is unreadable or invalid, so nothing was attempted |
 | `gateway_unreachable` | cannot reach `gatewayUrl` (one cheap liveness probe per 60s window, not one timeout per call) |
 | `gateway_unauthorized` | gateway rejected `apiKey` |
+| `gateway_error` | the gateway answered with a failure, or something threw without a code |
 | `consent_wall` | Google served consent/CAPTCHA, not results |
 | `empty_results` | clean page, zero organic results |
 | `empty_page` / `navigation_failed` | nothing rendered / browser error page |
@@ -81,6 +83,8 @@ The tool output starts with the code so the model can react instead of guessing.
 | `extraction_empty` | schema refs matched nothing on this page |
 | `host_blocked` | url matched `blockedHosts` |
 | `blocked_url` | not an http(s) url |
+| `tab_not_found` | the tab was closed under us (session teardown or a stray sweep) |
+| `unsupported` | bad input or an engine we have no adapter for — nothing was fetched |
 | `timeout` / `aborted` | deadline hit / tool call cancelled |
 
 ## What this does not do
