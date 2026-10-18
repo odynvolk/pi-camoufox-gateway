@@ -44,6 +44,10 @@ Loads a page in the browser and returns its text.
   and on every snapshot, so a public url that redirects to `169.254.169.254` does not get read back —
   including by a gateway that reports no destination at open, which is the case a check at open alone
   would have missed.
+- Refuses to return a page it cannot place. A snapshot that reports no url is checked against the tab
+  list, and if nothing will say where the tab is, the read fails with `destination_unreported` rather
+  than hand back unverified content under the url we asked for. Switching the guard off entirely
+  (`allowPrivateHosts: true`, empty `blockedHosts`) drops this requirement too.
 
 ## Install
 
@@ -131,6 +135,7 @@ The tool output starts with the code so the model can react instead of guessing.
 | `extraction_empty` | schema refs matched nothing on this page |
 | `host_blocked` | url matched `blockedHosts` |
 | `private_network` | url — or a redirect it landed on — is an internal address and `network.allowPrivateHosts` is off |
+| `destination_unreported` | nothing would say where the tab ended up, so the page was not returned |
 | `blocked_url` | not an http(s) url |
 | `tab_not_found` | the tab was closed under us (session teardown or a stray sweep) |
 | `unsupported` | bad input or an engine we have no adapter for — nothing was fetched |

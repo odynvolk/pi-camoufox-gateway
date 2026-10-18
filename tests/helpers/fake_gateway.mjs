@@ -52,6 +52,8 @@ export function createFakeGateway(options = {}) {
     waitBody: undefined, // anything: answers /wait with exactly this, for shapes we must interpret
     waitReject: null, // { status, message }: answer /wait with an error at that status
     openReportsUrl: true, // false simulates a gateway that never reports where a tab ended up
+    snapshotReportsUrl: true, // false: `/snapshot` stays silent about where the page is
+    tabsReportUrl: true, // false: neither endpoint will say, so the location is genuinely unknown
     waitHangsForMs: 0, // the gateway holds /wait past our per-request deadline, ignoring its own timeout
     openLatencyMs: 0,
     hangUrls: new Set(),
@@ -166,7 +168,12 @@ export function createFakeGateway(options = {}) {
     }
     if (method === "GET" && path === "/tabs") {
       const userId = url.searchParams.get("userId") ?? "";
-      const tabs = [...tabsOf(userId, true).entries()].map(([tabId, tab]) => ({ tabId, targetId: tabId, url: tab.url, title: tab.title }));
+      const tabs = [...tabsOf(userId, true).entries()].map(([tabId, tab]) => ({
+        tabId,
+        targetId: tabId,
+        ...(state.tabsReportUrl ? { url: tab.url } : {}),
+        title: tab.title,
+      }));
       return json({ running: true, tabs });
     }
 
@@ -249,7 +256,7 @@ export function createFakeGateway(options = {}) {
         const limit = state.snapshotLimit;
         const truncated = text.length > limit;
         return json({
-          url: tab.url,
+          ...(state.snapshotReportsUrl ? { url: tab.url } : {}),
           snapshot: truncated ? text.slice(0, limit) : text,
           refsCount: (text.match(/\[e\d+\]/g) ?? []).length,
           truncated,

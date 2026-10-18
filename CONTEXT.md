@@ -28,5 +28,7 @@ Canonical vocabulary for this repo. Not a spec — see `docs/brainstorms/` and `
   the one every `/snapshot` returns, so `read`, both search engines and `resolve` inherit it without
   writing it. The snapshot half is the load-bearing one: a gateway that reports no url at open leaves the
   open-time check comparing a string with itself, and a page that moves after the tab opened only ever
-  shows up in a snapshot.
+  shows up in a snapshot. It fails closed: a snapshot that reports no destination is checked against the
+  tab list, and if nothing will say where the tab is, the read refuses with `destination_unreported`
+  rather than return content that cannot be placed under the url we asked for.
 - **Resolve** — opt-in follow-through that turns `goto` URLs into final URLs using concurrent tabs.

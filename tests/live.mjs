@@ -46,6 +46,9 @@ test("live: read is bounded and says so", { skip: !live }, async () => {
   assert.ok(outcome.details.totalChars > config.read.defaultMaxChars);
   assert.ok(body.length <= config.read.defaultMaxChars + 200, `body was ${body.length} chars`);
   assert.equal("text" in outcome.details, false, "details must not duplicate the page body");
+  // The guard requires a reported destination, so a gateway that stays silent cannot be read at all.
+  // This is where that shows up if the real gateway ever stops reporting one.
+  assert.match(outcome.details.url, /^https:\/\//u, "the gateway reported no final url");
 });
 
 test("live: n above the page size is clamped and disclosed", { skip: !live }, async () => {

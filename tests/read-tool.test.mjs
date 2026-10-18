@@ -334,14 +334,31 @@ test("a page that moves after the tab opened is refused before any text is retur
   // `openTab` cannot see this move: the gateway reports no destination there, so its re-check has
   // nothing to compare. The one response that does report it is `/snapshot`, which is why the
   // destination check lives in the client rather than in this tool.
+  //
+  // The page is scripted thin on purpose. A short response is exactly what `worthPollingAgain` polls
+  // again, so if the refusal came after the loop — where this check used to live — the count below
+  // would be three, and two of those requests would have been aimed at the internal host.
+  const internal = "http://169.254.169.254/latest/meta-data/";
   const { fake, tool } = setup(t, {
     openReportsUrl: false,
-    redirectAfterOpen: new Map([["https://spa.test/late", "http://169.254.169.254/latest/meta-data/"]]),
+    redirectAfterOpen: new Map([["https://spa.test/late", internal]]),
+    snapshotScripts: new Map([[internal, ["instance-id"]]]),
   });
 
   const error = await tool.read({ url: "https://spa.test/late" }).catch((e) => e);
 
   assert.equal(error.code, "private_network");
   assert.equal(error.details.stage, "destination");
-  assert.ok(fake.state.calls.some((c) => c.path.includes("/snapshot")), "the refusal came from the page, not the request");
+  const snapshots = fake.state.calls.filter((c) => c.path.includes("/snapshot"));
+  assert.equal(snapshots.length, 1, "refused on the first look, not after two more polls of the internal host");
+});
+
+test("a page nothing can place is not returned as page text", async (t) => {
+  // The gateway will not say where the tab is, at either endpoint. Returning the body anyway would put
+  // it under the url we asked for, which reads as a clean result.
+  const { tool } = setup(t, { snapshotReportsUrl: false, tabsReportUrl: false });
+
+  const error = await tool.read({ url: "https://quiet.test/" }).catch((e) => e);
+
+  assert.equal(error.code, "destination_unreported");
 });

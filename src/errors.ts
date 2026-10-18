@@ -18,6 +18,7 @@ export type GatewayErrorCode =
   | "host_blocked"
   | "private_network"
   | "navigation_failed"
+  | "destination_unreported"
   | "consent_wall"
   | "empty_results"
   | "empty_page"

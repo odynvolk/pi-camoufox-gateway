@@ -8,7 +8,7 @@
  */
 
 import { GatewayError, type GatewayErrorCode } from "./errors.ts";
-import { assertTabUrlAllowed, DEFAULT_URL_POLICY, type UrlPolicy } from "./net-policy.ts";
+import { assertTabUrlAllowed, DEFAULT_URL_POLICY, policyCanRefuse, type UrlPolicy } from "./net-policy.ts";
 
 export interface GatewayClientOptions {
   baseUrl: string;
@@ -336,8 +336,27 @@ export class GatewayClient {
     const text = typeof body.snapshot === "string" ? body.snapshot : "";
     const totalChars = typeof body.totalChars === "number" ? body.totalChars : text.length;
     const nextOffset = typeof body.nextOffset === "number" ? body.nextOffset : text.length;
+    let url = typeof body.url === "string" ? body.url : "";
+
+    // A snapshot we cannot place is not a snapshot we may hand back: there would be nothing to check,
+    // the guard would be skipped silently, and `read` would report the url we asked for as though it
+    // were where the page ended up. That is how a client-side redirect to `169.254.169.254` returns an
+    // internal body under a public-looking header. Ask the tab list once, and refuse if that stays
+    // silent too — but only while the guard can still refuse something, so a caller that switched it
+    // off entirely is not blocked by a check that can no longer fire.
+    if (!url && policyCanRefuse(this.urlPolicy)) {
+      url = await this.tabLocation({ userId: params.userId, tabId: params.tabId, signal: params.signal });
+      if (!url) {
+        throw new GatewayError(
+          "destination_unreported",
+          "the gateway reported no destination for this page, so its content was not returned — a page that moves after opening would go unchecked",
+          { details: { tabId: params.tabId } },
+        );
+      }
+    }
+
     const result: SnapshotResult = {
-      url: typeof body.url === "string" ? body.url : "",
+      url,
       text,
       refsCount: typeof body.refsCount === "number" ? body.refsCount : (text.match(/\[e\d+\]/gu) ?? []).length,
       truncated: body.truncated === true,
@@ -352,6 +371,23 @@ export class GatewayClient {
     // destination we would have refused is content we must not hand back.
     if (result.url) assertTabUrlAllowed(result.url, this.urlPolicy, "destination");
     return result;
+  }
+
+  /** Where the tab list says this tab is. Empty when the gateway will not say, which is treated as unsafe. */
+  private async tabLocation(params: { userId: string; tabId: string; signal?: AbortSignal }): Promise<string> {
+    const body = await this.requestJson<Record<string, unknown>>("GET", endpointPath("listTabs"), {
+      userId: params.userId,
+      query: { userId: params.userId },
+      signal: params.signal,
+      tolerateMissing: true,
+    });
+    const tabs = Array.isArray(body.tabs) ? (body.tabs as Record<string, unknown>[]) : [];
+    for (const tab of tabs) {
+      const tabId = typeof tab.tabId === "string" ? tab.tabId : typeof tab.targetId === "string" ? tab.targetId : "";
+      if (tabId !== params.tabId) continue;
+      return typeof tab.url === "string" ? tab.url : "";
+    }
+    return "";
   }
 
   /**

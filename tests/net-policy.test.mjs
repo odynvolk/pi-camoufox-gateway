@@ -249,6 +249,63 @@ test("blockedHosts is applied to the snapshot destination as well", async (t) =>
   await client.closeTab({ userId: "u1", tabId: tab.tabId });
 });
 
+test("a silent snapshot falls back to what the tab list will say", async (t) => {
+  const fake = withFakeGateway(t, { snapshotReportsUrl: false });
+  const client = createGatewayClient({ baseUrl: BASE, timeoutMs: 2000, urlPolicy: OPEN });
+
+  const tab = await client.openTab({ userId: "u1", url: "https://public.test/x" });
+  const snapshot = await client.snapshot({ userId: "u1", tabId: tab.tabId });
+
+  assert.equal(snapshot.url, "https://public.test/x", "the location came from the tab list");
+  assert.equal(fake.state.calls.filter((c) => c.path.startsWith("/tabs?")).length, 1, "asked once, and only because it had to");
+  await client.closeTab({ userId: "u1", tabId: tab.tabId });
+});
+
+test("the fallback destination is guarded like any other", async (t) => {
+  // The exact shape the guard exists for: a page that moves after the tab opened, with only the tab
+  // list willing to say where it went.
+  withFakeGateway(t, {
+    snapshotReportsUrl: false,
+    redirectAfterOpen: new Map([["https://public.test/x", "http://169.254.169.254/latest/meta-data/"]]),
+  });
+  const client = createGatewayClient({ baseUrl: BASE, timeoutMs: 2000, urlPolicy: OPEN });
+
+  const tab = await client.openTab({ userId: "u1", url: "https://public.test/x" });
+  const error = await client.snapshot({ userId: "u1", tabId: tab.tabId }).catch((e) => e);
+
+  assert.equal(error.code, "private_network");
+  assert.equal(error.details.stage, "destination");
+  assert.equal(error.details.host, "169.254.169.254");
+  await client.closeTab({ userId: "u1", tabId: tab.tabId });
+});
+
+test("nothing will say where the tab is, so the page is not returned", async (t) => {
+  withFakeGateway(t, { snapshotReportsUrl: false, tabsReportUrl: false });
+  const client = createGatewayClient({ baseUrl: BASE, timeoutMs: 2000, urlPolicy: OPEN });
+
+  const tab = await client.openTab({ userId: "u1", url: "https://public.test/x" });
+  const error = await client.snapshot({ userId: "u1", tabId: tab.tabId }).catch((e) => e);
+
+  assert.equal(error.name, "GatewayError", "expected a refusal");
+  assert.equal(error.code, "destination_unreported");
+  assert.match(error.message, /no destination/u);
+  await client.closeTab({ userId: "u1", tabId: tab.tabId });
+});
+
+test("a guard that cannot refuse anything does not demand a destination", async (t) => {
+  // The requirement exists to serve the guard. A caller that switched the whole thing off should not be
+  // blocked by a check that can no longer fire.
+  const fake = withFakeGateway(t, { snapshotReportsUrl: false, tabsReportUrl: false });
+  const client = createGatewayClient({ baseUrl: BASE, timeoutMs: 2000, urlPolicy: { blockedHosts: [], allowPrivateHosts: true } });
+
+  const tab = await client.openTab({ userId: "u1", url: "https://public.test/x" });
+  const snapshot = await client.snapshot({ userId: "u1", tabId: tab.tabId });
+
+  assert.equal(snapshot.url, "");
+  assert.equal(fake.state.calls.filter((c) => c.path.startsWith("/tabs?")).length, 0, "no lookup was warranted");
+  await client.closeTab({ userId: "u1", tabId: tab.tabId });
+});
+
 test("urlPolicyFromConfig is the only way a policy is built from a config", () => {
   const config = { ...structuredClone(DEFAULT_CONFIG), blockedHosts: ["a.test"], network: { allowPrivateHosts: true } };
 

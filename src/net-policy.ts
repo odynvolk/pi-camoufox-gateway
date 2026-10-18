@@ -6,10 +6,10 @@
  * addresses: a model, or a page that tricks the model, can point us at `169.254.169.254` or a LAN
  * service and read the response back as page text.
  *
- * The check therefore lives at the single choke point every navigation passes through
- * (`GatewayClient.openTab`), not only in the read tool. What it cannot do is judge a *name* that
- * resolves to an internal address (DNS rebinding, `localhost` aliases): that needs gateway-side
- * egress policy, which this repo does not own.
+ * The check therefore lives at the choke points every navigation passes through — `GatewayClient.openTab`
+ * for the url we were given, and `GatewayClient.snapshot` for the destination the gateway reports — not
+ * only in the read tool. What it cannot do is judge a *name* that resolves to an internal address (DNS
+ * rebinding, `localhost` aliases): that needs gateway-side egress policy, which this repo does not own.
  */
 
 import { GatewayError } from "./errors.ts";
@@ -45,6 +45,16 @@ export function urlPolicyFromConfig(config: CamoufoxConfig): UrlPolicy {
  * honestly say the gateway was never contacted — a tab was opened and a page was fetched.
  */
 export type UrlCheckStage = "request" | "destination";
+
+/**
+ * Whether this policy could refuse anything at all.
+ *
+ * Used to decide whether a missing destination is worth failing over: a caller that switched the whole
+ * guard off should not be blocked by a check that can no longer fire.
+ */
+export function policyCanRefuse(policy: UrlPolicy): boolean {
+  return !policy.allowPrivateHosts || policy.blockedHosts.some((entry) => entry.trim() !== "");
+}
 
 /** Names that mean "internal" without being an IP literal. */
 const PRIVATE_NAMES = new Set(["localhost", "metadata.google.internal"]);

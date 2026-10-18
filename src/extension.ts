@@ -181,6 +181,11 @@ export function formatError(error: unknown, config: CamoufoxConfig): { text: str
   if (gatewayError.code === "unsupported" && preFlight) {
     lines.push("Nothing was fetched from the gateway.");
   }
+  if (gatewayError.code === "destination_unreported") {
+    lines.push(
+      'This gateway will not say where a tab ended up, so every page would be returned unchecked. Upgrade it, or accept the risk with "network": { "allowPrivateHosts": true } and an empty blockedHosts.',
+    );
+  }
   return {
     text: lines.join("\n"),
     details: { code: gatewayError.code, ...(gatewayError.details ?? {}) },
