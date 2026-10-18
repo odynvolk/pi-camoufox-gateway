@@ -7,7 +7,7 @@ import { withFakeGateway } from "./helpers/fake_gateway.mjs";
 import { testConfig } from "./helpers/config.mjs";
 import { createGatewayClient } from "../src/gateway.ts";
 import { readTool, STABLE_ROUNDS } from "../src/tools/read.ts";
-import { assertHostAllowed } from "../src/net-policy.ts";
+import { assertHostAllowed, urlPolicyFromConfig } from "../src/net-policy.ts";
 
 const BASE = "http://gateway.test:9377";
 
@@ -23,7 +23,7 @@ function setup(t, options = {}) {
   const client = createGatewayClient({
     baseUrl: BASE,
     timeoutMs: 2000,
-    urlPolicy: { blockedHosts: config.blockedHosts, allowPrivateHosts: config.network.allowPrivateHosts },
+    urlPolicy: urlPolicyFromConfig(config),
     ...(options.client ?? {}),
   });
   return { fake, client, config, tool: readTool({ client, config, userId: "u1" }) };
@@ -257,6 +257,44 @@ test("a selector that never appears does not fail the read, but is reported", as
 
   assert.match(out.text, /Page: https:\/\/example\.test\/late/u);
   assert.match(out.waitNote, /waitFor "#never" did not appear within 5000ms/u);
+});
+
+test("a wait the gateway refused is reported as a refusal, not as a slow page", async (t) => {
+  const { tool } = setup(t, { waitError: "Invalid selector" });
+
+  const out = await tool.read({ url: "https://example.test/late", waitFor: "###" });
+
+  assert.match(out.waitNote, /was refused: Invalid selector/u);
+});
+
+test("a continuation read of a long page is neither polled nor called unrendered", async (t) => {
+  // The tail of a rendered page is short, and "short" is what the settle loop watches for. It has to
+  // read the whole-page size, or every `offset` call pays two snapshots and gets told to wait.
+  const { fake, tool } = setup(t, {
+    pageContents: new Map([["https://long.test/", "w".repeat(45_000)]]),
+    config: { read: { settlePollMs: 10 } },
+  });
+
+  const out = await tool.read({ url: "https://long.test/", maxChars: 1_000, offset: 44_000 });
+
+  assert.equal(out.text.length, 1_000);
+  assert.equal(out.thinAfterWait, undefined, "a rendered page is not a skeleton");
+  assert.equal(out.settledInMs, undefined);
+  assert.equal(fake.state.calls.filter((c) => c.path.includes("/snapshot")).length, 1, "no polls on a finished page");
+});
+
+test("a page that navigates itself to an internal address is refused before its text is returned", async (t) => {
+  // `openTab` cannot see this one: the url we handed the gateway was public, the page moved on its own.
+  const { fake, tool } = setup(t, {
+    redirectAfterOpen: new Map([["https://public.test/x", "http://169.254.169.254/latest/meta-data/"]]),
+  });
+
+  const error = await tool.read({ url: "https://public.test/x" }).catch((e) => e);
+
+  assert.equal(error.code, "private_network");
+  assert.equal(error.details.host, "169.254.169.254");
+  assert.equal(fake.state.calls.filter((c) => c.path.includes("/extract")).length, 0);
+  assert.deepEqual(fake.liveTabs(), [], "the tab we were redirected into must not stay open");
 });
 
 test("an internal address is refused before any gateway call", async (t) => {

@@ -23,6 +23,7 @@ Canonical vocabulary for this repo. Not a spec — see `docs/brainstorms/` and `
   stops growing. "The tab opened" and "the page rendered" are different events on a client-rendered
   site, and only the second one is worth returning.
 - **Address guard** — the rule in `net-policy.ts` that refuses tabs at non-http urls, `blockedHosts`
-  matches, and internal addresses. Enforced inside `GatewayClient.openTab`, so every navigation
-  inherits it, including `resolve` opening urls a search engine handed us.
+  matches, and internal addresses. Enforced inside `GatewayClient.openTab` on the url we were given
+  *and* on the destination the gateway reports, so every navigation inherits it — including `resolve`
+  opening urls a search engine handed us.
 - **Resolve** — opt-in follow-through that turns `goto` URLs into final URLs using concurrent tabs.

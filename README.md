@@ -37,9 +37,10 @@ Loads a page in the browser and returns its text.
   route the read still returns the page and says the wait was skipped.
 - `schema` accepts a JSON Schema whose properties carry `x-ref` hints; the tool snapshots the page
   first (refs only exist after a snapshot), then calls the gateway's extractor.
-- Refuses internal addresses. `blockedHosts` is applied, and so is a block on loopback, RFC1918,
-  link-local (including the cloud metadata IP) and other non-global addresses — see
-  `network.allowPrivateHosts`.
+- Refuses internal addresses, and keeps refusing after the browser moves. `blockedHosts` is applied,
+  and so is a block on loopback, RFC1918, link-local (including the cloud metadata IP) and other
+  non-global addresses — see `network.allowPrivateHosts`. The destination the gateway reports is
+  checked the same way, so a public url that redirects to `169.254.169.254` does not get read back.
 
 ## Install
 
@@ -96,7 +97,7 @@ Environment: `CAMOUFOX_GATEWAY_URL`, `CAMOUFOX_API_KEY`, `CAMOUFOX_CONFIG_PATH`,
 | `read.settleMinChars` | 1500 | below this the page is treated as not yet rendered |
 | `read.waitForTimeoutMs` | 5000 | deadline handed to the gateway for an explicit `waitFor` |
 | `search.maxResults` | 10 | hard ceiling, engine page size |
-| `blockedHosts` | `[]` | applied to every tab open, incl. `resolve: true`; the gateway enforces none |
+| `blockedHosts` | `[]` | applied to every tab open, incl. `resolve: true` and redirects; the gateway enforces none |
 | `network.allowPrivateHosts` | `false` | let tabs open loopback/RFC1918/link-local addresses |
 | `timeoutMs` | 30000 | per gateway request |
 
@@ -121,7 +122,7 @@ The tool output starts with the code so the model can react instead of guessing.
 | `parse_error` | the accessibility tree changed shape |
 | `extraction_empty` | schema refs matched nothing on this page |
 | `host_blocked` | url matched `blockedHosts` |
-| `private_network` | url is an internal address and `network.allowPrivateHosts` is off |
+| `private_network` | url — or a redirect it landed on — is an internal address and `network.allowPrivateHosts` is off |
 | `blocked_url` | not an http(s) url |
 | `tab_not_found` | the tab was closed under us (session teardown or a stray sweep) |
 | `unsupported` | bad input or an engine we have no adapter for — nothing was fetched |
@@ -134,7 +135,8 @@ The tool output starts with the code so the model can react instead of guessing.
   makes an interaction API hard to promise. The one exception is `waitFor`, which asks the gateway to
   hold for a selector rather than acting on the page.
 - No defence against a *hostname* that resolves to an internal address (DNS rebinding, a `localhost`
-  alias). The address guard reads the url it was given; egress policy belongs on the gateway.
+  alias). The address guard reads the url and the redirect chain, not the DNS answer; egress policy
+  belongs on the gateway.
 - No LLM in the tool path. The tools return raw data; your model does the reading.
 - Sessions: tabs live in a gateway session named after your pi session id and are torn down on
   `session_shutdown`. A lost `POST /tabs/open` response also triggers a sweep: the gateway may hold a

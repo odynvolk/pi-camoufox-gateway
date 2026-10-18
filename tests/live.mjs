@@ -9,6 +9,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { loadConfig } from "../src/config.ts";
+import { urlPolicyFromConfig } from "../src/net-policy.ts";
 import { createCache } from "../src/cache.ts";
 import { createGatewayClient } from "../src/gateway.ts";
 import { createExtension } from "../src/extension.ts";
@@ -21,7 +22,7 @@ const client = createGatewayClient({
   ...(config.apiKey ? { apiKey: config.apiKey } : {}),
   timeoutMs: config.timeoutMs,
   // Wired exactly as the extension wires it, so the live run exercises the real address guard.
-  urlPolicy: { blockedHosts: config.blockedHosts, allowPrivateHosts: config.network.allowPrivateHosts },
+  urlPolicy: urlPolicyFromConfig(config),
 });
 const extension = createExtension({ config, client, cache: createCache(), userId: `pi-live-${process.pid}` });
 

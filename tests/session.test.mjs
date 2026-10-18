@@ -10,6 +10,7 @@ import { testConfig } from "./helpers/config.mjs";
 import { createGatewayClient } from "../src/gateway.ts";
 import { createCache } from "../src/cache.ts";
 import { gatewaySessionId } from "../src/session.ts";
+import { urlPolicyFromConfig } from "../src/net-policy.ts";
 import { createExtension, resolveConfig } from "../src/extension.ts";
 
 const CONFIG = testConfig({ gatewayUrl: "http://gateway.test:9377", timeoutMs: 2000 });
@@ -19,7 +20,7 @@ function extensionFor(t, userId = "pi-abcdef", options = {}) {
   const client = createGatewayClient({
     baseUrl: CONFIG.gatewayUrl,
     timeoutMs: 2000,
-    urlPolicy: { blockedHosts: CONFIG.blockedHosts, allowPrivateHosts: CONFIG.network.allowPrivateHosts },
+    urlPolicy: urlPolicyFromConfig(CONFIG),
   });
   return { fake, client, extension: createExtension({ config: CONFIG, client, cache: createCache(), userId }) };
 }
@@ -146,16 +147,30 @@ test("the extension's read details carry metadata, not a second copy of the page
 test("a page that stayed thin is annotated in the text the model reads", async (t) => {
   const { extension } = extensionFor(t, "pi-thin", {
     snapshotScripts: new Map([["https://spa.test/", ['- heading "Loading…" [level=1]']]]),
+    config: { read: { settlePollMs: 10 } },
+  });
+
+  const outcome = await extension.read({ url: "https://spa.test/" });
+
+  assert.match(outcome.text, /\[page was still only \d+ chars after waiting/u);
+  assert.match(outcome.text, /retry with waitFor set to a selector you expect/u, "the note names the way out");
+  assert.equal(outcome.details.thinAfterWait, true);
+});
+
+test("a thin page does not get sent back for the lever it already pulled", async (t) => {
+  // `waitFor` ran and the page is still thin, so asking for `waitFor` again is not advice. It also
+  // covers the case where the gateway has no /wait route at all.
+  const { extension } = extensionFor(t, "pi-thin-waited", {
+    snapshotScripts: new Map([["https://spa.test/", ['- heading "Loading…" [level=1]']]]),
     waitRoute: false,
     config: { read: { settlePollMs: 10 } },
   });
 
   const outcome = await extension.read({ url: "https://spa.test/", waitFor: "#article" });
 
-  assert.match(outcome.text, /\[page was still only \d+ chars after waiting/u);
-  assert.match(outcome.text, /waitFor/u, "the note has to name the way out");
   assert.match(outcome.text, /\[waitFor "#article" was not performed:/u, "a wait that could not run must be admitted");
-  assert.equal(outcome.details.thinAfterWait, true);
+  assert.match(outcome.text, /raise read\.waitForSettleMs/u);
+  assert.equal(/retry with waitFor/u.test(outcome.text), false, "the note contradicts the call that was just made");
 });
 
 test("a dead gateway costs one liveness probe per window, not one timeout per call", async (t) => {

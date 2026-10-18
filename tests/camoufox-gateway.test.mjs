@@ -9,11 +9,15 @@
 import "./helpers/fetch_guard.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import registerExtension from "../src/camoufox-gateway.ts";
 import { DEFAULT_CONFIG, ENGINE_NAMES } from "../src/config.ts";
 import { MAX_RESULTS_HARD_LIMIT } from "../src/tools/search.ts";
 import { READ_DESCRIPTION, SEARCH_DESCRIPTION } from "../src/extension.ts";
+import { withFakeGateway } from "./helpers/fake_gateway.mjs";
 
 function stubPi() {
   const tools = [];
@@ -110,4 +114,28 @@ test("parameter descriptions quote the code, so they cannot drift from it", () =
     new RegExp(String(DEFAULT_CONFIG.read.waitForTimeoutMs), "u"),
     `"${read.waitFor.description}" does not quote read.waitForTimeoutMs`,
   );
+});
+
+test("the registered tool enforces the configured address guard end to end", async (t) => {
+  // Every other url-policy test builds its own client, which proves the rule but not the wiring: this
+  // one goes through `pi.registerTool`, config loading, and the client the extension actually makes.
+  const dir = mkdtempSync(join(tmpdir(), "camoufox-guard-"));
+  const configPath = join(dir, "camoufox.json");
+  writeFileSync(configPath, JSON.stringify({ gatewayUrl: "http://gateway.test:9377", blockedHosts: ["internal.test"] }), "utf8");
+  const previous = process.env.CAMOUFOX_CONFIG_PATH;
+  process.env.CAMOUFOX_CONFIG_PATH = configPath;
+  t.after(() => {
+    if (previous === undefined) delete process.env.CAMOUFOX_CONFIG_PATH;
+    else process.env.CAMOUFOX_CONFIG_PATH = previous;
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  const fake = withFakeGateway(t);
+  const { byName } = registered();
+  const ctx = { sessionManager: { getSessionId: () => `pi-guard-${process.hrtime.bigint()}` } };
+  const call = (url) => byName.camoufox_read.execute("id", { url }, undefined, () => undefined, ctx);
+
+  assert.match((await call("http://169.254.169.254/latest/meta-data/")).content[0].text, /private_network/u);
+  assert.match((await call("https://internal.test/admin")).content[0].text, /host_blocked/u);
+  assert.equal(fake.state.calls.filter((c) => c.path === "/tabs/open").length, 0, "the gateway was asked to open them anyway");
 });

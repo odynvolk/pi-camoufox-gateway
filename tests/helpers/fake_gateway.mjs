@@ -45,8 +45,10 @@ export function createFakeGateway(options = {}) {
     failOpen: false,
     redirects: new Map(), // requested url -> final url the browser lands on
     snapshotScripts: new Map(), // url -> successive snapshot texts (a page that renders late)
+    redirectAfterOpen: new Map(), // url -> where the page navigates itself once the tab is open
     waitRoute: true, // false simulates a gateway with no POST /tabs/{id}/wait
     waitSelectorMisses: false, // true answers { ok: false }: the selector never appeared
+    waitError: null, // string: the gateway refused the wait, e.g. "Invalid selector"
     openLatencyMs: 0,
     hangUrls: new Set(),
     hangForMs: 10_000,
@@ -224,7 +226,20 @@ export function createFakeGateway(options = {}) {
 
       if (method === "GET" && sub === "/snapshot") {
         if (state.failSnapshot) return json({ error: "snapshot exploded" }, 500);
-        const text = snapshotTextFor(tab);
+        // A page can move after we opened it (meta refresh, `location.href`), which is the case the
+        // pre-flight url check cannot see.
+        const jumped = state.redirectAfterOpen.get(tab.url);
+        if (jumped && !tab.jumped) {
+          tab.jumped = true;
+          tab.url = jumped;
+          tab.title = jumped;
+        }
+        const full = snapshotTextFor(tab);
+        // The real gateway paginates, so the fake must: `read` decides whether to poll on the size of
+        // the whole page and reports the slice, and a stub that ignored `offset` would hide any bug in
+        // telling those two apart.
+        const offset = Math.max(0, Number.parseInt(url.searchParams.get("offset") ?? "0", 10) || 0);
+        const text = full.slice(offset);
         const limit = state.snapshotLimit;
         const truncated = text.length > limit;
         return json({
@@ -232,14 +247,15 @@ export function createFakeGateway(options = {}) {
           snapshot: truncated ? text.slice(0, limit) : text,
           refsCount: (text.match(/\[e\d+\]/g) ?? []).length,
           truncated,
-          totalChars: text.length,
+          totalChars: full.length,
           hasMore: truncated,
-          nextOffset: truncated ? limit : text.length,
+          nextOffset: truncated ? offset + limit : offset + text.length,
         });
       }
 
       if (method === "POST" && sub === "/wait") {
         if (!state.waitRoute) return json({ error: "Not Found" }, 404);
+        if (state.waitError) return json({ ok: false, error: state.waitError, tabId });
         if (state.waitSelectorMisses) return json({ ok: false, tabId });
         return json({ ok: true, tabId });
       }

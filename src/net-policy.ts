@@ -13,6 +13,7 @@
  */
 
 import { GatewayError } from "./errors.ts";
+import type { CamoufoxConfig } from "./config.ts";
 
 export interface UrlPolicy {
   /** Hosts the caller listed in `blockedHosts`. */
@@ -27,13 +28,28 @@ export interface UrlPolicy {
 
 export const DEFAULT_URL_POLICY: UrlPolicy = { blockedHosts: [], allowPrivateHosts: false };
 
+/**
+ * Build the policy from a loaded config.
+ *
+ * Every client construction site needs the same two fields; hand-writing the literal at each one is
+ * how a third policy setting ends up honoured in one path and ignored in another.
+ */
+export function urlPolicyFromConfig(config: CamoufoxConfig): UrlPolicy {
+  return { blockedHosts: config.blockedHosts, allowPrivateHosts: config.network.allowPrivateHosts };
+}
+
 /** Names that mean "internal" without being an IP literal. */
 const PRIVATE_NAMES = new Set(["localhost", "metadata.google.internal"]);
 
 /** `*.localhost` is loopback by RFC 6761, same as the bare name. */
 const PRIVATE_SUFFIX = ".localhost";
 
-function parseHttpUrl(url: string): URL {
+interface ParsedUrl {
+  /** Host, lower-cased and with a trailing `.` removed. */
+  host: string;
+}
+
+function parseHttpUrl(url: string): ParsedUrl {
   let parsed: URL;
   try {
     parsed = new URL(url);
@@ -46,7 +62,10 @@ function parseHttpUrl(url: string): URL {
   if (!parsed.hostname) {
     throw new GatewayError("blocked_url", `"${url}" has no host to open in a browser tab`);
   }
-  return parsed;
+  // `new URL()` keeps the FQDN terminator and even decodes `%2e` into one, so `evil.test.` resolves
+  // exactly like `evil.test`. Normalising here — the only place a host is read — means the host rules
+  // and the address rules below can never disagree about what a url points at.
+  return { host: parsed.hostname.toLowerCase().replace(/\.$/u, "") };
 }
 
 function matchesHostRule(host: string, rule: string): boolean {
@@ -116,9 +135,9 @@ export function isPrivateHost(host: string): boolean {
   return isPrivateIpv4(lowered) || isPrivateIpv6(lowered);
 }
 
-/** The `blockedHosts` half of the policy, kept separate so the read tool can name the rule it hit. */
+/** The `blockedHosts` half of the policy, kept separate so a caller can name the rule it hit. */
 export function assertHostAllowed(url: string, blockedHosts: string[]): void {
-  const host = parseHttpUrl(url).hostname.toLowerCase();
+  const host = parseHttpUrl(url).host;
   const rule = blockedHosts.map((entry) => entry.toLowerCase()).find((entry) => matchesHostRule(host, entry));
   if (rule !== undefined) {
     throw new GatewayError("host_blocked", `"${host}" is listed in camoufox blockedHosts, so it was not fetched`, {
@@ -137,7 +156,7 @@ export function assertHostAllowed(url: string, blockedHosts: string[]): void {
  * What it cannot reach is a *name* that resolves to one of those — see the module comment.
  */
 export function assertTabUrlAllowed(url: string, policy: UrlPolicy = DEFAULT_URL_POLICY): void {
-  const host = parseHttpUrl(url).hostname.toLowerCase();
+  const host = parseHttpUrl(url).host;
   assertHostAllowed(url, policy.blockedHosts);
   if (!policy.allowPrivateHosts && isPrivateHost(host)) {
     throw new GatewayError(

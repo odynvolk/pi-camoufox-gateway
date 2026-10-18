@@ -9,6 +9,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { Type, type Static } from "typebox";
 
 import { DEFAULT_CONFIG, ENGINE_NAMES } from "./config.ts";
+import { urlPolicyFromConfig } from "./net-policy.ts";
 import { createExtension, formatError, resolveConfig, READ_DESCRIPTION, SEARCH_DESCRIPTION, type Extension } from "./extension.ts";
 import { MAX_RESULTS_HARD_LIMIT } from "./tools/search.ts";
 import { createCache } from "./cache.ts";
@@ -54,7 +55,7 @@ function getExtension(ctx: ExtensionContext): Extension {
     ...(config.apiKey ? { apiKey: config.apiKey } : {}),
     timeoutMs: config.timeoutMs,
     // Applied to every tab the client opens, including search-result url resolution.
-    urlPolicy: { blockedHosts: config.blockedHosts, allowPrivateHosts: config.network.allowPrivateHosts },
+    urlPolicy: urlPolicyFromConfig(config),
   });
   const extension = createExtension({
     config,

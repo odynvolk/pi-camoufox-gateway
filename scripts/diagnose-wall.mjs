@@ -1,6 +1,7 @@
 import { loadConfig } from "../src/config.ts";
 import { createGatewayClient } from "../src/gateway.ts";
 import { detectWall } from "../src/snapshot.ts";
+import { urlPolicyFromConfig } from "../src/net-policy.ts";
 
 // Resolve the gateway the same way the extension does — defaults, then config file, then env — so
 // this diagnoses the deployment you actually have rather than the deployment in a hardcoded string.
@@ -13,7 +14,7 @@ const client = createGatewayClient({
   timeoutMs: config.timeoutMs,
   // Same policy as the extension: a diagnostic that opens tabs the tools would refuse reports on a
   // page the model can never read.
-  urlPolicy: { blockedHosts: config.blockedHosts, allowPrivateHosts: config.network.allowPrivateHosts },
+  urlPolicy: urlPolicyFromConfig(config),
 });
 const url = process.argv[2] ?? "https://github.com/daijro/camoufox";
 const tab = await client.openTab({ userId: "pi-diag", url });

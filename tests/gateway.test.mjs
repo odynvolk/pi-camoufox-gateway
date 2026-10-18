@@ -67,7 +67,11 @@ test("snapshot requests the tab path with userId and offset", async (t) => {
   const snap = await client.snapshot({ userId: "u1", tabId, offset: 100 });
 
   assert.equal(snap.url, "https://example.com");
-  assert.ok(snap.text.includes("Page:"));
+  assert.ok(snap.text.includes("content"), `slice was: ${snap.text.slice(0, 60)}`);
+  assert.ok(
+    snap.totalChars > snap.text.length,
+    "the gateway reports the whole page, so an offset has to come off the front of it",
+  );
   const call = fake.state.calls.find((c) => c.path.startsWith(`/tabs/${tabId}/snapshot`));
   assert.match(call.path, /userId=u1/u);
   assert.match(call.path, /offset=100/u);
@@ -210,6 +214,17 @@ test("waitFor reports a selector that never appeared without throwing", async (t
 
   assert.equal(wait.ok, false, "ok:false is an answer, not a failure");
   assert.equal(wait.skipped, undefined, "the wait ran, so this is not a missing route");
+  assert.equal(wait.error, undefined, "nothing was refused, it just did not match");
+});
+
+test("waitFor carries the gateway's own reason for refusing", async (t) => {
+  const { client } = clientWith(t, { waitError: "Invalid selector" });
+  const { tabId } = await openTab(t, client, "u1", "https://example.com");
+
+  const wait = await client.waitFor({ userId: "u1", tabId, selector: "###" });
+
+  assert.equal(wait.ok, false);
+  assert.equal(wait.error, "Invalid selector", "a refused wait must not be reported as a slow page");
 });
 
 test("waitFor on a gateway with no wait endpoint says so instead of failing", async (t) => {

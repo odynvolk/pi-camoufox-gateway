@@ -12,7 +12,8 @@ import assert from "node:assert/strict";
 
 import { withFakeGateway } from "./helpers/fake_gateway.mjs";
 import { createGatewayClient } from "../src/gateway.ts";
-import { assertHostAllowed, assertTabUrlAllowed, isPrivateHost } from "../src/net-policy.ts";
+import { DEFAULT_CONFIG } from "../src/config.ts";
+import { assertHostAllowed, assertTabUrlAllowed, isPrivateHost, urlPolicyFromConfig } from "../src/net-policy.ts";
 import { resolveUrls } from "../src/resolve.ts";
 import { GatewayError } from "../src/errors.ts";
 
@@ -164,4 +165,50 @@ test("an allowed internal host is opened by the client once the policy opts in",
   assert.ok(tab.tabId);
   assert.equal(fake.state.calls.filter((c) => c.path === "/tabs/open").length, 1);
   await client.closeTab({ userId: "u1", tabId: tab.tabId });
+});
+
+test("blockedHosts cannot be bypassed with a trailing dot or an encoded one", () => {
+  // `new URL()` keeps `evil.test.` and decodes `%2e` to a dot, so a rule that matched only the exact
+  // hostname was a guard the url could walk around.
+  const policy = { blockedHosts: ["evil.test", "*.corp.test"], allowPrivateHosts: false };
+
+  for (const url of ["https://evil.test./x", "https://evil.test%2e/x", "https://a.evil.test./x", "https://db.corp.test%2e/x"]) {
+    assert.equal(codeFor(() => assertTabUrlAllowed(url, policy)), "host_blocked", `${url} slipped past blockedHosts`);
+  }
+});
+
+test("a redirect into an internal address is refused, and the tab does not stay open", async (t) => {
+  // Checking the url we were handed is not enough: the browser follows redirects we never see, and
+  // without this the guard was a public url away from the metadata endpoint.
+  const fake = withFakeGateway(t, {
+    redirects: new Map([["https://public.test/x", "http://169.254.169.254/latest/meta-data/"]]),
+  });
+  const client = createGatewayClient({ baseUrl: BASE, timeoutMs: 2000, urlPolicy: OPEN });
+
+  const error = await client.openTab({ userId: "u1", url: "https://public.test/x" }).catch((e) => e);
+
+  assert.equal(error.code, "private_network");
+  assert.equal(client.openTabCount(), 0, "the tab we were redirected into must be closed");
+  assert.deepEqual(fake.liveTabs(), []);
+});
+
+test("a redirect into a blocked host is refused the same way", async (t) => {
+  const fake = withFakeGateway(t, { redirects: new Map([["https://public.test/x", "https://internal.test/admin"]]) });
+  const client = createGatewayClient({
+    baseUrl: BASE,
+    timeoutMs: 2000,
+    urlPolicy: { blockedHosts: ["internal.test"], allowPrivateHosts: false },
+  });
+
+  const error = await client.openTab({ userId: "u1", url: "https://public.test/x" }).catch((e) => e);
+
+  assert.equal(error.code, "host_blocked");
+  assert.deepEqual(fake.liveTabs(), []);
+});
+
+test("urlPolicyFromConfig is the only way a policy is built from a config", () => {
+  const config = { ...structuredClone(DEFAULT_CONFIG), blockedHosts: ["a.test"], network: { allowPrivateHosts: true } };
+
+  assert.deepEqual(urlPolicyFromConfig(config), { blockedHosts: ["a.test"], allowPrivateHosts: true });
+  assert.deepEqual(urlPolicyFromConfig(DEFAULT_CONFIG), { blockedHosts: [], allowPrivateHosts: false });
 });

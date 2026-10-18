@@ -10,7 +10,7 @@
 import type { CamoufoxConfig } from "../config.ts";
 import { GatewayError } from "../errors.ts";
 import type { GatewayClient, SnapshotResult } from "../gateway.ts";
-import { assertTabUrlAllowed } from "../net-policy.ts";
+import { assertTabUrlAllowed, urlPolicyFromConfig } from "../net-policy.ts";
 import { detectWall, extractText, type ExtractedText } from "../snapshot.ts";
 
 export interface ReadToolDeps {
@@ -43,6 +43,8 @@ export interface ReadOutcome {
   settledInMs?: number;
   /** Set when the page was still thin after every wait: probably client-rendered. */
   thinAfterWait?: boolean;
+  /** True when the caller asked for a selector wait, so the notes can stop recommending it. */
+  waitForRequested?: boolean;
   /** What a `waitFor` did not achieve, in words the model can act on. Absent when it worked. */
   waitNote?: string;
 }
@@ -76,9 +78,22 @@ export function readTool(deps: ReadToolDeps) {
   const { client, config, userId } = deps;
   const read = config.read;
 
-  /** Refuse before the browser is touched: the gateway enforces no host or address policy of its own. */
+  /**
+   * Same rules `GatewayClient.openTab` applies, called here on purpose: a client constructed without
+   * a policy must not silently turn the read tool into the unguarded path.
+   */
   function assertAllowed(url: string): void {
-    assertTabUrlAllowed(url, { blockedHosts: config.blockedHosts, allowPrivateHosts: config.network.allowPrivateHosts });
+    assertTabUrlAllowed(url, urlPolicyFromConfig(config));
+  }
+
+  /**
+   * How much of the page exists, as opposed to how much of it this call returned.
+   *
+   * `text` is the slice from `params.offset` onward, so judging thinness on it would call the last
+   * screen of a 45 000-char article "not yet rendered" and poll it twice before saying so.
+   */
+  function pageChars(snapshot: SnapshotResult): number {
+    return typeof snapshot.totalChars === "number" && snapshot.totalChars > 0 ? snapshot.totalChars : (snapshot.text ?? "").length;
   }
 
   /**
@@ -90,7 +105,7 @@ export function readTool(deps: ReadToolDeps) {
    */
   function worthPollingAgain(snapshot: SnapshotResult): boolean {
     if (read.waitForSettleMs <= 0) return false;
-    if ((snapshot.text ?? "").trim().length >= read.settleMinChars) return false;
+    if (pageChars(snapshot) >= read.settleMinChars) return false;
     const wall = detectWall(snapshot);
     return wall === null || wall === "empty_page";
   }
@@ -137,7 +152,10 @@ export function readTool(deps: ReadToolDeps) {
           signal: params.signal,
         });
         if (wait.skipped) waitNote = `waitFor "${params.waitFor}" was not performed: ${wait.skipped}`;
-        else if (!wait.ok) waitNote = `waitFor "${params.waitFor}" did not appear within ${read.waitForTimeoutMs}ms`;
+        else if (!wait.ok)
+          waitNote = wait.error
+            ? `waitFor "${params.waitFor}" was refused: ${wait.error}`
+            : `waitFor "${params.waitFor}" did not appear within ${read.waitForTimeoutMs}ms`;
       }
 
       const { snapshot, settledInMs, polled } = await snapshotSettled(tab.tabId, params.offset, params.signal);
@@ -148,6 +166,12 @@ export function readTool(deps: ReadToolDeps) {
           details: { url: snapshot.url, refsCount: snapshot.refsCount },
         });
       }
+
+      // Where we ended up is part of the policy decision, not just of the report: a client-side
+      // redirect can leave the tab somewhere the url we asked for did not. Checked after the wall
+      // classification so a page that never rendered stays `empty_page` rather than a refusal, and
+      // before anything is returned so no body from an internal address is ever handed back.
+      if (snapshot.url) assertAllowed(snapshot.url);
 
       let extracted: Record<string, unknown> | undefined;
       if (params.schema) {
@@ -161,7 +185,7 @@ export function readTool(deps: ReadToolDeps) {
 
       const budget = params.maxChars ?? read.defaultMaxChars;
       const sliced: ExtractedText = extractText(snapshot, { maxChars: budget, offset: params.offset });
-      const thin = (snapshot.text ?? "").trim().length < read.settleMinChars;
+      const thin = pageChars(snapshot) < read.settleMinChars;
 
       return {
         url: snapshot.url || tab.url,
@@ -174,6 +198,7 @@ export function readTool(deps: ReadToolDeps) {
         refsCount: snapshot.refsCount,
         ...(polled ? { settledInMs } : {}),
         ...(thin && (polled || params.waitFor) ? { thinAfterWait: true } : {}),
+        ...(params.waitFor ? { waitForRequested: true } : {}),
         ...(waitNote ? { waitNote } : {}),
       };
     } finally {

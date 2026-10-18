@@ -6,6 +6,7 @@ import { readFileSync } from "node:fs";
 import { withFakeGateway } from "./helpers/fake_gateway.mjs";
 import { testConfig } from "./helpers/config.mjs";
 import { createGatewayClient } from "../src/gateway.ts";
+import { urlPolicyFromConfig } from "../src/net-policy.ts";
 import { createCache } from "../src/cache.ts";
 import { searchTool } from "../src/tools/search.ts";
 import { enginesFromConfig } from "../src/engines/chain.ts";
@@ -18,7 +19,7 @@ function setup(t, options = {}) {
   const client = createGatewayClient({
     baseUrl: BASE,
     timeoutMs: 2000,
-    urlPolicy: { blockedHosts: config.blockedHosts, allowPrivateHosts: config.network.allowPrivateHosts },
+    urlPolicy: urlPolicyFromConfig(config),
     ...(options.client ?? {}),
   });
   const engines = enginesFromConfig(config.engines);

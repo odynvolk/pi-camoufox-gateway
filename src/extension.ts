@@ -139,9 +139,13 @@ function renderRead(outcome: ReadOutcome): string {
   const notes: string[] = [];
   if (outcome.thinAfterWait) {
     const waited = outcome.settledInMs ? ` after waiting ${outcome.settledInMs}ms` : "";
-    notes.push(
-      `[page was still only ${outcome.totalChars} chars${waited} — likely client-rendered; retry with waitFor set to a selector you expect]`,
-    );
+    // Do not send the model back for the lever it just pulled: when `waitFor` ran, or could not, the
+    // knobs left are the settle budget and the text bound.
+    const nextStep =
+      outcome.waitForRequested || outcome.waitNote
+        ? "raise read.waitForSettleMs, or read with a larger maxChars"
+        : "retry with waitFor set to a selector you expect";
+    notes.push(`[page was still only ${outcome.totalChars} chars${waited} — likely client-rendered; ${nextStep}]`);
   }
   if (outcome.waitNote) notes.push(`[${outcome.waitNote}]`);
   return `${header}\n\n${outcome.text}${extracted}${notes.length ? `\n\n${notes.join("\n")}` : ""}${footer}`;

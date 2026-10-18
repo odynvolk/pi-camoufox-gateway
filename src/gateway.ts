@@ -49,8 +49,13 @@ export interface SnapshotResult {
 }
 
 export interface WaitOutcome {
-  /** True when the gateway says the selector appeared. */
+  /**
+   * True when the gateway says the selector appeared. A gateway that omits `ok` counts as success: the
+   * read still has to return the page, and a missing field is not evidence the selector was absent.
+   */
   ok: boolean;
+  /** The gateway's own reason for a failed wait, e.g. an invalid selector. */
+  error?: string;
   /**
    * Set when the wait could not be performed at all — an older gateway without `POST /tabs/{id}/wait`
    * — so the caller can say so instead of claiming the page was waited for.
@@ -242,12 +247,23 @@ export class GatewayClient {
       throw new GatewayError("gateway_error", "gateway opened a tab without reporting a tabId");
     }
     this.liveTabs.set(tabId, params.userId);
-    return {
+    const result: OpenTabResult = {
       tabId,
       targetId: typeof body.targetId === "string" ? body.targetId : undefined,
       url: typeof body.url === "string" ? body.url : params.url,
       title: typeof body.title === "string" ? body.title : undefined,
     };
+
+    // The browser followed redirects we never saw. Checking only the url we were handed would make
+    // any public page a free pass to an internal one, and the destination is already in the response.
+    try {
+      assertTabUrlAllowed(result.url, this.urlPolicy);
+    } catch (error) {
+      await this.closeTabQuietly({ userId: params.userId, tabId });
+      throw error;
+    }
+
+    return result;
   }
 
   /**
@@ -344,7 +360,7 @@ export class GatewayClient {
         signal: params.signal,
         tolerateNotOk: true,
       });
-      return { ok: body.ok !== false };
+      return { ok: body.ok !== false, ...(typeof body.error === "string" ? { error: body.error } : {}) };
     } catch (error) {
       if (error instanceof GatewayError && /has no route/iu.test(error.message)) {
         return { ok: false, skipped: "gateway has no /wait route" };
