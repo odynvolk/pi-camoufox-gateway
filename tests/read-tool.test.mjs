@@ -171,11 +171,34 @@ test("an abort in flight still closes the gateway's tab", async (t) => {
   assert.equal(client.openTabCount(), 0);
 });
 
+test("an abort that lands during a settle sleep ends the read and closes the tab", async (t) => {
+  // The other abort case cancels during `openTab`, before the loop exists. This one lands inside
+  // `delay()`, where the failure modes are a timer left running and a tab left open.
+  const { fake, client, tool } = setup(t, {
+    snapshotScripts: new Map([["https://spa.test/hang", ['- heading "Loading…" [level=1]']]]),
+    config: { read: { settlePollMs: 5_000 } },
+  });
+  const controller = new AbortController();
+  const running = tool.read({ url: "https://spa.test/hang", signal: controller.signal }).catch((e) => e);
+  const startedAt = Date.now();
+
+  const abortTimer = setTimeout(() => controller.abort(), 10);
+  const error = await running;
+  clearTimeout(abortTimer);
+
+  assert.equal(error.code, "aborted");
+  assert.match(error.message, /cancelled while waiting for the page to render/u, "the sleep is where it stopped");
+  assert.ok(Date.now() - startedAt < 1_000, "the 5s sleep outlived the abort, so the timer was not cleared");
+  assert.deepEqual(fake.liveTabs(), []);
+  assert.equal(client.openTabCount(), 0);
+});
+
 test("a page that renders after the first snapshot is read hydrated, not as a skeleton", async (t) => {
   const skeleton = '- heading "Loading…" [level=1]';
   const hydrated = `- heading "The real article" [level=1]\n${'  - text: body copy that only exists after the app boots. '.repeat(40)}`;
   const { fake, tool } = setup(t, {
     snapshotScripts: new Map([["https://spa.test/", [skeleton, skeleton, hydrated]]]),
+    config: { read: { settlePollMs: 10 } },
   });
 
   const out = await tool.read({ url: "https://spa.test/" });
