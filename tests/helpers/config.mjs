@@ -8,7 +8,7 @@
 
 import { DEFAULT_CONFIG } from "../../src/config.ts";
 
-function isPlainObject(value) {
+export function isPlainObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 

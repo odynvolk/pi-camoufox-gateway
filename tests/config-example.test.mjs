@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { DEFAULT_CONFIG, loadConfig } from "../src/config.ts";
+import { isPlainObject } from "./helpers/config.mjs";
 
 const example = JSON.parse(readFileSync(new URL("../config.example.json", import.meta.url), "utf8"));
 
@@ -25,10 +26,17 @@ test("the shipped config example is a config the loader accepts", (t) => {
 
 test("the example documents every setting the loader knows about", () => {
   // An undocumented setting is a setting nobody can discover, and a section the example shows only
-  // partly invites a caller to guess at the missing keys.
-  // `apiKey` is deliberately absent from the example; everything else has to be discoverable there.
+  // partly invites a caller to guess at the missing keys. The sections are derived from
+  // `DEFAULT_CONFIG`: a hardcoded list checks the four that existed when this was written and waves
+  // through the next one, which is exactly the drift the test exists to catch.
+  // `apiKey` is deliberately absent from the example, and from `DEFAULT_CONFIG`, so nothing has to be
+  // allowed for it here.
   assert.deepEqual(Object.keys(example).sort(), Object.keys(DEFAULT_CONFIG).sort());
-  for (const section of ["cache", "read", "search", "network"]) {
+
+  const sections = Object.keys(DEFAULT_CONFIG).filter((key) => isPlainObject(DEFAULT_CONFIG[key]));
+  // Without this the loop could be vacuous and still be green.
+  assert.ok(sections.length > 0, "expected object-valued sections to compare, found none");
+  for (const section of sections) {
     assert.deepEqual(
       Object.keys(example[section]).sort(),
       Object.keys(DEFAULT_CONFIG[section]).sort(),
