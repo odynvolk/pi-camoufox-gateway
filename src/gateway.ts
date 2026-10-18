@@ -260,7 +260,7 @@ export class GatewayClient {
     // The browser followed redirects we never saw. Checking only the url we were handed would make
     // any public page a free pass to an internal one, and the destination is already in the response.
     try {
-      assertTabUrlAllowed(result.url, this.urlPolicy);
+      assertTabUrlAllowed(result.url, this.urlPolicy, "destination");
     } catch (error) {
       await this.closeTabQuietly({ userId: params.userId, tabId });
       throw error;

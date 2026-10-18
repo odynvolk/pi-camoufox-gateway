@@ -135,17 +135,21 @@ function renderRead(outcome: ReadOutcome): string {
   const footer = outcome.nextOffset !== null ? `\n\n[continue with offset=${outcome.nextOffset}]` : "";
   const extracted = outcome.extracted ? `\n\nExtracted: ${JSON.stringify(outcome.extracted)}` : "";
   // A page that stayed thin after every wait is a different situation from a short page: say which,
-  // or the model concludes the site is empty and stops trying.
+  // and name only a lever that can still move the outcome. The page is thinner than the default text
+  // budget, so more `maxChars` helps only where we did the cutting, and a bigger settle budget is
+  // only the answer when it ran out while the page was still growing.
   const notes: string[] = [];
   if (outcome.thinAfterWait) {
     const waited = outcome.settledInMs ? ` after waiting ${outcome.settledInMs}ms` : "";
-    // Do not send the model back for the lever it just pulled: when `waitFor` ran, or could not, the
-    // knobs left are the settle budget and the text bound.
-    const nextStep =
-      outcome.waitForRequested || outcome.waitNote
-        ? "raise read.waitForSettleMs, or read with a larger maxChars"
-        : "retry with waitFor set to a selector you expect";
-    notes.push(`[page was still only ${outcome.totalChars} chars${waited} — likely client-rendered; ${nextStep}]`);
+    const knobs: string[] = [];
+    if (outcome.stalledAtDeadline) knobs.push("raise read.waitForSettleMs");
+    if (outcome.truncated) knobs.push("read with a larger maxChars");
+    if (!outcome.waitForRequested && !outcome.waitNote) knobs.push("retry with waitFor set to a selector you expect");
+    notes.push(
+      knobs.length
+        ? `[page was still only ${outcome.totalChars} chars${waited} — likely client-rendered; ${knobs.join(", or ")}]`
+        : `[page was still only ${outcome.totalChars} chars${waited} — it stopped growing there, so it is thin rather than unfinished]`,
+    );
   }
   if (outcome.waitNote) notes.push(`[${outcome.waitNote}]`);
   return `${header}\n\n${outcome.text}${extracted}${notes.length ? `\n\n${notes.join("\n")}` : ""}${footer}`;
@@ -166,10 +170,15 @@ export function formatError(error: unknown, config: CamoufoxConfig): { text: str
       'Set "network": { "allowPrivateHosts": true } in camoufox.json (or CAMOUFOX_ALLOW_PRIVATE_HOSTS=1) if this host is meant to be reachable.',
     );
   }
+  // `host_blocked` and `unsupported` also fire on the destination the browser reports, by which point a
+  // tab was opened and a page was fetched — only the pre-flight refusal may claim nothing went out.
+  const preFlight = gatewayError.details?.stage !== "destination";
   if (gatewayError.code === "host_blocked") {
-    lines.push("The host is in your camoufox blockedHosts list; nothing was sent to the gateway.");
+    lines.push(
+      `The host is in your camoufox blockedHosts list, so its content was not returned.${preFlight ? "" : " The browser was redirected there."}`,
+    );
   }
-  if (gatewayError.code === "unsupported") {
+  if (gatewayError.code === "unsupported" && preFlight) {
     lines.push("Nothing was fetched from the gateway.");
   }
   return {

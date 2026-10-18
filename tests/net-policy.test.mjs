@@ -114,7 +114,7 @@ test("blockedHosts wins over the address rule so the message names the user's li
   })();
 
   assert.equal(error.code, "host_blocked");
-  assert.deepEqual(error.details, { host: "169.254.169.254", rule: "169.254.169.254" });
+  assert.deepEqual(error.details, { host: "169.254.169.254", rule: "169.254.169.254", stage: "request" });
 });
 
 test("allowPrivateHosts is the documented escape hatch", () => {
@@ -188,6 +188,7 @@ test("a redirect into an internal address is refused, and the tab does not stay 
   const error = await client.openTab({ userId: "u1", url: "https://public.test/x" }).catch((e) => e);
 
   assert.equal(error.code, "private_network");
+  assert.equal(error.details.stage, "destination", "the model must not be told nothing was sent");
   assert.equal(client.openTabCount(), 0, "the tab we were redirected into must be closed");
   assert.deepEqual(fake.liveTabs(), []);
 });
@@ -203,6 +204,7 @@ test("a redirect into a blocked host is refused the same way", async (t) => {
   const error = await client.openTab({ userId: "u1", url: "https://public.test/x" }).catch((e) => e);
 
   assert.equal(error.code, "host_blocked");
+  assert.equal(error.details.stage, "destination");
   assert.deepEqual(fake.liveTabs(), []);
 });
 

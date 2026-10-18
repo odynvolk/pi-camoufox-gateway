@@ -10,7 +10,7 @@
 import type { CamoufoxConfig } from "../config.ts";
 import { GatewayError } from "../errors.ts";
 import type { GatewayClient, SnapshotResult } from "../gateway.ts";
-import { assertTabUrlAllowed, urlPolicyFromConfig } from "../net-policy.ts";
+import { assertTabUrlAllowed, urlPolicyFromConfig, type UrlCheckStage } from "../net-policy.ts";
 import { detectWall, extractText, type ExtractedText } from "../snapshot.ts";
 
 export interface ReadToolDeps {
@@ -41,6 +41,8 @@ export interface ReadOutcome {
   refsCount: number;
   /** Extra time spent re-snapshotting a thin page. Absent when no polling was needed. */
   settledInMs?: number;
+  /** The settle budget ran out while the page was still growing, so a bigger one could help. */
+  stalledAtDeadline?: boolean;
   /** Set when the page was still thin after every wait: probably client-rendered. */
   thinAfterWait?: boolean;
   /** True when the caller asked for a selector wait, so the notes can stop recommending it. */
@@ -82,8 +84,8 @@ export function readTool(deps: ReadToolDeps) {
    * Same rules `GatewayClient.openTab` applies, called here on purpose: a client constructed without
    * a policy must not silently turn the read tool into the unguarded path.
    */
-  function assertAllowed(url: string): void {
-    assertTabUrlAllowed(url, urlPolicyFromConfig(config));
+  function assertAllowed(url: string, stage: UrlCheckStage = "request"): void {
+    assertTabUrlAllowed(url, urlPolicyFromConfig(config), stage);
   }
 
   /**
@@ -114,15 +116,19 @@ export function readTool(deps: ReadToolDeps) {
     tabId: string,
     offset: number | undefined,
     signal?: AbortSignal,
-  ): Promise<{ snapshot: SnapshotResult; settledInMs: number; polled: boolean }> {
+  ): Promise<{ snapshot: SnapshotResult; settledInMs: number; polled: boolean; stalledAtDeadline: boolean }> {
     const first = await client.snapshot({ userId, tabId, offset, signal });
-    if (!worthPollingAgain(first)) return { snapshot: first, settledInMs: 0, polled: false };
+    if (!worthPollingAgain(first)) return { snapshot: first, settledInMs: 0, polled: false, stalledAtDeadline: false };
 
     const startedAt = Date.now();
     const deadline = startedAt + read.waitForSettleMs;
     let latest = first;
     let unchanged = 0;
     let polled = false;
+    // Whether the budget ran out while the page was still growing. That is the only case where
+    // "raise the budget" is honest advice: a page that stopped growing on its own will not grow
+    // because we asked again.
+    let stalledAtDeadline = true;
     // One repeat is a slow script, two is a finished page: that is the stop signal available without
     // knowing the app's selectors. The deadline bounds how long it can take, and each poll is its own
     // gateway request, so the worst case is the deadline plus one request.
@@ -132,9 +138,12 @@ export function readTool(deps: ReadToolDeps) {
       unchanged = next.text.length === latest.text.length ? unchanged + 1 : 0;
       latest = next;
       polled = true;
-      if (unchanged >= STABLE_ROUNDS || !worthPollingAgain(next)) break;
+      if (unchanged >= STABLE_ROUNDS || !worthPollingAgain(next)) {
+        stalledAtDeadline = false;
+        break;
+      }
     }
-    return { snapshot: latest, settledInMs: Date.now() - startedAt, polled };
+    return { snapshot: latest, settledInMs: Date.now() - startedAt, polled, stalledAtDeadline };
   }
 
   async function run(params: ReadParams): Promise<ReadOutcome> {
@@ -158,7 +167,7 @@ export function readTool(deps: ReadToolDeps) {
             : `waitFor "${params.waitFor}" did not appear within ${read.waitForTimeoutMs}ms`;
       }
 
-      const { snapshot, settledInMs, polled } = await snapshotSettled(tab.tabId, params.offset, params.signal);
+      const { snapshot, settledInMs, polled, stalledAtDeadline } = await snapshotSettled(tab.tabId, params.offset, params.signal);
 
       const wall = detectWall(snapshot);
       if (wall) {
@@ -171,7 +180,7 @@ export function readTool(deps: ReadToolDeps) {
       // redirect can leave the tab somewhere the url we asked for did not. Checked after the wall
       // classification so a page that never rendered stays `empty_page` rather than a refusal, and
       // before anything is returned so no body from an internal address is ever handed back.
-      if (snapshot.url) assertAllowed(snapshot.url);
+      if (snapshot.url) assertAllowed(snapshot.url, "destination");
 
       let extracted: Record<string, unknown> | undefined;
       if (params.schema) {
@@ -197,6 +206,7 @@ export function readTool(deps: ReadToolDeps) {
         ...(extracted ? { extracted } : {}),
         refsCount: snapshot.refsCount,
         ...(polled ? { settledInMs } : {}),
+        ...(polled && stalledAtDeadline ? { stalledAtDeadline: true } : {}),
         ...(thin && (polled || params.waitFor) ? { thinAfterWait: true } : {}),
         ...(params.waitFor ? { waitForRequested: true } : {}),
         ...(waitNote ? { waitNote } : {}),

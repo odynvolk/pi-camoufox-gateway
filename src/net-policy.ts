@@ -38,6 +38,14 @@ export function urlPolicyFromConfig(config: CamoufoxConfig): UrlPolicy {
   return { blockedHosts: config.blockedHosts, allowPrivateHosts: config.network.allowPrivateHosts };
 }
 
+/**
+ * Whether a refusal happened before we asked for anything, or about where the browser ended up.
+ *
+ * The wording the model gets has to know the difference: after `"destination"` nothing here can
+ * honestly say the gateway was never contacted — a tab was opened and a page was fetched.
+ */
+export type UrlCheckStage = "request" | "destination";
+
 /** Names that mean "internal" without being an IP literal. */
 const PRIVATE_NAMES = new Set(["localhost", "metadata.google.internal"]);
 
@@ -136,12 +144,12 @@ export function isPrivateHost(host: string): boolean {
 }
 
 /** The `blockedHosts` half of the policy, kept separate so a caller can name the rule it hit. */
-export function assertHostAllowed(url: string, blockedHosts: string[]): void {
+export function assertHostAllowed(url: string, blockedHosts: string[], stage: UrlCheckStage = "request"): void {
   const host = parseHttpUrl(url).host;
   const rule = blockedHosts.map((entry) => entry.toLowerCase()).find((entry) => matchesHostRule(host, entry));
   if (rule !== undefined) {
     throw new GatewayError("host_blocked", `"${host}" is listed in camoufox blockedHosts, so it was not fetched`, {
-      details: { host, rule },
+      details: { host, rule, stage },
     });
   }
 }
@@ -155,14 +163,14 @@ export function assertHostAllowed(url: string, blockedHosts: string[]): void {
  * `http://2130706433` and `http://[::ffff:a9fe:a9fe]` into addresses the rules below can recognise.
  * What it cannot reach is a *name* that resolves to one of those — see the module comment.
  */
-export function assertTabUrlAllowed(url: string, policy: UrlPolicy = DEFAULT_URL_POLICY): void {
+export function assertTabUrlAllowed(url: string, policy: UrlPolicy = DEFAULT_URL_POLICY, stage: UrlCheckStage = "request"): void {
   const host = parseHttpUrl(url).host;
-  assertHostAllowed(url, policy.blockedHosts);
+  assertHostAllowed(url, policy.blockedHosts, stage);
   if (!policy.allowPrivateHosts && isPrivateHost(host)) {
     throw new GatewayError(
       "private_network",
       `"${host}" is an internal address, so it was not opened in the browser`,
-      { details: { host } },
+      { details: { host, stage } },
     );
   }
 }

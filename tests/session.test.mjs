@@ -11,18 +11,23 @@ import { createGatewayClient } from "../src/gateway.ts";
 import { createCache } from "../src/cache.ts";
 import { gatewaySessionId } from "../src/session.ts";
 import { urlPolicyFromConfig } from "../src/net-policy.ts";
-import { createExtension, resolveConfig } from "../src/extension.ts";
+import { createExtension, formatError, resolveConfig } from "../src/extension.ts";
+import { GatewayError } from "../src/errors.ts";
 
 const CONFIG = testConfig({ gatewayUrl: "http://gateway.test:9377", timeoutMs: 2000 });
 
 function extensionFor(t, userId = "pi-abcdef", options = {}) {
-  const fake = withFakeGateway(t, options);
+  // `config` belongs to the extension, not to the fake gateway; passing it through unsplit used to
+  // land it in the fake's state, where it was silently ignored and the test ran on the defaults.
+  const { config: configOverrides, ...gatewayOptions } = options;
+  const fake = withFakeGateway(t, gatewayOptions);
+  const config = testConfig({ gatewayUrl: "http://gateway.test:9377", timeoutMs: 2000, ...configOverrides });
   const client = createGatewayClient({
-    baseUrl: CONFIG.gatewayUrl,
-    timeoutMs: 2000,
-    urlPolicy: urlPolicyFromConfig(CONFIG),
+    baseUrl: config.gatewayUrl,
+    timeoutMs: config.timeoutMs,
+    urlPolicy: urlPolicyFromConfig(config),
   });
-  return { fake, client, extension: createExtension({ config: CONFIG, client, cache: createCache(), userId }) };
+  return { fake, client, config, extension: createExtension({ config, client, cache: createCache(), userId }) };
 }
 
 test("the gateway session id is stable, prefixed, and safe for a url path", () => {
@@ -157,9 +162,10 @@ test("a page that stayed thin is annotated in the text the model reads", async (
   assert.equal(outcome.details.thinAfterWait, true);
 });
 
-test("a thin page does not get sent back for the lever it already pulled", async (t) => {
-  // `waitFor` ran and the page is still thin, so asking for `waitFor` again is not advice. It also
-  // covers the case where the gateway has no /wait route at all.
+test("a thin page is offered only the levers that can still move it", async (t) => {
+  // The page stopped growing, the whole thing fits the default text budget, and `waitFor` was already
+  // tried on a gateway that has no /wait route. None of the three knobs can help, and the old note
+  // recommended two of them.
   const { extension } = extensionFor(t, "pi-thin-waited", {
     snapshotScripts: new Map([["https://spa.test/", ['- heading "Loading…" [level=1]']]]),
     waitRoute: false,
@@ -169,8 +175,55 @@ test("a thin page does not get sent back for the lever it already pulled", async
   const outcome = await extension.read({ url: "https://spa.test/", waitFor: "#article" });
 
   assert.match(outcome.text, /\[waitFor "#article" was not performed:/u, "a wait that could not run must be admitted");
+  assert.match(outcome.text, /stopped growing there, so it is thin rather than unfinished/u);
+  assert.equal(/retry with waitFor/u.test(outcome.text), false, "the call that was just made is not advice");
+  assert.equal(/maxChars/u.test(outcome.text), false, "the page is smaller than the budget already in force");
+  assert.equal(/waitForSettleMs/u.test(outcome.text), false, "the budget was not what stopped the polling");
+});
+
+test("a page still growing when the budget runs out gets the budget named", async (t) => {
+  const growing = Array.from({ length: 10 }, (_unused, index) => `- text: ${"p".repeat((index + 1) * 40)}`);
+  const { extension } = extensionFor(t, "pi-thin-growing", {
+    snapshotScripts: new Map([["https://spa.test/", growing]]),
+    config: { read: { settlePollMs: 10, waitForSettleMs: 40 } },
+  });
+
+  const outcome = await extension.read({ url: "https://spa.test/" });
+
+  assert.equal(outcome.details.stalledAtDeadline, true, "the deadline, not stability, ended the polling");
   assert.match(outcome.text, /raise read\.waitForSettleMs/u);
-  assert.equal(/retry with waitFor/u.test(outcome.text), false, "the note contradicts the call that was just made");
+});
+
+test("a thin page we cut short is offered the text budget", async (t) => {
+  const { extension } = extensionFor(t, "pi-thin-cut", {
+    pageContents: new Map([["https://short.test/", "s".repeat(900)]]),
+    config: { read: { settlePollMs: 10 } },
+  });
+
+  const outcome = await extension.read({ url: "https://short.test/", maxChars: 100 });
+
+  assert.equal(outcome.details.truncated, true);
+  assert.match(outcome.text, /read with a larger maxChars/u);
+});
+
+test("a refusal after the browser moved does not claim nothing was sent", () => {
+  // The same codes come from the pre-flight check and from re-checking the destination the gateway
+  // reports; only the first of those can say the gateway was never contacted.
+  const blocked = formatError(new GatewayError("host_blocked", "refused", { details: { host: "a.test", stage: "request" } }), CONFIG);
+  assert.match(blocked.text, /blockedHosts list, so its content was not returned\.$/u);
+
+  const afterRedirect = formatError(new GatewayError("host_blocked", "refused", { details: { host: "a.test", stage: "destination" } }), CONFIG);
+  assert.match(afterRedirect.text, /The browser was redirected there\./u);
+  assert.equal(/nothing was sent|nothing was fetched/iu.test(afterRedirect.text), false);
+
+  const unsupportedAfterRedirect = formatError(
+    new GatewayError("unsupported", "not a url", { details: { stage: "destination" } }),
+    CONFIG,
+  );
+  assert.equal(/Nothing was fetched/u.test(unsupportedAfterRedirect.text), false, "a tab was opened and a page was fetched");
+
+  const unsupportedUpFront = formatError(new GatewayError("unsupported", "empty query"), CONFIG);
+  assert.match(unsupportedUpFront.text, /Nothing was fetched from the gateway\./u);
 });
 
 test("a dead gateway costs one liveness probe per window, not one timeout per call", async (t) => {
