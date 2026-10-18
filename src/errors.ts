@@ -16,6 +16,7 @@ export type GatewayErrorCode =
   | "tab_not_found"
   | "blocked_url"
   | "host_blocked"
+  | "private_network"
   | "navigation_failed"
   | "consent_wall"
   | "empty_results"

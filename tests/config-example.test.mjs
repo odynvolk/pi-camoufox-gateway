@@ -23,6 +23,20 @@ test("the shipped config example is a config the loader accepts", (t) => {
   assert.deepEqual(config.engines.map((engine) => engine.name), ["google", "duckduckgo"]);
 });
 
+test("the example documents every setting the loader knows about", () => {
+  // An undocumented setting is a setting nobody can discover, and a section the example shows only
+  // partly invites a caller to guess at the missing keys.
+  // `apiKey` is deliberately absent from the example; everything else has to be discoverable there.
+  assert.deepEqual(Object.keys(example).sort(), Object.keys(DEFAULT_CONFIG).sort());
+  for (const section of ["cache", "read", "search", "network"]) {
+    assert.deepEqual(
+      Object.keys(example[section]).sort(),
+      Object.keys(DEFAULT_CONFIG[section]).sort(),
+      `config.example.json is out of date on "${section}"`,
+    );
+  }
+});
+
 test("what the README promises about defaults matches what the loader does", () => {
   const config = loadConfig({ configPath: join(tmpdir(), "definitely-absent-camoufox.json"), env: {} });
   assert.equal(config.gatewayUrl, example.gatewayUrl);

@@ -189,6 +189,62 @@ test("surfaces the gateway's own error message", async (t) => {
   assert.match(error.message, /Blocked URL/iu);
 });
 
+test("waitFor posts selector, userId and timeout to the wait endpoint", async (t) => {
+  const { fake, client } = clientWith(t);
+  const { tabId } = await openTab(t, client, "u1", "https://example.com");
+
+  const wait = await client.waitFor({ userId: "u1", tabId, selector: "#article", timeoutMs: 1500 });
+
+  assert.equal(wait.ok, true);
+  assert.equal(wait.skipped, undefined);
+  const call = fake.state.calls.find((c) => c.path.endsWith("/wait"));
+  assert.equal(call.method, "POST");
+  assert.deepEqual(call.body, { userId: "u1", selector: "#article", timeout: 1500 });
+});
+
+test("waitFor reports a selector that never appeared without throwing", async (t) => {
+  const { client } = clientWith(t, { waitSelectorMisses: true });
+  const { tabId } = await openTab(t, client, "u1", "https://example.com");
+
+  const wait = await client.waitFor({ userId: "u1", tabId, selector: "#nope" });
+
+  assert.equal(wait.ok, false, "ok:false is an answer, not a failure");
+  assert.equal(wait.skipped, undefined, "the wait ran, so this is not a missing route");
+});
+
+test("waitFor on a gateway with no wait endpoint says so instead of failing", async (t) => {
+  // `read` still has to return the page: an old gateway is not a reason to lose the content.
+  const { client } = clientWith(t, { waitRoute: false });
+  const { tabId } = await openTab(t, client, "u1", "https://example.com");
+
+  const wait = await client.waitFor({ userId: "u1", tabId, selector: "#article" });
+
+  assert.equal(wait.ok, false);
+  assert.equal(wait.skipped, "gateway has no /wait route");
+});
+
+test("waitFor still propagates a tab that vanished underneath us", async (t) => {
+  const { client } = clientWith(t);
+  const { tabId } = await openTab(t, client, "u1", "https://example.com");
+
+  const error = await client.waitFor({ userId: "other", tabId, selector: "#article" }).catch((e) => e);
+
+  expectError(error, "tab_not_found");
+});
+
+test("openTab applies the policy it was constructed with", async (t) => {
+  const { fake, client } = clientWith(t);
+  const guarded = createGatewayClient({
+    baseUrl: BASE,
+    timeoutMs: 2000,
+    urlPolicy: { blockedHosts: ["forbidden.test"], allowPrivateHosts: false },
+  });
+
+  expectError(await guarded.openTab({ userId: "u1", url: "https://forbidden.test/x" }).catch((e) => e), "host_blocked");
+  expectError(await guarded.openTab({ userId: "u1", url: "http://192.168.0.1/" }).catch((e) => e), "private_network");
+  assert.equal(fake.state.calls.filter((c) => c.path === "/tabs/open").length, 0);
+});
+
 test("aborts in-flight work when the caller signal aborts", async (t) => {
   const { client } = clientWith(t);
   const controller = new AbortController();

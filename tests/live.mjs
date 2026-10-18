@@ -20,6 +20,8 @@ const client = createGatewayClient({
   baseUrl: config.gatewayUrl,
   ...(config.apiKey ? { apiKey: config.apiKey } : {}),
   timeoutMs: config.timeoutMs,
+  // Wired exactly as the extension wires it, so the live run exercises the real address guard.
+  urlPolicy: { blockedHosts: config.blockedHosts, allowPrivateHosts: config.network.allowPrivateHosts },
 });
 const extension = createExtension({ config, client, cache: createCache(), userId: `pi-live-${process.pid}` });
 
@@ -48,6 +50,11 @@ test("live: read is bounded and says so", { skip: !live }, async () => {
 test("live: n above the page size is clamped and disclosed", { skip: !live }, async () => {
   const outcome = await extension.search({ query: "camoufox", n: 20 });
   assert.equal(outcome.details.clampedTo, 10);
+});
+
+test("live: an internal address is refused and costs the gateway nothing", { skip: !live }, async () => {
+  const error = await extension.read({ url: "http://169.254.169.254/latest/meta-data/" }).catch((e) => e);
+  assert.equal(error.code, "private_network");
 });
 
 test("live: teardown leaves the gateway without our session", { skip: !live }, async () => {

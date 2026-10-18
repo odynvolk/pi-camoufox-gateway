@@ -44,6 +44,9 @@ export function createFakeGateway(options = {}) {
     failSnapshot: false,
     failOpen: false,
     redirects: new Map(), // requested url -> final url the browser lands on
+    snapshotScripts: new Map(), // url -> successive snapshot texts (a page that renders late)
+    waitRoute: true, // false simulates a gateway with no POST /tabs/{id}/wait
+    waitSelectorMisses: false, // true answers { ok: false }: the selector never appeared
     openLatencyMs: 0,
     hangUrls: new Set(),
     hangForMs: 10_000,
@@ -79,12 +82,15 @@ export function createFakeGateway(options = {}) {
     if (url.includes("consent.google.com")) {
       return '- main:\n  - heading "Before you continue to Google" [level=1]';
     }
+    // Realistically long on purpose: `read` re-snapshots anything thinner than read.settleMinChars, so a
+    // two-line default page would make every unrelated read pay for the settle loop.
     return [
       `- heading "Page: ${url}" [level=1]`,
       '- link "Docs" [e1]:',
       "  - /url: https://camoufox.com/docs",
       "  - text: Documentation",
       "  - text: Some readable body content about the product.",
+      ...Array.from({ length: 14 }, (_unused, index) => `  - text: Paragraph ${index + 1} of the article, long enough to read as a rendered page rather than a skeleton (${"content ".repeat(12).trim()}).`),
     ].join("\n");
   }
 
@@ -94,6 +100,22 @@ export function createFakeGateway(options = {}) {
     if (!/google\.com\/(goto|url)\?/u.test(url)) return url;
     if (state.resolveFailures.has(url)) return url;
     return "https://github.com/daijro/camoufox";
+  }
+
+  /**
+   * The page as the browser sees it now.
+   *
+   * A scripted url hands back its entries one at a time and sticks on the last, which is how a test
+   * models a client-rendered page: skeleton first, hydrated content after the settle loop looks again.
+   */
+  function snapshotTextFor(tab) {
+    const script = state.snapshotScripts.get(tab.url);
+    if (Array.isArray(script) && script.length > 0) {
+      const index = Math.min(tab.snapshotCalls ?? 0, script.length - 1);
+      tab.snapshotCalls = index + 1;
+      return script[index];
+    }
+    return defaultSnapshotFor(tab.url);
   }
 
   function record(method, path, body, headers) {
@@ -202,7 +224,7 @@ export function createFakeGateway(options = {}) {
 
       if (method === "GET" && sub === "/snapshot") {
         if (state.failSnapshot) return json({ error: "snapshot exploded" }, 500);
-        const text = defaultSnapshotFor(tab.url);
+        const text = snapshotTextFor(tab);
         const limit = state.snapshotLimit;
         const truncated = text.length > limit;
         return json({
@@ -216,7 +238,14 @@ export function createFakeGateway(options = {}) {
         });
       }
 
+      if (method === "POST" && sub === "/wait") {
+        if (!state.waitRoute) return json({ error: "Not Found" }, 404);
+        if (state.waitSelectorMisses) return json({ ok: false, tabId });
+        return json({ ok: true, tabId });
+      }
+
       if (method === "GET" && sub === "/links") {
+        // Not scripted: /links has no production caller, and a read must not consume a settle step.
         const text = defaultSnapshotFor(tab.url);
         const links = [...text.matchAll(/- link "([^"]+)"[^\n]*\n\s*- \/url: (\S+)/g)].map((m) => ({
           title: m[1],
@@ -226,6 +255,7 @@ export function createFakeGateway(options = {}) {
       }
 
       if (method === "POST" && sub === "/extract") {
+        // Same reason as /links: extraction must not advance a scripted page.
         const text = defaultSnapshotFor(tab.url);
         const properties = body?.schema?.properties ?? {};
         const found = Object.fromEntries(

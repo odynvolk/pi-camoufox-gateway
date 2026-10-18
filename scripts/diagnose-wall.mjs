@@ -11,6 +11,9 @@ const client = createGatewayClient({
   baseUrl: config.gatewayUrl,
   ...(config.apiKey ? { apiKey: config.apiKey } : {}),
   timeoutMs: config.timeoutMs,
+  // Same policy as the extension: a diagnostic that opens tabs the tools would refuse reports on a
+  // page the model can never read.
+  urlPolicy: { blockedHosts: config.blockedHosts, allowPrivateHosts: config.network.allowPrivateHosts },
 });
 const url = process.argv[2] ?? "https://github.com/daijro/camoufox";
 const tab = await client.openTab({ userId: "pi-diag", url });

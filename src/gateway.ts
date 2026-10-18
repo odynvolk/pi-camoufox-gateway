@@ -8,12 +8,19 @@
  */
 
 import { GatewayError, type GatewayErrorCode } from "./errors.ts";
+import { assertTabUrlAllowed, DEFAULT_URL_POLICY, type UrlPolicy } from "./net-policy.ts";
 
 export interface GatewayClientOptions {
   baseUrl: string;
   apiKey?: string;
   /** Per-request deadline in milliseconds. */
   timeoutMs?: number;
+  /**
+   * Url policy applied to *every* tab open, not just the read tool: `resolve: true` opens urls that
+   * came out of a search engine's page, and engine adapters open their own. Defaults to the private
+   * address block with no host list.
+   */
+  urlPolicy?: UrlPolicy;
   /** Injectable fetch, mainly for tests. */
   fetchImpl?: typeof globalThis.fetch;
 }
@@ -41,6 +48,16 @@ export interface SnapshotResult {
   nextOffset: number;
 }
 
+export interface WaitOutcome {
+  /** True when the gateway says the selector appeared. */
+  ok: boolean;
+  /**
+   * Set when the wait could not be performed at all — an older gateway without `POST /tabs/{id}/wait`
+   * — so the caller can say so instead of claiming the page was waited for.
+   */
+  skipped?: string;
+}
+
 export interface GatewayStatus {
   ok: boolean;
   enabled?: boolean;
@@ -56,6 +73,11 @@ interface RequestOptions {
   signal?: AbortSignal;
   /** Treat a 404 as a no-op, used by idempotent teardown calls. */
   tolerateMissing?: boolean;
+  /**
+   * Do not turn a `{ "ok": false }` body into an error. `POST /tabs/{tabId}/wait` answers `ok: false`
+   * for the ordinary condition "the selector never appeared", which the caller handles, not fails.
+   */
+  tolerateNotOk?: boolean;
   /**
    * `"connect-only"` retries only when the request never landed (so the gateway could not have
    * created anything). Opening a tab must use this: a timeout usually means the tab exists and the
@@ -76,6 +98,7 @@ export const ENDPOINTS = {
   listTabs: { method: "GET", path: "/tabs" },
   navigate: { method: "POST", path: "/tabs/{tabId}/navigate" },
   snapshot: { method: "GET", path: "/tabs/{tabId}/snapshot" },
+  wait: { method: "POST", path: "/tabs/{tabId}/wait" },
   extract: { method: "POST", path: "/tabs/{tabId}/extract" },
   closeTab: { method: "DELETE", path: "/tabs/{tabId}" },
   deleteSession: { method: "DELETE", path: "/sessions/{userId}" },
@@ -144,6 +167,7 @@ export class GatewayClient {
   private readonly baseUrl: string;
   private readonly apiKey: string | undefined;
   private readonly timeoutMs: number;
+  private readonly urlPolicy: UrlPolicy;
   private readonly fetchImpl: typeof globalThis.fetch;
   private preflightCache: GatewayStatus | undefined;
   private preflightAt = 0;
@@ -156,6 +180,7 @@ export class GatewayClient {
     this.baseUrl = options.baseUrl.replace(/\/+$/, "");
     this.apiKey = options.apiKey;
     this.timeoutMs = options.timeoutMs ?? 30_000;
+    this.urlPolicy = options.urlPolicy ?? DEFAULT_URL_POLICY;
     this.fetchImpl = (options.fetchImpl ?? globalThis.fetch).bind(globalThis);
   }
 
@@ -185,9 +210,9 @@ export class GatewayClient {
   }
 
   async openTab(params: { userId: string; url: string; signal?: AbortSignal }): Promise<OpenTabResult> {
-    if (!/^https?:\/\//i.test(params.url)) {
-      throw new GatewayError("blocked_url", `can only open http(s) URLs in a browser tab (got "${params.url}")`);
-    }
+    // The choke point: everything that puts a url in the browser goes through here, so a policy that
+    // only lived in the read tool could be walked around by url resolution.
+    assertTabUrlAllowed(params.url, this.urlPolicy);
     let body: Record<string, unknown>;
     const token = Symbol("openTab");
     this.pendingOpens.add(token);
@@ -293,6 +318,39 @@ export class GatewayClient {
       hasMore: body.hasMore === true,
       nextOffset,
     };
+  }
+
+  /**
+   * Ask the gateway to hold until a selector exists in the rendered page.
+   *
+   * A missing route is not a failed read: gateways older than the `wait` endpoint answer 404, and the
+   * page we then snapshot is still the page. That distinction is reported, not swallowed.
+   */
+  async waitFor(params: {
+    userId: string;
+    tabId: string;
+    selector: string;
+    timeoutMs?: number;
+    signal?: AbortSignal;
+  }): Promise<WaitOutcome> {
+    try {
+      const body = await this.requestJson<Record<string, unknown>>("POST", endpointPath("wait", { tabId: params.tabId }), {
+        userId: params.userId,
+        body: {
+          userId: params.userId,
+          selector: params.selector,
+          ...(params.timeoutMs === undefined ? {} : { timeout: params.timeoutMs }),
+        },
+        signal: params.signal,
+        tolerateNotOk: true,
+      });
+      return { ok: body.ok !== false };
+    } catch (error) {
+      if (error instanceof GatewayError && /has no route/iu.test(error.message)) {
+        return { ok: false, skipped: "gateway has no /wait route" };
+      }
+      throw error;
+    }
   }
 
   async extract(params: {
@@ -427,7 +485,7 @@ export class GatewayClient {
         if (options.tolerateMissing && response.status === 404) return {} as T;
         throw this.httpError(response, body, path, options);
       }
-      if (body && typeof body === "object" && (body as Record<string, unknown>).ok === false) {
+      if (body && typeof body === "object" && (body as Record<string, unknown>).ok === false && !options.tolerateNotOk) {
         throw this.gatewayBodyError(body as Record<string, unknown>, path);
       }
       if (body === undefined) {

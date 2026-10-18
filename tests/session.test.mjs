@@ -6,27 +6,21 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { withFakeGateway } from "./helpers/fake_gateway.mjs";
+import { testConfig } from "./helpers/config.mjs";
 import { createGatewayClient } from "../src/gateway.ts";
 import { createCache } from "../src/cache.ts";
 import { gatewaySessionId } from "../src/session.ts";
 import { createExtension, resolveConfig } from "../src/extension.ts";
 
-const CONFIG = {
-  gatewayUrl: "http://gateway.test:9377",
-  engines: [
-    { name: "google", enabled: true },
-    { name: "duckduckgo", enabled: true },
-  ],
-  cache: { serpMs: 60_000, pageMs: 60_000 },
-  read: { defaultMaxChars: 12_000 },
-  search: { maxResults: 10 },
-  blockedHosts: [],
-  timeoutMs: 2000,
-};
+const CONFIG = testConfig({ gatewayUrl: "http://gateway.test:9377", timeoutMs: 2000 });
 
 function extensionFor(t, userId = "pi-abcdef", options = {}) {
   const fake = withFakeGateway(t, options);
-  const client = createGatewayClient({ baseUrl: CONFIG.gatewayUrl, timeoutMs: 2000 });
+  const client = createGatewayClient({
+    baseUrl: CONFIG.gatewayUrl,
+    timeoutMs: 2000,
+    urlPolicy: { blockedHosts: CONFIG.blockedHosts, allowPrivateHosts: CONFIG.network.allowPrivateHosts },
+  });
   return { fake, client, extension: createExtension({ config: CONFIG, client, cache: createCache(), userId }) };
 }
 
@@ -142,6 +136,26 @@ test("the extension's read details carry metadata, not a second copy of the page
   assert.equal("text" in outcome.details, false);
   assert.equal(typeof outcome.details.totalChars, "number");
   assert.ok("truncated" in outcome.details);
+  assert.equal(
+    /\[page was still only/u.test(outcome.text),
+    false,
+    "a page that filled in must not be annotated as thin",
+  );
+});
+
+test("a page that stayed thin is annotated in the text the model reads", async (t) => {
+  const { extension } = extensionFor(t, "pi-thin", {
+    snapshotScripts: new Map([["https://spa.test/", ['- heading "Loading…" [level=1]']]]),
+    waitRoute: false,
+    config: { read: { settlePollMs: 10 } },
+  });
+
+  const outcome = await extension.read({ url: "https://spa.test/", waitFor: "#article" });
+
+  assert.match(outcome.text, /\[page was still only \d+ chars after waiting/u);
+  assert.match(outcome.text, /waitFor/u, "the note has to name the way out");
+  assert.match(outcome.text, /\[waitFor "#article" was not performed:/u, "a wait that could not run must be admitted");
+  assert.equal(outcome.details.thinAfterWait, true);
 });
 
 test("a dead gateway costs one liveness probe per window, not one timeout per call", async (t) => {

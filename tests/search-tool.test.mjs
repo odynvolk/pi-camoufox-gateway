@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import { withFakeGateway } from "./helpers/fake_gateway.mjs";
+import { testConfig } from "./helpers/config.mjs";
 import { createGatewayClient } from "../src/gateway.ts";
 import { createCache } from "../src/cache.ts";
 import { searchTool } from "../src/tools/search.ts";
@@ -13,19 +14,13 @@ const BASE = "http://gateway.test:9377";
 
 function setup(t, options = {}) {
   const fake = withFakeGateway(t, options);
-  const client = createGatewayClient({ baseUrl: BASE, timeoutMs: 2000 });
-  const config = {
-    gatewayUrl: BASE,
-    engines: [
-      { name: "google", enabled: true },
-      { name: "duckduckgo", enabled: true },
-    ],
-    cache: { serpMs: 60_000, pageMs: 60_000 },
-    read: { defaultMaxChars: 12_000 },
-    search: { maxResults: 10 },
-    blockedHosts: [],
+  const config = testConfig({ gatewayUrl: BASE, timeoutMs: 2000, ...(options.config ?? {}) });
+  const client = createGatewayClient({
+    baseUrl: BASE,
     timeoutMs: 2000,
-  };
+    urlPolicy: { blockedHosts: config.blockedHosts, allowPrivateHosts: config.network.allowPrivateHosts },
+    ...(options.client ?? {}),
+  });
   const engines = enginesFromConfig(config.engines);
   const tool = searchTool({ client, engines, config, cache: createCache(), userId: "u1" });
   return { fake, client, config, engines, tool };

@@ -26,6 +26,11 @@ const ReadSchema = Type.Object({
   url: Type.String({ description: "http(s) url to read" }),
   maxChars: Type.Optional(Type.Number({ description: `Text budget, defaults to ${DEFAULT_CONFIG.read.defaultMaxChars}` })),
   offset: Type.Optional(Type.Number({ description: "Continue a previous read here" })),
+  waitFor: Type.Optional(
+    Type.String({
+      description: `CSS selector to hold for before reading, up to ${DEFAULT_CONFIG.read.waitForTimeoutMs}ms (for late-rendering content)`,
+    }),
+  ),
   schema: Type.Optional(Type.Record(Type.String(), Type.Any(), { description: "JSON Schema with x-ref hints" })),
 });
 
@@ -48,6 +53,8 @@ function getExtension(ctx: ExtensionContext): Extension {
     baseUrl: config.gatewayUrl,
     ...(config.apiKey ? { apiKey: config.apiKey } : {}),
     timeoutMs: config.timeoutMs,
+    // Applied to every tab the client opens, including search-result url resolution.
+    urlPolicy: { blockedHosts: config.blockedHosts, allowPrivateHosts: config.network.allowPrivateHosts },
   });
   const extension = createExtension({
     config,

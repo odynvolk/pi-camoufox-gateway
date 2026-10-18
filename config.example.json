@@ -5,8 +5,15 @@
     { "name": "duckduckgo", "enabled": true }
   ],
   "cache": { "serpMs": 1800000, "pageMs": 600000 },
-  "read": { "defaultMaxChars": 12000 },
+  "read": {
+    "defaultMaxChars": 12000,
+    "waitForSettleMs": 2500,
+    "settlePollMs": 300,
+    "settleMinChars": 1500,
+    "waitForTimeoutMs": 5000
+  },
   "search": { "maxResults": 10 },
   "blockedHosts": [],
+  "network": { "allowPrivateHosts": false },
   "timeoutMs": 30000
 }

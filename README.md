@@ -20,7 +20,7 @@ Searches through the browser and returns ranked titles, urls and snippets.
 - `resolve: true` turns Google's `google.com/goto?url=…` wrappers into final urls. It costs one
   extra page load per result and runs at most three tabs at a time, so it is off by default.
 
-### `camoufox_read(url, maxChars?, offset?, schema?)`
+### `camoufox_read(url, maxChars?, offset?, waitFor?, schema?)`
 
 Loads a page in the browser and returns its text.
 
@@ -28,8 +28,18 @@ Loads a page in the browser and returns its text.
 - Defaults to 12,000 characters (~3K tokens) and tells you the `offset` to continue from. A full
   page from the gateway runs 20K+ tokens, which is the difference between reading a page and losing
   your context window.
+- **Waits for the page to render.** `openTab` returning does not mean the content is there: a
+  client-rendered site answers with its skeleton. A snapshot thinner than `read.settleMinChars` is
+  re-taken until it stops growing, up to `read.waitForSettleMs`. If it never fills in, the output
+  says so instead of letting the model conclude the site is empty.
+- `waitFor` takes a CSS selector and asks the gateway to hold until it appears — use it when the
+  settle heuristic cannot guess the content (`waitFor: "#article"`). On a gateway with no `wait`
+  route the read still returns the page and says the wait was skipped.
 - `schema` accepts a JSON Schema whose properties carry `x-ref` hints; the tool snapshots the page
   first (refs only exist after a snapshot), then calls the gateway's extractor.
+- Refuses internal addresses. `blockedHosts` is applied, and so is a block on loopback, RFC1918,
+  link-local (including the cloud metadata IP) and other non-global addresses — see
+  `network.allowPrivateHosts`.
 
 ## Install
 
@@ -71,7 +81,8 @@ Config resolves **defaults → JSON file → environment variables**.
 File location: `$CAMOUFOX_CONFIG_PATH`, or `$PI_CODING_AGENT_DIR/camoufox.json`
 (default `~/.pi/agent/camoufox.json`). See [`config.example.json`](./config.example.json).
 
-Environment: `CAMOUFOX_GATEWAY_URL`, `CAMOUFOX_API_KEY`, `CAMOUFOX_CONFIG_PATH`.
+Environment: `CAMOUFOX_GATEWAY_URL`, `CAMOUFOX_API_KEY`, `CAMOUFOX_CONFIG_PATH`,
+`CAMOUFOX_ALLOW_PRIVATE_HOSTS`.
 
 | Setting | Default | Notes |
 |---|---|---|
@@ -80,8 +91,13 @@ Environment: `CAMOUFOX_GATEWAY_URL`, `CAMOUFOX_API_KEY`, `CAMOUFOX_CONFIG_PATH`.
 | `engines` | google, duckduckgo | ordered fallback chain |
 | `cache.serpMs` / `cache.pageMs` | 30 min / 10 min | failures are never cached |
 | `read.defaultMaxChars` | 12000 | per-read text budget |
+| `read.waitForSettleMs` | 2500 | extra time a read may spend re-snapshotting a thin page; `0` disables |
+| `read.settlePollMs` | 300 | gap between those polls |
+| `read.settleMinChars` | 1500 | below this the page is treated as not yet rendered |
+| `read.waitForTimeoutMs` | 5000 | deadline handed to the gateway for an explicit `waitFor` |
 | `search.maxResults` | 10 | hard ceiling, engine page size |
-| `blockedHosts` | `[]` | client-side guard; the gateway enforces none |
+| `blockedHosts` | `[]` | applied to every tab open, incl. `resolve: true`; the gateway enforces none |
+| `network.allowPrivateHosts` | `false` | let tabs open loopback/RFC1918/link-local addresses |
 | `timeoutMs` | 30000 | per gateway request |
 
 Unknown keys are a hard error on purpose — a silently typo'd setting is worse than a loud one. A
@@ -105,6 +121,7 @@ The tool output starts with the code so the model can react instead of guessing.
 | `parse_error` | the accessibility tree changed shape |
 | `extraction_empty` | schema refs matched nothing on this page |
 | `host_blocked` | url matched `blockedHosts` |
+| `private_network` | url is an internal address and `network.allowPrivateHosts` is off |
 | `blocked_url` | not an http(s) url |
 | `tab_not_found` | the tab was closed under us (session teardown or a stray sweep) |
 | `unsupported` | bad input or an engine we have no adapter for — nothing was fetched |
@@ -114,7 +131,10 @@ The tool output starts with the code so the model can react instead of guessing.
 
 - No browser or gateway code — that lives in `camofox-browser`.
 - No clicking, typing or scrolling. Refs (`[e12]`) are only valid until the next navigation, which
-  makes an interaction API hard to promise.
+  makes an interaction API hard to promise. The one exception is `waitFor`, which asks the gateway to
+  hold for a selector rather than acting on the page.
+- No defence against a *hostname* that resolves to an internal address (DNS rebinding, a `localhost`
+  alias). The address guard reads the url it was given; egress policy belongs on the gateway.
 - No LLM in the tool path. The tools return raw data; your model does the reading.
 - Sessions: tabs live in a gateway session named after your pi session id and are torn down on
   `session_shutdown`. A lost `POST /tabs/open` response also triggers a sweep: the gateway may hold a

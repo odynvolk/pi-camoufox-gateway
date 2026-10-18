@@ -138,3 +138,52 @@ test("an explicitly configured config path that does not exist is a hard error",
     /not found/u,
   );
 });
+
+test("the rendering-wait settings default to a bounded poll", (t) => {
+  const configPath = withConfigFile(undefined, t);
+  const config = loadConfig({ configPath, env: {} });
+
+  assert.equal(config.read.waitForSettleMs, DEFAULT_CONFIG.read.waitForSettleMs);
+  assert.ok(config.read.waitForSettleMs > 0, "reads must wait for hydration by default");
+  assert.ok(config.read.settlePollMs > 0 && config.read.settlePollMs < config.read.waitForSettleMs);
+  assert.ok(config.read.settleMinChars > 0);
+  assert.equal(config.network.allowPrivateHosts, false, "internal addresses are refused unless asked for");
+});
+
+test("waitForSettleMs accepts 0 as off, unlike the other read numbers", (t) => {
+  const configPath = withConfigFile(JSON.stringify({ read: { waitForSettleMs: 0 } }), t);
+  assert.equal(loadConfig({ configPath, env: {} }).read.waitForSettleMs, 0);
+
+  const negative = withConfigFile(JSON.stringify({ read: { settlePollMs: -1 } }), t);
+  assert.throws(() => loadConfig({ configPath: negative, env: {} }), /read\.settlePollMs/u);
+});
+
+test("a typo inside the network section is a hard error too", (t) => {
+  const configPath = withConfigFile(JSON.stringify({ network: { allowPrivateHost: true } }), t);
+
+  assert.throws(
+    () => loadConfig({ configPath, env: {} }),
+    (err) => {
+      assert.match(err.message, /network\.allowPrivateHost/u);
+      assert.match(err.message, /allowPrivateHosts/u, "lists what it meant to accept");
+      return true;
+    },
+  );
+});
+
+test("network.allowPrivateHosts must be a real boolean", (t) => {
+  const configPath = withConfigFile(JSON.stringify({ network: { allowPrivateHosts: "yes" } }), t);
+
+  assert.throws(() => loadConfig({ configPath, env: {} }), /must be true or false/u);
+});
+
+test("CAMOUFOX_ALLOW_PRIVATE_HOSTS overrides the file, and nonsense is refused", (t) => {
+  const configPath = withConfigFile(JSON.stringify({ network: { allowPrivateHosts: false } }), t);
+
+  assert.equal(loadConfig({ configPath, env: { CAMOUFOX_ALLOW_PRIVATE_HOSTS: "1" } }).network.allowPrivateHosts, true);
+  assert.equal(loadConfig({ configPath, env: { CAMOUFOX_ALLOW_PRIVATE_HOSTS: "false" } }).network.allowPrivateHosts, false);
+  assert.throws(
+    () => loadConfig({ configPath, env: { CAMOUFOX_ALLOW_PRIVATE_HOSTS: "maybe" } }),
+    /CAMOUFOX_ALLOW_PRIVATE_HOSTS/u,
+  );
+});

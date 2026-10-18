@@ -42,6 +42,8 @@ export interface ReadToolArgs {
   url: string;
   maxChars?: number;
   offset?: number;
+  /** Hold for this selector before reading, for content the settle heuristic would miss. */
+  waitFor?: string;
   schema?: Record<string, unknown>;
 }
 
@@ -57,7 +59,10 @@ export interface Extension {
 export const SEARCH_DESCRIPTION =
   "Search the web through a Camoufox browser gateway. Returns ranked titles, urls and snippets. Set resolve:true when you need clean final urls (costs one extra page load per result).";
 export const READ_DESCRIPTION =
-  "Read a web page through a Camoufox browser gateway so JavaScript-rendered pages work. Returns page text (bounded, use offset to continue) and optionally a JSON-Schema extraction.";
+  "Read a web page through a Camoufox browser gateway so JavaScript-rendered pages work. " +
+  "Thin pages are re-snapshotted until they stop growing; pass waitFor (a CSS selector) for content that renders late. " +
+  "Returns page text (bounded, use offset to continue) and optionally a JSON-Schema extraction. " +
+  "Internal addresses are refused unless network.allowPrivateHosts is set.";
 
 export interface ExtensionDepsWithConfig extends ExtensionDeps {
   /** A broken config file must not be silently replaced with defaults. */
@@ -129,7 +134,17 @@ function renderRead(outcome: ReadOutcome): string {
   const header = `URL: ${outcome.url}${outcome.truncated ? ` (showing ${outcome.text.length} of ${outcome.totalChars} chars)` : ""}`;
   const footer = outcome.nextOffset !== null ? `\n\n[continue with offset=${outcome.nextOffset}]` : "";
   const extracted = outcome.extracted ? `\n\nExtracted: ${JSON.stringify(outcome.extracted)}` : "";
-  return `${header}\n\n${outcome.text}${extracted}${footer}`;
+  // A page that stayed thin after every wait is a different situation from a short page: say which,
+  // or the model concludes the site is empty and stops trying.
+  const notes: string[] = [];
+  if (outcome.thinAfterWait) {
+    const waited = outcome.settledInMs ? ` after waiting ${outcome.settledInMs}ms` : "";
+    notes.push(
+      `[page was still only ${outcome.totalChars} chars${waited} — likely client-rendered; retry with waitFor set to a selector you expect]`,
+    );
+  }
+  if (outcome.waitNote) notes.push(`[${outcome.waitNote}]`);
+  return `${header}\n\n${outcome.text}${extracted}${notes.length ? `\n\n${notes.join("\n")}` : ""}${footer}`;
 }
 
 /** Failure text the model can act on: the code is stated first, then the evidence. */
@@ -141,6 +156,14 @@ export function formatError(error: unknown, config: CamoufoxConfig): { text: str
   }
   if (gatewayError.code === "consent_wall") {
     lines.push("Google interstitial rather than results; a narrower query or the fallback engine usually clears this.");
+  }
+  if (gatewayError.code === "private_network") {
+    lines.push(
+      'Set "network": { "allowPrivateHosts": true } in camoufox.json (or CAMOUFOX_ALLOW_PRIVATE_HOSTS=1) if this host is meant to be reachable.',
+    );
+  }
+  if (gatewayError.code === "host_blocked") {
+    lines.push("The host is in your camoufox blockedHosts list; nothing was sent to the gateway.");
   }
   if (gatewayError.code === "unsupported") {
     lines.push("Nothing was fetched from the gateway.");

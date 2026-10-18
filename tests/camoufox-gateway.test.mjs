@@ -47,7 +47,7 @@ test("the parameter objects match what README documents", () => {
   const { byName } = registered();
 
   assert.deepEqual(Object.keys(byName.camoufox_search.parameters.properties).sort(), ["engine", "n", "query", "resolve"]);
-  assert.deepEqual(Object.keys(byName.camoufox_read.parameters.properties).sort(), ["maxChars", "offset", "schema", "url"]);
+  assert.deepEqual(Object.keys(byName.camoufox_read.parameters.properties).sort(), ["maxChars", "offset", "schema", "url", "waitFor"]);
 
   // Making a key optional is a contract change the model cannot see; only `query` and `url` need
   // to be supplied.
@@ -82,9 +82,10 @@ test("descriptions come from the core, not a second copy that can rot", () => {
   assert.equal(byName.camoufox_search.description, SEARCH_DESCRIPTION);
   assert.equal(byName.camoufox_read.description, READ_DESCRIPTION);
 
-  // The model only sees this text, so the two choices it has to know about have to be in it.
+  // The model only sees this text, so the choices it has to know about have to be in it.
   assert.match(byName.camoufox_search.description, /resolve:true/u);
   assert.match(byName.camoufox_read.description, /offset/u);
+  assert.match(byName.camoufox_read.description, /waitFor/u);
 });
 
 test("parameter descriptions quote the code, so they cannot drift from it", () => {
@@ -103,5 +104,10 @@ test("parameter descriptions quote the code, so they cannot drift from it", () =
     read.maxChars.description,
     new RegExp(String(DEFAULT_CONFIG.read.defaultMaxChars), "u"),
     `"${read.maxChars.description}" does not quote read.defaultMaxChars`,
+  );
+  assert.match(
+    read.waitFor.description,
+    new RegExp(String(DEFAULT_CONFIG.read.waitForTimeoutMs), "u"),
+    `"${read.waitFor.description}" does not quote read.waitForTimeoutMs`,
   );
 });

@@ -4,26 +4,28 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import { withFakeGateway } from "./helpers/fake_gateway.mjs";
+import { testConfig } from "./helpers/config.mjs";
 import { createGatewayClient } from "../src/gateway.ts";
-import { assertHostAllowed, readTool } from "../src/tools/read.ts";
+import { readTool, STABLE_ROUNDS } from "../src/tools/read.ts";
+import { assertHostAllowed } from "../src/net-policy.ts";
 
 const BASE = "http://gateway.test:9377";
 
 function setup(t, options = {}) {
   const fake = withFakeGateway(t, options);
-  const client = createGatewayClient({ baseUrl: BASE, timeoutMs: 2000 });
-  const config = {
+  const config = testConfig({
     gatewayUrl: BASE,
-    engines: [
-      { name: "google", enabled: true },
-      { name: "duckduckgo", enabled: true },
-    ],
-    cache: { serpMs: 60_000, pageMs: 60_000 },
-    read: { defaultMaxChars: 12_000 },
-    search: { maxResults: 10 },
     blockedHosts: options.blockedHosts ?? [],
     timeoutMs: 2000,
-  };
+    ...(options.config ?? {}),
+  });
+  // Wired the way the extension wires it, so the client's own policy is exercised too.
+  const client = createGatewayClient({
+    baseUrl: BASE,
+    timeoutMs: 2000,
+    urlPolicy: { blockedHosts: config.blockedHosts, allowPrivateHosts: config.network.allowPrivateHosts },
+    ...(options.client ?? {}),
+  });
   return { fake, client, config, tool: readTool({ client, config, userId: "u1" }) };
 }
 
@@ -167,4 +169,111 @@ test("an abort in flight still closes the gateway's tab", async (t) => {
   assert.equal(error.code, "aborted");
   assert.deepEqual(fake.liveTabs(), []);
   assert.equal(client.openTabCount(), 0);
+});
+
+test("a page that renders after the first snapshot is read hydrated, not as a skeleton", async (t) => {
+  const skeleton = '- heading "Loading…" [level=1]';
+  const hydrated = `- heading "The real article" [level=1]\n${'  - text: body copy that only exists after the app boots. '.repeat(40)}`;
+  const { fake, tool } = setup(t, {
+    snapshotScripts: new Map([["https://spa.test/", [skeleton, skeleton, hydrated]]]),
+  });
+
+  const out = await tool.read({ url: "https://spa.test/" });
+
+  assert.match(out.text, /The real article/u, "the read returned the skeleton instead of the page");
+  assert.equal(out.thinAfterWait, undefined, "a page that filled in is not reported as thin");
+  assert.equal(typeof out.settledInMs, "number", "the time spent waiting is part of the record");
+  const snapshots = fake.state.calls.filter((c) => c.path.includes("/snapshot"));
+  assert.ok(snapshots.length >= 3, `expected repeated snapshots, got ${snapshots.length}`);
+});
+
+test("a page that stops growing is not polled until the deadline", async (t) => {
+  // `STABLE_ROUNDS` identical snapshots is the stop signal. Without it every genuinely short page
+  // would burn the whole settle budget.
+  const { fake, tool } = setup(t, {
+    snapshotScripts: new Map([["https://thin.test/", ['- heading "Short" [level=1]']]]),
+    config: { read: { settlePollMs: 10 } },
+  });
+
+  const out = await tool.read({ url: "https://thin.test/" });
+
+  const snapshots = fake.state.calls.filter((c) => c.path.includes("/snapshot"));
+  assert.equal(snapshots.length, 1 + STABLE_ROUNDS, "one look, then the confirmations that prove it is done");
+  assert.equal(out.thinAfterWait, true, "the model must be told the page stayed thin");
+});
+
+test("waitForSettleMs 0 reads a page with exactly one snapshot", async (t) => {
+  const { fake, tool } = setup(t, {
+    snapshotScripts: new Map([["https://thin.test/", ['- heading "Short" [level=1]']]]),
+    config: { read: { waitForSettleMs: 0 } },
+  });
+
+  await tool.read({ url: "https://thin.test/" });
+
+  assert.equal(fake.state.calls.filter((c) => c.path.includes("/snapshot")).length, 1);
+});
+
+test("a wall is classified without spending the settle budget on it", async (t) => {
+  const { fake, tool } = setup(t, {
+    snapshotScripts: new Map([["https://walled.test/", ['- main:\n  - heading "Before you continue to Google" [level=1]']]]),
+    config: { read: { settlePollMs: 10 } },
+  });
+
+  const error = await tool.read({ url: "https://walled.test/" }).catch((e) => e);
+
+  assert.equal(error.code, "consent_wall");
+  assert.equal(fake.state.calls.filter((c) => c.path.includes("/snapshot")).length, 1);
+});
+
+test("waitFor asks the gateway to hold for the selector before snapshotting", async (t) => {
+  const { fake, tool } = setup(t);
+
+  await tool.read({ url: "https://example.test/late", waitFor: "#article" });
+
+  const wait = fake.state.calls.find((c) => c.path.endsWith("/wait"));
+  assert.ok(wait, "no POST /tabs/{id}/wait was made");
+  assert.equal(wait.body.selector, "#article");
+  assert.equal(wait.body.userId, "u1");
+  assert.equal(wait.body.timeout, 5_000);
+  const order = fake.state.calls
+    .filter((c) => c.path.endsWith("/wait") || c.path.includes("/snapshot"))
+    .map((c) => c.path.split("/").pop().split("?")[0]);
+  assert.deepEqual(order, ["wait", "snapshot"], "waiting after the snapshot would be pointless");
+});
+
+test("a gateway without the wait route still reads the page, and says the wait was skipped", async (t) => {
+  const { tool } = setup(t, { waitRoute: false });
+
+  const out = await tool.read({ url: "https://example.test/late", waitFor: "#article" });
+
+  assert.match(out.text, /Page: https:\/\/example\.test\/late/u);
+  assert.match(out.waitNote, /waitFor "#article" was not performed: gateway has no \/wait route/u);
+});
+
+test("a selector that never appears does not fail the read, but is reported", async (t) => {
+  const { tool } = setup(t, { waitSelectorMisses: true });
+
+  const out = await tool.read({ url: "https://example.test/late", waitFor: "#never" });
+
+  assert.match(out.text, /Page: https:\/\/example\.test\/late/u);
+  assert.match(out.waitNote, /waitFor "#never" did not appear within 5000ms/u);
+});
+
+test("an internal address is refused before any gateway call", async (t) => {
+  const { fake, tool } = setup(t);
+
+  for (const url of ["http://169.254.169.254/latest/meta-data/", "http://127.0.0.1:8080/admin", "https://localhost/", "http://10.0.4.9/", "http://[::1]:9200/"]) {
+    const error = await tool.read({ url }).catch((e) => e);
+    assert.equal(error.code, "private_network", `${url} should have been refused`);
+  }
+  assert.equal(fake.state.calls.filter((c) => c.path !== "/").length, 0, "refusing must not touch the gateway");
+});
+
+test("network.allowPrivateHosts restores access to internal hosts", async (t) => {
+  const { fake, tool } = setup(t, { config: { network: { allowPrivateHosts: true } } });
+
+  const out = await tool.read({ url: "http://127.0.0.1:8080/admin" });
+
+  assert.match(out.text, /Page: http:\/\/127\.0\.0\.1:8080\/admin/u);
+  assert.ok(fake.state.calls.some((c) => c.path === "/tabs/open"));
 });

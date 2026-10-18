@@ -32,10 +32,24 @@ export interface CamoufoxConfig {
   /** Ordered engine chain; the first enabled engine is tried first. */
   engines: EngineConfig[];
   cache: { serpMs: number; pageMs: number };
-  read: { defaultMaxChars: number };
+  read: {
+    defaultMaxChars: number;
+    /** Extra time a read may spend re-snapshotting a thin page, `0` disables the hydration poll. */
+    waitForSettleMs: number;
+    /** Gap between settle polls. */
+    settlePollMs: number;
+    /** Below this many characters a page is treated as not-yet-rendered and polled again. */
+    settleMinChars: number;
+    /** Deadline handed to the gateway for an explicit `waitFor` selector. */
+    waitForTimeoutMs: number;
+  };
   search: { maxResults: number };
   /** Hosts `camoufox_read` must never navigate to. Empty means no host policy. */
   blockedHosts: string[];
+  network: {
+    /** Open tabs at loopback/RFC1918/link-local addresses. Off unless you front intranet docs. */
+    allowPrivateHosts: boolean;
+  };
   timeoutMs: number;
 }
 
@@ -46,9 +60,16 @@ export const DEFAULT_CONFIG: CamoufoxConfig = {
     { name: "duckduckgo", enabled: true },
   ],
   cache: { serpMs: 30 * 60 * 1000, pageMs: 10 * 60 * 1000 },
-  read: { defaultMaxChars: 12_000 },
+  read: {
+    defaultMaxChars: 12_000,
+    waitForSettleMs: 2_500,
+    settlePollMs: 300,
+    settleMinChars: 1_500,
+    waitForTimeoutMs: 5_000,
+  },
   search: { maxResults: 10 },
   blockedHosts: [],
+  network: { allowPrivateHosts: false },
   timeoutMs: 30_000,
 };
 
@@ -91,6 +112,31 @@ function assertFiniteNumber(value: unknown, key: string, path: string): number {
     fail(`${path}: "${key}" must be a positive number (got ${JSON.stringify(value)})`);
   }
   return value;
+}
+
+/** Same contract as `assertFiniteNumber`, but `0` is a legitimate value (it means "off"). */
+function assertNonNegativeNumber(value: unknown, key: string, path: string): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    fail(`${path}: "${key}" must be a number >= 0 (got ${JSON.stringify(value)})`);
+  }
+  return value;
+}
+
+function assertBoolean(value: unknown, key: string, path: string): boolean {
+  if (typeof value !== "boolean") {
+    fail(`${path}: "${key}" must be true or false (got ${JSON.stringify(value)})`);
+  }
+  return value;
+}
+
+const TRUTHY_ENV = new Set(["1", "true", "yes", "on"]);
+const FALSY_ENV = new Set(["0", "false", "no", "off"]);
+
+function parseEnvBoolean(value: string, key: string): boolean {
+  const normalized = value.trim().toLowerCase();
+  if (TRUTHY_ENV.has(normalized)) return true;
+  if (FALSY_ENV.has(normalized)) return false;
+  fail(`${key}: expected a boolean ("1"/"0", "true"/"false"), got "${value}"`);
 }
 
 function parseGatewayUrl(raw: unknown, path: string): string {
@@ -222,6 +268,26 @@ function mergeOntoDefaults(file: Record<string, unknown>, path: string): Camoufo
     if (read.defaultMaxChars !== undefined) {
       merged.read.defaultMaxChars = assertFiniteNumber(read.defaultMaxChars, "read.defaultMaxChars", path);
     }
+    if (read.waitForSettleMs !== undefined) {
+      merged.read.waitForSettleMs = assertNonNegativeNumber(read.waitForSettleMs, "read.waitForSettleMs", path);
+    }
+    if (read.settlePollMs !== undefined) {
+      merged.read.settlePollMs = assertFiniteNumber(read.settlePollMs, "read.settlePollMs", path);
+    }
+    if (read.settleMinChars !== undefined) {
+      merged.read.settleMinChars = assertFiniteNumber(read.settleMinChars, "read.settleMinChars", path);
+    }
+    if (read.waitForTimeoutMs !== undefined) {
+      merged.read.waitForTimeoutMs = assertFiniteNumber(read.waitForTimeoutMs, "read.waitForTimeoutMs", path);
+    }
+  }
+
+  if (file.network !== undefined) {
+    if (file.network === null || typeof file.network !== "object") fail(`${path}: "network" must be an object`);
+    const network = file.network as Record<string, unknown>;
+    if (network.allowPrivateHosts !== undefined) {
+      merged.network.allowPrivateHosts = assertBoolean(network.allowPrivateHosts, "network.allowPrivateHosts", path);
+    }
   }
 
   if (file.search !== undefined) {
@@ -255,6 +321,8 @@ export function loadConfig(options: LoadConfigOptions = {}): CamoufoxConfig {
 
   if (env.CAMOUFOX_GATEWAY_URL) config.gatewayUrl = parseGatewayUrl(env.CAMOUFOX_GATEWAY_URL, "$CAMOUFOX_GATEWAY_URL");
   if (env.CAMOUFOX_API_KEY) config.apiKey = assertString(env.CAMOUFOX_API_KEY, "apiKey", "$CAMOUFOX_API_KEY");
+  if (env.CAMOUFOX_ALLOW_PRIVATE_HOSTS)
+    config.network.allowPrivateHosts = parseEnvBoolean(env.CAMOUFOX_ALLOW_PRIVATE_HOSTS, "$CAMOUFOX_ALLOW_PRIVATE_HOSTS");
 
   return config;
 }
