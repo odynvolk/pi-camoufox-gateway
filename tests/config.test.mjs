@@ -6,6 +6,7 @@ import { join } from "node:path";
 
 import { DEFAULT_CONFIG, loadConfig } from "../src/config.ts";
 import { resolveConfig } from "../src/extension.ts";
+import { testConfig } from "./helpers/config.mjs";
 
 function withConfigFile(contents, t) {
   const dir = mkdtempSync(join(tmpdir(), "camoufox-config-"));
@@ -154,6 +155,11 @@ test("waitForSettleMs accepts 0 as off, unlike the other read numbers", (t) => {
   const configPath = withConfigFile(JSON.stringify({ read: { waitForSettleMs: 0 } }), t);
   assert.equal(loadConfig({ configPath, env: {} }).read.waitForSettleMs, 0);
 
+  // The other half of why `assertNonNegativeNumber` exists rather than reusing `assertFiniteNumber`:
+  // without it, "off" and "a negative budget" are indistinguishable at load time.
+  const negativeSettle = withConfigFile(JSON.stringify({ read: { waitForSettleMs: -1 } }), t);
+  assert.throws(() => loadConfig({ configPath: negativeSettle, env: {} }), /read\.waitForSettleMs/u);
+
   const negative = withConfigFile(JSON.stringify({ read: { settlePollMs: -1 } }), t);
   assert.throws(() => loadConfig({ configPath: negative, env: {} }), /read\.settlePollMs/u);
 });
@@ -227,4 +233,19 @@ test("a disabled settle loop imposes no bound on the poll interval", (t) => {
   const configPath = withConfigFile(JSON.stringify({ read: { waitForSettleMs: 0, settlePollMs: 5_000 } }), t);
 
   assert.equal(loadConfig({ configPath, env: {} }).read.waitForSettleMs, 0);
+});
+
+test("the test config helper refuses what the loader would refuse", () => {
+  // `testConfig` builds configs without going through `loadConfig`, so it has to say no to a typo
+  // itself. Without this, a misspelled override merges in unseen and the setting keeps its default,
+  // which makes the test that set it describe a configuration it does not have.
+  assert.throws(() => testConfig({ read: { settlePolllMs: 10 } }), /unknown test config key "read\.settlePolllMs"/u);
+  assert.throws(() => testConfig({ network: { allowPrivateHost: true } }), /unknown test config key "network\.allowPrivateHost"/u);
+  assert.throws(() => testConfig({ timeoutM: 1000 }), /unknown test config key "timeoutM"/u);
+  assert.throws(() => testConfig({ read: 5 }), /"read" must be an object/u);
+
+  // `apiKey` is valid but has no default, and the sections a test does set have to survive.
+  assert.equal(testConfig({ apiKey: "sekret" }).apiKey, "sekret");
+  assert.equal(testConfig({ read: { settlePollMs: 10 } }).read.settlePollMs, 10);
+  assert.equal(testConfig({ read: { settlePollMs: 10 } }).read.waitForSettleMs, DEFAULT_CONFIG.read.waitForSettleMs);
 });
