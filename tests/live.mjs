@@ -56,9 +56,22 @@ test("live: n above the page size is clamped and disclosed", { skip: !live }, as
   assert.equal(outcome.details.clampedTo, 10);
 });
 
-test("live: an internal address is refused and costs the gateway nothing", { skip: !live }, async () => {
-  const error = await extension.read({ url: "http://169.254.169.254/latest/meta-data/" }).catch((e) => e);
-  assert.equal(error.code, "private_network");
+// A live run must not become the thing the guard exists for. With `allowPrivateHosts` on, that address is
+// permitted, so the read would be attempted — a real request at the cloud metadata endpoint, from a test
+// suite, on a machine that may be the kind of host it is asking about.
+const internalGuardSkip = config.network.allowPrivateHosts
+  ? "network.allowPrivateHosts is on, so the url is permitted: firing it is the request the guard exists to stop"
+  : !live && "set CAMOUFOX_LIVE=1";
+
+test("live: an internal address is refused and costs the gateway nothing", { skip: internalGuardSkip }, async () => {
+  // `name` is checked rather than `instanceof GatewayError` so this file does not need an import for one
+  // assertion; the object form also means a read that *succeeds* reports itself as such, instead of
+  // throwing a TypeError off `undefined.code`.
+  await assert.rejects(
+    () => extension.read({ url: "http://169.254.169.254/latest/meta-data/" }),
+    { name: "GatewayError", code: "private_network" },
+  );
+  assert.equal(client.openTabCount(), 0, "the title promises this, so it is asserted");
 });
 
 test("live: teardown leaves the gateway without our session", { skip: !live }, async () => {
