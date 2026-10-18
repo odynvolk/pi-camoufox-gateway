@@ -362,3 +362,51 @@ test("a page nothing can place is not returned as page text", async (t) => {
 
   assert.equal(error.code, "destination_unreported");
 });
+
+test("a page that rotates text at a constant width is not mistaken for a finished one", async (t) => {
+  // The failure the settle loop exists to prevent, in the one shape length comparison cannot see: a
+  // skeleton that swaps content without changing width.
+  const frames = Array.from({ length: 6 }, (_unused, index) => `- text: loading ${index} of 5 [level=1]`);
+  assert.equal(new Set(frames.map((frame) => frame.length)).size, 1, "the frames must be the same width, that is the point");
+
+  const { fake, tool } = setup(t, {
+    snapshotScripts: new Map([["https://rot.test/", frames]]),
+    config: { read: { settlePollMs: 5 } },
+  });
+
+  const out = await tool.read({ url: "https://rot.test/" });
+
+  assert.match(out.text, /loading 5 of 5/u, "the loop waits for the frames to stop, not for their width to match");
+  const snapshots = fake.state.calls.filter((c) => c.path.includes("/snapshot")).length;
+  assert.ok(snapshots > 1 + STABLE_ROUNDS, `declared stable after two look-alikes (${snapshots} snapshots)`);
+});
+
+test("a slice the gateway capped does not read as a page that stopped growing", async (t) => {
+  // Every response here is exactly `snapshotLimit` characters, so the text is identical from one poll to
+  // the next while the page underneath it keeps growing. Only `totalChars` can tell those apart.
+  const frames = Array.from({ length: 6 }, (_unused, index) => "x".repeat(400 + index * 100));
+  const { fake, tool } = setup(t, {
+    snapshotLimit: 50,
+    snapshotScripts: new Map([["https://cap.test/", frames]]),
+    config: { read: { settlePollMs: 5 } },
+  });
+
+  await tool.read({ url: "https://cap.test/" });
+
+  const snapshots = fake.state.calls.filter((c) => c.path.includes("/snapshot")).length;
+  assert.ok(snapshots > 1 + STABLE_ROUNDS, `declared stable on capped slices (${snapshots} snapshots)`);
+});
+
+test("the poll interval never outlasts the settle budget", async (t) => {
+  const { tool } = setup(t, {
+    snapshotScripts: new Map([["https://slow.test/", ["- text: thin [level=1]"]]]),
+    config: { read: { waitForSettleMs: 40, settlePollMs: 5_000 } },
+  });
+
+  const startedAt = Date.now();
+  await tool.read({ url: "https://slow.test/" });
+
+  // `loadConfig` rejects a poll interval at or above the budget, so this pair only arrives from a config
+  // assembled by hand. The loop must still respect the budget it was given.
+  assert.ok(Date.now() - startedAt < 1_000, "the read slept through its own deadline and then polled anyway");
+});

@@ -58,6 +58,14 @@ export interface ReadOutcome {
  */
 export const STABLE_ROUNDS = 2;
 
+/** Two consecutive snapshots are the same page, not merely two strings of the same length. */
+function samePage(left: SnapshotResult, right: SnapshotResult): boolean {
+  // `totalChars` and `refsCount` are cheap and catch the two shapes text alone cannot see: a slice the
+  // gateway capped, where the returned text stops growing while the page keeps going, and a skeleton
+  // that swaps content at a constant width.
+  return left.text === right.text && left.totalChars === right.totalChars && left.refsCount === right.refsCount;
+}
+
 function delay(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {
@@ -133,9 +141,13 @@ export function readTool(deps: ReadToolDeps) {
     // knowing the app's selectors. The deadline bounds how long it can take, and each poll is its own
     // gateway request, so the worst case is the deadline plus one request.
     while (Date.now() < deadline) {
-      await delay(read.settlePollMs, signal);
+      // Never sleep past the budget. Sleep the interval instead and a poll configured near the deadline
+      // sleeps through it and still issues its request, which is a longer read and a slower refusal than
+      // the comment above promises. Config validation keeps the configured pair sane, so the clamp is
+      // here for a budget assembled some other way.
+      await delay(Math.max(0, Math.min(read.settlePollMs, deadline - Date.now())), signal);
       const next = await client.snapshot({ userId, tabId, offset, signal });
-      unchanged = next.text.length === latest.text.length ? unchanged + 1 : 0;
+      unchanged = samePage(next, latest) ? unchanged + 1 : 0;
       latest = next;
       polled = true;
       if (unchanged >= STABLE_ROUNDS || !worthPollingAgain(next)) {

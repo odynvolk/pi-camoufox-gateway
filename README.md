@@ -30,8 +30,10 @@ Loads a page in the browser and returns its text.
   your context window.
 - **Waits for the page to render.** `openTab` returning does not mean the content is there: a
   client-rendered site answers with its skeleton. A snapshot thinner than `read.settleMinChars` is
-  re-taken until it stops growing, up to `read.waitForSettleMs`. If it never fills in, the output
-  says so instead of letting the model conclude the site is empty.
+  re-taken until two consecutive snapshots come back identical — same text, same `totalChars` — up to
+  `read.waitForSettleMs`. A page that never repeats (a clock, a carousel) therefore costs the whole
+  budget, which is the point: a skeleton that swaps text at a constant width is not a finished page.
+  If it never fills in, the output says so instead of letting the model conclude the site is empty.
 - `waitFor` takes a CSS selector and asks the gateway to hold until it appears — use it when the
   settle heuristic cannot guess the content (`waitFor: "#article"`). A wait that cannot complete — no
   `/wait` route, or a gateway that ignores its own deadline until the client cuts it off at
