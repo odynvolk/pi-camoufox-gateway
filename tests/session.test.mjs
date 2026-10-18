@@ -149,6 +149,25 @@ test("the extension's read details carry metadata, not a second copy of the page
   );
 });
 
+test("a config override reaches the client policy and the read budgets", async (t) => {
+  // `extensionFor` used to hand `config` to the fake gateway and build everything else from the module
+  // defaults, so an override here silently did nothing. Both halves are asserted structurally, not by
+  // timing. The refusal below is a destination, which only the client's own policy can see; the missing
+  // settle polling is the read tool's budget, which is a different object on the same call.
+  const { extension } = extensionFor(t, "pi-config-override", {
+    redirects: new Map([["https://public.test/x", "https://blocked.test/admin"]]),
+    pageContents: new Map([["https://thin.test/", "s".repeat(200)]]),
+    config: { blockedHosts: ["blocked.test"], read: { settleMinChars: 0 } },
+  });
+
+  const refused = await extension.read({ url: "https://public.test/x" }).catch((error) => error);
+  assert.equal(refused.code, "host_blocked", "the client refused the destination the gateway reported");
+  assert.equal(refused.details.stage, "destination");
+
+  const outcome = await extension.read({ url: "https://thin.test/" });
+  assert.equal(outcome.details.settledInMs, undefined, "nothing to wait for, so nothing was polled");
+});
+
 test("a page that stayed thin is annotated in the text the model reads", async (t) => {
   const { extension } = extensionFor(t, "pi-thin", {
     snapshotScripts: new Map([["https://spa.test/", ['- heading "Loading…" [level=1]']]]),
