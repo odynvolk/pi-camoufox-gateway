@@ -10,7 +10,7 @@
 import type { CamoufoxConfig } from "../config.ts";
 import { GatewayError } from "../errors.ts";
 import type { GatewayClient, SnapshotResult } from "../gateway.ts";
-import { assertTabUrlAllowed, urlPolicyFromConfig, type UrlCheckStage } from "../net-policy.ts";
+import { assertTabUrlAllowed, urlPolicyFromConfig } from "../net-policy.ts";
 import { detectWall, extractText, type ExtractedText } from "../snapshot.ts";
 
 export interface ReadToolDeps {
@@ -84,8 +84,8 @@ export function readTool(deps: ReadToolDeps) {
    * Same rules `GatewayClient.openTab` applies, called here on purpose: a client constructed without
    * a policy must not silently turn the read tool into the unguarded path.
    */
-  function assertAllowed(url: string, stage: UrlCheckStage = "request"): void {
-    assertTabUrlAllowed(url, urlPolicyFromConfig(config), stage);
+  function assertAllowed(url: string): void {
+    assertTabUrlAllowed(url, urlPolicyFromConfig(config));
   }
 
   /**
@@ -176,11 +176,10 @@ export function readTool(deps: ReadToolDeps) {
         });
       }
 
-      // Where we ended up is part of the policy decision, not just of the report: a client-side
-      // redirect can leave the tab somewhere the url we asked for did not. Checked after the wall
-      // classification so a page that never rendered stays `empty_page` rather than a refusal, and
-      // before anything is returned so no body from an internal address is ever handed back.
-      if (snapshot.url) assertAllowed(snapshot.url, "destination");
+      // No destination check here: `client.snapshot` refuses a page from a host the policy would not
+      // have opened, which is the same rule with one fewer place to remember it. It runs while we poll,
+      // so a page that redirected somewhere internal is refused even when it never rendered — the
+      // refusal is the truer answer of the two.
 
       let extracted: Record<string, unknown> | undefined;
       if (params.schema) {

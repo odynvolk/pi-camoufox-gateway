@@ -226,7 +226,9 @@ test("a wall is classified without spending the settle budget on it", async (t) 
 });
 
 test("waitFor asks the gateway to hold for the selector before snapshotting", async (t) => {
-  const { fake, tool } = setup(t);
+  // The client's own deadline is set above `read.waitForTimeoutMs` here so this reads as pure
+  // forwarding; what happens when the two disagree is `gateway.test.mjs`'s "never outlast" case.
+  const { fake, tool } = setup(t, { client: { timeoutMs: 8_000 } });
 
   await tool.read({ url: "https://example.test/late", waitFor: "#article" });
 
@@ -234,7 +236,7 @@ test("waitFor asks the gateway to hold for the selector before snapshotting", as
   assert.ok(wait, "no POST /tabs/{id}/wait was made");
   assert.equal(wait.body.selector, "#article");
   assert.equal(wait.body.userId, "u1");
-  assert.equal(wait.body.timeout, 5_000);
+  assert.equal(wait.body.timeout, 5_000, "read.waitForTimeoutMs is forwarded while it fits our budget");
   const order = fake.state.calls
     .filter((c) => c.path.endsWith("/wait") || c.path.includes("/snapshot"))
     .map((c) => c.path.split("/").pop().split("?")[0]);
@@ -326,4 +328,20 @@ test("network.allowPrivateHosts restores access to internal hosts", async (t) =>
 
   assert.match(out.text, /Page: http:\/\/127\.0\.0\.1:8080\/admin/u);
   assert.ok(fake.state.calls.some((c) => c.path === "/tabs/open"));
+});
+
+test("a page that moves after the tab opened is refused before any text is returned", async (t) => {
+  // `openTab` cannot see this move: the gateway reports no destination there, so its re-check has
+  // nothing to compare. The one response that does report it is `/snapshot`, which is why the
+  // destination check lives in the client rather than in this tool.
+  const { fake, tool } = setup(t, {
+    openReportsUrl: false,
+    redirectAfterOpen: new Map([["https://spa.test/late", "http://169.254.169.254/latest/meta-data/"]]),
+  });
+
+  const error = await tool.read({ url: "https://spa.test/late" }).catch((e) => e);
+
+  assert.equal(error.code, "private_network");
+  assert.equal(error.details.stage, "destination");
+  assert.ok(fake.state.calls.some((c) => c.path.includes("/snapshot")), "the refusal came from the page, not the request");
 });

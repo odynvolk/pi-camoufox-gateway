@@ -208,6 +208,47 @@ test("a redirect into a blocked host is refused the same way", async (t) => {
   assert.deepEqual(fake.liveTabs(), []);
 });
 
+test("a destination only the snapshot reports is still refused", async (t) => {
+  // The hole `openTab`'s re-check cannot cover: a gateway that reports no url at open is handed back the
+  // url we asked for, so that check compares a string with itself. A page that moves after the tab is
+  // open appears only in `/snapshot` — which is also the only destination check the search engines and
+  // `resolve` could ever get, because they do not do it themselves.
+  withFakeGateway(t, {
+    openReportsUrl: false,
+    redirectAfterOpen: new Map([["https://public.test/x", "http://169.254.169.254/latest/meta-data/"]]),
+  });
+  const client = createGatewayClient({ baseUrl: BASE, timeoutMs: 2000, urlPolicy: OPEN });
+
+  const tab = await client.openTab({ userId: "u1", url: "https://public.test/x" });
+  assert.equal(tab.url, "https://public.test/x", "the fallback is the url we asked for, which proves nothing");
+
+  const error = await client.snapshot({ userId: "u1", tabId: tab.tabId }).catch((e) => e);
+
+  assert.equal(error.code, "private_network");
+  assert.equal(error.details.stage, "destination", "the refusal is about where the page went");
+  assert.match(error.message, /internal address/u);
+  await client.closeTab({ userId: "u1", tabId: tab.tabId });
+});
+
+test("blockedHosts is applied to the snapshot destination as well", async (t) => {
+  withFakeGateway(t, {
+    openReportsUrl: false,
+    redirectAfterOpen: new Map([["https://public.test/x", "https://internal.test/admin"]]),
+  });
+  const client = createGatewayClient({
+    baseUrl: BASE,
+    timeoutMs: 2000,
+    urlPolicy: { blockedHosts: ["internal.test"], allowPrivateHosts: false },
+  });
+
+  const tab = await client.openTab({ userId: "u1", url: "https://public.test/x" });
+  const error = await client.snapshot({ userId: "u1", tabId: tab.tabId }).catch((e) => e);
+
+  assert.equal(error.code, "host_blocked");
+  assert.equal(error.details.stage, "destination");
+  await client.closeTab({ userId: "u1", tabId: tab.tabId });
+});
+
 test("urlPolicyFromConfig is the only way a policy is built from a config", () => {
   const config = { ...structuredClone(DEFAULT_CONFIG), blockedHosts: ["a.test"], network: { allowPrivateHosts: true } };
 

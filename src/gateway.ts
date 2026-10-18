@@ -128,6 +128,11 @@ export function endpointPath(name: EndpointName, params: Record<string, string> 
  * A connect failure cannot (nothing was sent). A timeout or a cancel can, because the request had
  * already landed. That distinction is what makes the sweep worth its cost.
  */
+/** Did this gateway answer 404 because the path does not exist, rather than because a tab is gone? */
+function isRouteMissing(error: GatewayError): boolean {
+  return (error.details as { routeMissing?: boolean } | undefined)?.routeMissing === true;
+}
+
 function isAmbiguousTabOpen(error: unknown): boolean {
   return error instanceof GatewayError && (error.code === "timeout" || error.code === "aborted");
 }
@@ -253,6 +258,9 @@ export class GatewayClient {
     const result: OpenTabResult = {
       tabId,
       targetId: typeof body.targetId === "string" ? body.targetId : undefined,
+      // A gateway that reports no destination gets back the url we asked for, so callers that merely
+      // report a url still get one. It is not evidence about where the page went — the check below has
+      // nothing to compare in that case — so `snapshot` is where the destination is enforced for real.
       url: typeof body.url === "string" ? body.url : params.url,
       title: typeof body.title === "string" ? body.title : undefined,
     };
@@ -328,7 +336,7 @@ export class GatewayClient {
     const text = typeof body.snapshot === "string" ? body.snapshot : "";
     const totalChars = typeof body.totalChars === "number" ? body.totalChars : text.length;
     const nextOffset = typeof body.nextOffset === "number" ? body.nextOffset : text.length;
-    return {
+    const result: SnapshotResult = {
       url: typeof body.url === "string" ? body.url : "",
       text,
       refsCount: typeof body.refsCount === "number" ? body.refsCount : (text.match(/\[e\d+\]/gu) ?? []).length,
@@ -337,6 +345,13 @@ export class GatewayClient {
       hasMore: body.hasMore === true,
       nextOffset,
     };
+    // Where the page actually ended up, from the one response that cannot be stale. `openTab` re-checks
+    // the destination it is handed, but a gateway that reports no url there leaves that check with
+    // nothing to compare — it falls back to the url we asked for, which is the one already vetted. This
+    // is the check that still holds, it is the one no caller can forget to write, and content from a
+    // destination we would have refused is content we must not hand back.
+    if (result.url) assertTabUrlAllowed(result.url, this.urlPolicy, "destination");
+    return result;
   }
 
   /**
@@ -345,8 +360,9 @@ export class GatewayClient {
    * An enhancement, so nothing that stops it may end the read: a gateway older than the endpoint
    * answers 404, and one that ignores its own `timeout` argument is cut off by our per-request
    * deadline. Both degrade to a reported skip and we snapshot anyway — once, because `retry: "never"`
-   * keeps an optional wait from costing the retry budget. A cancelled call or a tab that vanished is
-   * different: there is nothing left to read.
+   * keeps an optional wait from costing the retry budget, and it is why an over-long gateway deadline
+   * cannot cost us twice. A cancelled call or a tab that vanished is different: there is nothing left
+   * to read, so `aborted` and `tab_not_found` are the only codes allowed out of here.
    */
   async waitFor(params: {
     userId: string;
@@ -355,22 +371,29 @@ export class GatewayClient {
     timeoutMs?: number;
     signal?: AbortSignal;
   }): Promise<WaitOutcome> {
+    // Two deadlines on one request. Ours wins: telling the gateway to hold for longer than we can wait
+    // buys work we then abandon. Config validation keeps the pair coherent, so this only bites for a
+    // client built by hand.
+    const timeoutMs = params.timeoutMs === undefined ? undefined : Math.min(params.timeoutMs, this.timeoutMs);
     try {
       const body = await this.requestJson<Record<string, unknown>>("POST", endpointPath("wait", { tabId: params.tabId }), {
         userId: params.userId,
         body: {
           userId: params.userId,
           selector: params.selector,
-          ...(params.timeoutMs === undefined ? {} : { timeout: params.timeoutMs }),
+          ...(timeoutMs === undefined ? {} : { timeout: timeoutMs }),
         },
         signal: params.signal,
         tolerateNotOk: true,
         retry: "never",
       });
-      return { ok: body.ok !== false, ...(typeof body.error === "string" ? { error: body.error } : {}) };
+      // Only a gateway that omits the field gets the benefit of the doubt. Anything else has to say so
+      // outright: silence from `read` is what tells the model the selector appeared.
+      const ok = body.ok === undefined ? true : body.ok === true;
+      return { ok, ...(typeof body.error === "string" ? { error: body.error } : {}) };
     } catch (error) {
       if (error instanceof GatewayError) {
-        if (/has no route/iu.test(error.message)) {
+        if (error.code === "gateway_error" && isRouteMissing(error)) {
           return { ok: false, skipped: "gateway has no /wait route" };
         }
         if (error.code === "timeout" || error.code === "gateway_error") {
@@ -570,7 +593,9 @@ export class GatewayClient {
         const tabId = path.match(/^\/tabs\/([^/]+)/)?.[1] ?? "?";
         return new GatewayError("tab_not_found", `the browser tab ${tabId} is gone for user "${options.userId}"`, { details });
       }
-      return new GatewayError("gateway_error", `gateway has no route ${path}: ${message}`, { details });
+      // "We asked for a path this gateway does not have" — flagged structurally, because the caller that
+      // degrades on it must not be coupled to how this message is phrased.
+      return new GatewayError("gateway_error", `gateway has no route ${path}: ${message}`, { details: { ...details, routeMissing: true } });
     }
     if (response.status === 400 && /blocked url|scheme/i.test(message)) {
       return new GatewayError("blocked_url", message, { details });

@@ -49,6 +49,9 @@ export function createFakeGateway(options = {}) {
     waitRoute: true, // false simulates a gateway with no POST /tabs/{id}/wait
     waitSelectorMisses: false, // true answers { ok: false }: the selector never appeared
     waitError: null, // string: the gateway refused the wait, e.g. "Invalid selector"
+    waitBody: undefined, // anything: answers /wait with exactly this, for shapes we must interpret
+    waitReject: null, // { status, message }: answer /wait with an error at that status
+    openReportsUrl: true, // false simulates a gateway that never reports where a tab ended up
     waitHangsForMs: 0, // the gateway holds /wait past our per-request deadline, ignoring its own timeout
     openLatencyMs: 0,
     hangUrls: new Set(),
@@ -222,7 +225,9 @@ export function createFakeGateway(options = {}) {
           return json({ error: "Blocked URL scheme (only http/https allowed)" }, 400);
         }
         tab.url = resolveTarget(body.url);
-        return json({ ok: true, tabId, url: tab.url, refsAvailable: true });
+        // Some gateways answer `/tabs/open` with an id only, which is the case `openTab`'s destination
+        // re-check cannot see: it gets back the url we asked for, so it compares a string with itself.
+        return json({ ok: true, tabId, refsAvailable: true, ...(state.openReportsUrl ? { url: tab.url } : {}) });
       }
 
       if (method === "GET" && sub === "/snapshot") {
@@ -256,6 +261,8 @@ export function createFakeGateway(options = {}) {
 
       if (method === "POST" && sub === "/wait") {
         if (!state.waitRoute) return json({ error: "Not Found" }, 404);
+        if (state.waitReject) return json({ error: state.waitReject.message }, state.waitReject.status);
+        if (state.waitBody !== undefined) return json(state.waitBody);
         if (state.waitHangsForMs) await sleep(state.waitHangsForMs);
         if (state.waitError) return json({ ok: false, error: state.waitError, tabId });
         if (state.waitSelectorMisses) return json({ ok: false, tabId });

@@ -40,8 +40,10 @@ Loads a page in the browser and returns its text.
   first (refs only exist after a snapshot), then calls the gateway's extractor.
 - Refuses internal addresses, and keeps refusing after the browser moves. `blockedHosts` is applied,
   and so is a block on loopback, RFC1918, link-local (including the cloud metadata IP) and other
-  non-global addresses — see `network.allowPrivateHosts`. The destination the gateway reports is
-  checked the same way, so a public url that redirects to `169.254.169.254` does not get read back.
+  non-global addresses — see `network.allowPrivateHosts`. Every destination gets checked, at tab open
+  and on every snapshot, so a public url that redirects to `169.254.169.254` does not get read back —
+  including by a gateway that reports no destination at open, which is the case a check at open alone
+  would have missed.
 
 ## Install
 
@@ -96,9 +98,9 @@ Environment: `CAMOUFOX_GATEWAY_URL`, `CAMOUFOX_API_KEY`, `CAMOUFOX_CONFIG_PATH`,
 | `read.waitForSettleMs` | 2500 | extra time a read may spend re-snapshotting a thin page; `0` disables |
 | `read.settlePollMs` | 300 | gap between those polls |
 | `read.settleMinChars` | 1500 | below this the page is treated as not yet rendered |
-| `read.waitForTimeoutMs` | 5000 | deadline handed to the gateway for an explicit `waitFor` |
+| `read.waitForTimeoutMs` | 5000 | deadline handed to the gateway for an explicit `waitFor`, capped at `timeoutMs` |
 | `search.maxResults` | 10 | hard ceiling, engine page size |
-| `blockedHosts` | `[]` | applied to every tab open, incl. `resolve: true` and redirects; the gateway enforces none |
+| `blockedHosts` | `[]` | applied to every destination we open or read back, incl. `resolve: true` and redirects; the gateway enforces none |
 | `network.allowPrivateHosts` | `false` | let tabs open loopback/RFC1918/link-local addresses |
 | `timeoutMs` | 30000 | per gateway request |
 

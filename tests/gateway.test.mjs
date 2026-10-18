@@ -238,6 +238,59 @@ test("waitFor on a gateway with no wait endpoint says so instead of failing", as
   assert.equal(wait.skipped, "gateway has no /wait route");
 });
 
+test("waitFor counts only an explicit true as a wait that happened", async (t) => {
+  // A successful wait is silent in `read`, and silence is what the model reads as "the selector
+  // appeared". A gateway that omits the field gets the benefit of the doubt; one that answers `null`,
+  // `0`, or the string `"false"` does not get to mean success.
+  const cases = [
+    [{}, true],
+    [{ ok: true }, true],
+    [{ ok: null }, false],
+    [{ ok: 0 }, false],
+    [{ ok: "true" }, false],
+    [{ ok: "false" }, false],
+    [{ ok: [] }, false],
+  ];
+
+  for (const [body, expected] of cases) {
+    const { client } = clientWith(t, { waitBody: body });
+    const { tabId } = await openTab(t, client, "u1", "https://example.com");
+
+    const wait = await client.waitFor({ userId: "u1", tabId, selector: "#article" });
+
+    assert.equal(wait.ok, expected, `answered ${JSON.stringify(body)}`);
+  }
+});
+
+test("a missing /wait route is told apart by status, not by the sentence around it", async (t) => {
+  // The phrase "gateway has no route" is ours, composed in `httpError`, and free to be reworded. What
+  // decides this branch is the 404 — so a 500 that happens to say the same thing is still a gateway
+  // failure, and a reworded 404 is still a gateway without the endpoint.
+  const { client } = clientWith(t, { waitReject: { status: 500, message: "gateway has no route /wait" } });
+  const { tabId } = await openTab(t, client, "u1", "https://example.com");
+
+  const wait = await client.waitFor({ userId: "u1", tabId, selector: "#article" });
+
+  assert.equal(wait.ok, false);
+  assert.notEqual(wait.skipped, "gateway has no /wait route", "a server error is not a missing endpoint");
+  assert.match(wait.skipped, /gateway error 500/u);
+});
+
+test("waitFor never asks the gateway to outlast our own deadline", async (t) => {
+  // Two knobs, one request. Asking for 5s of waiting we will cut off at 200ms buys work the gateway
+  // does and we never collect. Config validation keeps the configured pair coherent, so this guards a
+  // client wired up by hand.
+  const { fake, client } = clientWith(t, { client: { timeoutMs: 200 } });
+  const { tabId } = await openTab(t, client, "u1", "https://example.com");
+
+  await client.waitFor({ userId: "u1", tabId, selector: "#article", timeoutMs: 5_000 });
+  await client.waitFor({ userId: "u1", tabId, selector: "#article" });
+
+  const waits = fake.state.calls.filter((c) => c.path.endsWith("/wait"));
+  assert.equal(waits[0].body.timeout, 200, "the gateway deadline was capped at our own");
+  assert.equal("timeout" in waits[1].body, false, "no deadline asked for, none sent");
+});
+
 test("waitFor gives up on a gateway that hangs, without spending the retry budget", async (t) => {
   // A gateway that ignores its own `timeout` argument must not turn an optional wait into a failed
   // read, and must not be retried: the caller already paid the deadline once.
