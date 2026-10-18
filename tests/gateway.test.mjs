@@ -313,7 +313,7 @@ test("waitFor still propagates a tab that vanished underneath us", async (t) => 
   expectError(error, "tab_not_found");
 });
 
-test("openTab applies the policy it was constructed with", async (t) => {
+test("each client enforces the policy it was constructed with", async (t) => {
   const { fake, client } = clientWith(t);
   const guarded = createGatewayClient({
     baseUrl: BASE,
@@ -323,7 +323,15 @@ test("openTab applies the policy it was constructed with", async (t) => {
 
   expectError(await guarded.openTab({ userId: "u1", url: "https://forbidden.test/x" }).catch((e) => e), "host_blocked");
   expectError(await guarded.openTab({ userId: "u1", url: "http://192.168.0.1/" }).catch((e) => e), "private_network");
-  assert.equal(fake.state.calls.filter((c) => c.path === "/tabs/open").length, 0);
+  assert.equal(fake.state.calls.filter((c) => c.path === "/tabs/open").length, 0, "the guard is client-side, so nothing left");
+
+  // The policy is a constructor argument, not a module-level flag: a second client against the same
+  // gateway, built without the block, still opens the url the guarded one refused. Without this the
+  // test above would also pass if the policy leaked between instances.
+  const tab = await client.openTab({ userId: "u1", url: "https://forbidden.test/x" });
+  assert.ok(tab.tabId, "an unguarded client is unguarded");
+  assert.equal(fake.state.calls.filter((c) => c.path === "/tabs/open").length, 1, "and it reached the gateway");
+  await client.closeTab({ userId: "u1", tabId: tab.tabId });
 });
 
 test("aborts in-flight work when the caller signal aborts", async (t) => {
