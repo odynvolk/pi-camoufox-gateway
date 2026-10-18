@@ -33,8 +33,9 @@ Loads a page in the browser and returns its text.
   re-taken until it stops growing, up to `read.waitForSettleMs`. If it never fills in, the output
   says so instead of letting the model conclude the site is empty.
 - `waitFor` takes a CSS selector and asks the gateway to hold until it appears — use it when the
-  settle heuristic cannot guess the content (`waitFor: "#article"`). On a gateway with no `wait`
-  route the read still returns the page and says the wait was skipped.
+  settle heuristic cannot guess the content (`waitFor: "#article"`). A wait that cannot complete — no
+  `/wait` route, or a gateway that ignores its own deadline until the client cuts it off at
+  `timeoutMs` — costs the wait, not the page: the read continues and says which it was.
 - `schema` accepts a JSON Schema whose properties carry `x-ref` hints; the tool snapshots the page
   first (refs only exist after a snapshot), then calls the gateway's extractor.
 - Refuses internal addresses, and keeps refusing after the browser moves. `blockedHosts` is applied,
@@ -105,6 +106,11 @@ Unknown keys are a hard error on purpose — a silently typo'd setting is worse 
 config file that exists but fails to load is not replaced with defaults either: every tool call
 returns `config_error` naming the file and the key, so a typo cannot quietly point the extension at
 the wrong gateway.
+
+Values that are individually valid but cannot both be true are refused too, naming both keys:
+`read.settlePollMs` has to be below `read.waitForSettleMs` (at or above it the page is polled exactly
+once, and the budget stops meaning anything), and `read.waitForTimeoutMs` below `timeoutMs` (the
+client aborts any request at `timeoutMs`, so a longer selector deadline could never be reached).
 
 ## Error codes
 

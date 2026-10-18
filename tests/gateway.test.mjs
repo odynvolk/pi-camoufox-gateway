@@ -238,6 +238,19 @@ test("waitFor on a gateway with no wait endpoint says so instead of failing", as
   assert.equal(wait.skipped, "gateway has no /wait route");
 });
 
+test("waitFor gives up on a gateway that hangs, without spending the retry budget", async (t) => {
+  // A gateway that ignores its own `timeout` argument must not turn an optional wait into a failed
+  // read, and must not be retried: the caller already paid the deadline once.
+  const { fake, client } = clientWith(t, { waitHangsForMs: 500, client: { timeoutMs: 60 } });
+  const { tabId } = await openTab(t, client, "u1", "https://example.com");
+
+  const wait = await client.waitFor({ userId: "u1", tabId, selector: "#slow" });
+
+  assert.equal(wait.ok, false);
+  assert.match(wait.skipped, /did not respond within 60ms/u);
+  assert.equal(fake.state.calls.filter((c) => c.path.endsWith("/wait")).length, 1, "the wait got retried");
+});
+
 test("waitFor still propagates a tab that vanished underneath us", async (t) => {
   const { client } = clientWith(t);
   const { tabId } = await openTab(t, client, "u1", "https://example.com");

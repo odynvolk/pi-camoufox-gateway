@@ -136,7 +136,9 @@ function parseEnvBoolean(value: string, key: string): boolean {
   const normalized = value.trim().toLowerCase();
   if (TRUTHY_ENV.has(normalized)) return true;
   if (FALSY_ENV.has(normalized)) return false;
-  fail(`${key}: expected a boolean ("1"/"0", "true"/"false"), got "${value}"`);
+  // Spelled from the sets, so the message cannot fall behind what the parser accepts.
+  const accepted = [...TRUTHY_ENV, ...FALSY_ENV].map((entry) => `"${entry}"`).join(" | ");
+  fail(`${key}: expected a boolean (${accepted}), got "${value}"`);
 }
 
 function parseGatewayUrl(raw: unknown, path: string): string {
@@ -300,7 +302,35 @@ function mergeOntoDefaults(file: Record<string, unknown>, path: string): Camoufo
 
   if (file.blockedHosts !== undefined) merged.blockedHosts = parseBlockedHosts(file.blockedHosts, path);
 
+  assertCoherent(merged, path);
   return merged;
+}
+
+/**
+ * Settings that are individually valid but cannot both be true.
+ *
+ * Each field above is checked against its own type; these are the relations between them that make the
+ * behaviour in `tools/read.ts` actually work, and every one of them fails silently at runtime:
+ *
+ * - the settle loop tests its deadline *before* sleeping, so a poll interval at or above the budget
+ *   means exactly one poll that blocks for the whole interval — and `read.waitForSettleMs` stops
+ *   meaning "extra time a read may spend";
+ * - the gateway client aborts every request at `timeoutMs`, so a selector deadline at or above it is
+ *   never reached: the client kills `POST /tabs/{id}/wait` first.
+ */
+function assertCoherent(config: CamoufoxConfig, path: string): void {
+  if (config.read.waitForSettleMs > 0 && config.read.settlePollMs >= config.read.waitForSettleMs) {
+    fail(
+      `${path}: "read.settlePollMs" (${config.read.settlePollMs}) must be smaller than "read.waitForSettleMs` +
+        `" (${config.read.waitForSettleMs}) or the page is never polled more than once`,
+    );
+  }
+  if (config.read.waitForTimeoutMs >= config.timeoutMs) {
+    fail(
+      `${path}: "read.waitForTimeoutMs" (${config.read.waitForTimeoutMs}) must be smaller than "timeoutMs` +
+        `" (${config.timeoutMs}): the gateway client aborts a request at timeoutMs`,
+    );
+  }
 }
 
 export function loadConfig(options: LoadConfigOptions = {}): CamoufoxConfig {

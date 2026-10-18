@@ -187,3 +187,44 @@ test("CAMOUFOX_ALLOW_PRIVATE_HOSTS overrides the file, and nonsense is refused",
     /CAMOUFOX_ALLOW_PRIVATE_HOSTS/u,
   );
 });
+
+test("the boolean env error lists every spelling the parser accepts", (t) => {
+  // The message used to name two of the six, so `y` was refused with advice that could not have helped.
+  const configPath = withConfigFile(undefined, t);
+
+  assert.throws(
+    () => loadConfig({ configPath, env: { CAMOUFOX_ALLOW_PRIVATE_HOSTS: "y" } }),
+    /"1" \| "true" \| "yes" \| "on" \| "0" \| "false" \| "no" \| "off"/u,
+  );
+});
+
+test("settings that cannot both be true are refused, naming both keys", (t) => {
+  // Individually valid values that make the settle loop or the selector wait silently useless; see
+  // `assertCoherent`.
+  const neverPolled = withConfigFile(JSON.stringify({ read: { waitForSettleMs: 500, settlePollMs: 500 } }), t);
+  assert.throws(
+    () => loadConfig({ configPath: neverPolled, env: {} }),
+    (err) => {
+      assert.match(err.message, /read\.settlePollMs/u);
+      assert.match(err.message, /read\.waitForSettleMs/u, "naming one key is not enough to fix it");
+      return true;
+    },
+  );
+
+  const unreachable = withConfigFile(JSON.stringify({ timeoutMs: 4000, read: { waitForTimeoutMs: 4000 } }), t);
+  assert.throws(
+    () => loadConfig({ configPath: unreachable, env: {} }),
+    (err) => {
+      assert.match(err.message, /read\.waitForTimeoutMs/u);
+      assert.match(err.message, /timeoutMs/u);
+      return true;
+    },
+  );
+});
+
+test("a disabled settle loop imposes no bound on the poll interval", (t) => {
+  // `waitForSettleMs: 0` means "never poll", so a long `settlePollMs` is not a contradiction.
+  const configPath = withConfigFile(JSON.stringify({ read: { waitForSettleMs: 0, settlePollMs: 5_000 } }), t);
+
+  assert.equal(loadConfig({ configPath, env: {} }).read.waitForSettleMs, 0);
+});

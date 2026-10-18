@@ -267,6 +267,18 @@ test("a wait the gateway refused is reported as a refusal, not as a slow page", 
   assert.match(out.waitNote, /was refused: Invalid selector/u);
 });
 
+test("a wait the gateway never answers still returns the page, with the reason", async (t) => {
+  // The client's own deadline can fire before the gateway's selector timeout; that must cost the wait,
+  // not the read.
+  const { fake, tool } = setup(t, { waitHangsForMs: 500, client: { timeoutMs: 60 } });
+
+  const out = await tool.read({ url: "https://example.test/late", waitFor: "#slow" });
+
+  assert.match(out.text, /Page: https:\/\/example\.test\/late/u, "the page was lost with the wait");
+  assert.match(out.waitNote, /waitFor "#slow" was not performed: gateway did not respond within 60ms/u);
+  assert.equal(fake.state.calls.filter((c) => c.path.endsWith("/wait")).length, 1);
+});
+
 test("a continuation read of a long page is neither polled nor called unrendered", async (t) => {
   // The tail of a rendered page is short, and "short" is what the settle loop watches for. It has to
   // read the whole-page size, or every `offset` call pays two snapshots and gets told to wait.

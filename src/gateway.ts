@@ -87,8 +87,11 @@ interface RequestOptions {
    * `"connect-only"` retries only when the request never landed (so the gateway could not have
    * created anything). Opening a tab must use this: a timeout usually means the tab exists and the
    * response was lost, so retrying creates a second tab whose id we never learn.
+   *
+   * `"never"` opts out of the retry budget entirely, for a request whose failure is reported rather
+   * than acted on — retrying an optional wait only doubles the latency the caller paid for it.
    */
-  retry?: "always" | "connect-only";
+  retry?: "always" | "connect-only" | "never";
 }
 
 const PREFLIGHT_TTL_MS = 60_000;
@@ -339,8 +342,11 @@ export class GatewayClient {
   /**
    * Ask the gateway to hold until a selector exists in the rendered page.
    *
-   * A missing route is not a failed read: gateways older than the `wait` endpoint answer 404, and the
-   * page we then snapshot is still the page. That distinction is reported, not swallowed.
+   * An enhancement, so nothing that stops it may end the read: a gateway older than the endpoint
+   * answers 404, and one that ignores its own `timeout` argument is cut off by our per-request
+   * deadline. Both degrade to a reported skip and we snapshot anyway — once, because `retry: "never"`
+   * keeps an optional wait from costing the retry budget. A cancelled call or a tab that vanished is
+   * different: there is nothing left to read.
    */
   async waitFor(params: {
     userId: string;
@@ -359,11 +365,17 @@ export class GatewayClient {
         },
         signal: params.signal,
         tolerateNotOk: true,
+        retry: "never",
       });
       return { ok: body.ok !== false, ...(typeof body.error === "string" ? { error: body.error } : {}) };
     } catch (error) {
-      if (error instanceof GatewayError && /has no route/iu.test(error.message)) {
-        return { ok: false, skipped: "gateway has no /wait route" };
+      if (error instanceof GatewayError) {
+        if (/has no route/iu.test(error.message)) {
+          return { ok: false, skipped: "gateway has no /wait route" };
+        }
+        if (error.code === "timeout" || error.code === "gateway_error") {
+          return { ok: false, skipped: error.message };
+        }
       }
       throw error;
     }
@@ -454,7 +466,8 @@ export class GatewayClient {
       } catch (error) {
         const gatewayError = error instanceof GatewayError ? error : new GatewayError("gateway_error", String(error));
         const connectOnly = options.retry === "connect-only" && gatewayError.code !== "gateway_unreachable";
-        if (attempt === 0 && gatewayError.retryable && !connectOnly && !options.signal?.aborted) {
+        const never = options.retry === "never";
+        if (attempt === 0 && gatewayError.retryable && !never && !connectOnly && !options.signal?.aborted) {
           lastError = gatewayError;
           continue;
         }

@@ -49,6 +49,7 @@ export function createFakeGateway(options = {}) {
     waitRoute: true, // false simulates a gateway with no POST /tabs/{id}/wait
     waitSelectorMisses: false, // true answers { ok: false }: the selector never appeared
     waitError: null, // string: the gateway refused the wait, e.g. "Invalid selector"
+    waitHangsForMs: 0, // the gateway holds /wait past our per-request deadline, ignoring its own timeout
     openLatencyMs: 0,
     hangUrls: new Set(),
     hangForMs: 10_000,
@@ -255,6 +256,7 @@ export function createFakeGateway(options = {}) {
 
       if (method === "POST" && sub === "/wait") {
         if (!state.waitRoute) return json({ error: "Not Found" }, 404);
+        if (state.waitHangsForMs) await sleep(state.waitHangsForMs);
         if (state.waitError) return json({ ok: false, error: state.waitError, tabId });
         if (state.waitSelectorMisses) return json({ ok: false, tabId });
         return json({ ok: true, tabId });
