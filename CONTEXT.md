@@ -19,4 +19,16 @@ Canonical vocabulary for this repo. Not a spec — see `docs/brainstorms/` and `
   (Google via the `@google_search` macro; DuckDuckGo via direct navigation).
 - **Wall** — a consent or CAPTCHA interstitial. Distinct from "no results" and from a timeout; the
   model is told which one it hit.
+- **Settle** — re-snapshotting a page that came back thinner than `read.settleMinChars` until it
+  stops growing. "The tab opened" and "the page rendered" are different events on a client-rendered
+  site, and only the second one is worth returning.
+- **Address guard** — the rule in `net-policy.ts` that refuses tabs at non-http urls, `blockedHosts`
+  matches, and internal addresses. Enforced inside `GatewayClient`, at both ends of a navigation: on the
+  url handed to `openTab`, and on the destination any response reports — the one `/tabs/open` returns and
+  the one every `/snapshot` returns, so `read`, both search engines and `resolve` inherit it without
+  writing it. The snapshot half is the load-bearing one: a gateway that reports no url at open leaves the
+  open-time check comparing a string with itself, and a page that moves after the tab opened only ever
+  shows up in a snapshot. It fails closed: a snapshot that reports no destination is checked against the
+  tab list, and if nothing will say where the tab is, the read refuses with `destination_unreported`
+  rather than return content that cannot be placed under the url we asked for.
 - **Resolve** — opt-in follow-through that turns `goto` URLs into final URLs using concurrent tabs.

@@ -4,26 +4,28 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import { withFakeGateway } from "./helpers/fake_gateway.mjs";
+import { testConfig } from "./helpers/config.mjs";
 import { createGatewayClient } from "../src/gateway.ts";
-import { assertHostAllowed, readTool } from "../src/tools/read.ts";
+import { readTool, STABLE_ROUNDS } from "../src/tools/read.ts";
+import { assertHostAllowed, urlPolicyFromConfig } from "../src/net-policy.ts";
 
 const BASE = "http://gateway.test:9377";
 
 function setup(t, options = {}) {
   const fake = withFakeGateway(t, options);
-  const client = createGatewayClient({ baseUrl: BASE, timeoutMs: 2000 });
-  const config = {
+  const config = testConfig({
     gatewayUrl: BASE,
-    engines: [
-      { name: "google", enabled: true },
-      { name: "duckduckgo", enabled: true },
-    ],
-    cache: { serpMs: 60_000, pageMs: 60_000 },
-    read: { defaultMaxChars: 12_000 },
-    search: { maxResults: 10 },
     blockedHosts: options.blockedHosts ?? [],
     timeoutMs: 2000,
-  };
+    ...(options.config ?? {}),
+  });
+  // Wired the way the extension wires it, so the client's own policy is exercised too.
+  const client = createGatewayClient({
+    baseUrl: BASE,
+    timeoutMs: 2000,
+    urlPolicy: urlPolicyFromConfig(config),
+    ...(options.client ?? {}),
+  });
   return { fake, client, config, tool: readTool({ client, config, userId: "u1" }) };
 }
 
@@ -167,4 +169,267 @@ test("an abort in flight still closes the gateway's tab", async (t) => {
   assert.equal(error.code, "aborted");
   assert.deepEqual(fake.liveTabs(), []);
   assert.equal(client.openTabCount(), 0);
+});
+
+test("an abort that lands during a settle sleep ends the read and closes the tab", async (t) => {
+  // The other abort case cancels during `openTab`, before the loop exists. This one lands inside
+  // `delay()`, where the failure modes are a timer left running and a tab left open.
+  const { fake, client, tool } = setup(t, {
+    snapshotScripts: new Map([["https://spa.test/hang", ['- heading "Loading…" [level=1]']]]),
+    config: { read: { settlePollMs: 5_000 } },
+  });
+  const controller = new AbortController();
+  const running = tool.read({ url: "https://spa.test/hang", signal: controller.signal }).catch((e) => e);
+  const startedAt = Date.now();
+
+  const abortTimer = setTimeout(() => controller.abort(), 10);
+  const error = await running;
+  clearTimeout(abortTimer);
+
+  assert.equal(error.code, "aborted");
+  assert.match(error.message, /cancelled while waiting for the page to render/u, "the sleep is where it stopped");
+  assert.ok(Date.now() - startedAt < 1_000, "the 5s sleep outlived the abort, so the timer was not cleared");
+  assert.deepEqual(fake.liveTabs(), []);
+  assert.equal(client.openTabCount(), 0);
+});
+
+test("a page that renders after the first snapshot is read hydrated, not as a skeleton", async (t) => {
+  const skeleton = '- heading "Loading…" [level=1]';
+  const hydrated = `- heading "The real article" [level=1]\n${'  - text: body copy that only exists after the app boots. '.repeat(40)}`;
+  const { fake, tool } = setup(t, {
+    snapshotScripts: new Map([["https://spa.test/", [skeleton, skeleton, hydrated]]]),
+    config: { read: { settlePollMs: 10 } },
+  });
+
+  const out = await tool.read({ url: "https://spa.test/" });
+
+  assert.match(out.text, /The real article/u, "the read returned the skeleton instead of the page");
+  assert.equal(out.thinAfterWait, undefined, "a page that filled in is not reported as thin");
+  assert.equal(typeof out.settledInMs, "number", "the time spent waiting is part of the record");
+  const snapshots = fake.state.calls.filter((c) => c.path.includes("/snapshot"));
+  assert.ok(snapshots.length >= 3, `expected repeated snapshots, got ${snapshots.length}`);
+});
+
+test("a page that stops growing is not polled until the deadline", async (t) => {
+  // `STABLE_ROUNDS` identical snapshots is the stop signal. Without it every genuinely short page
+  // would burn the whole settle budget.
+  const { fake, tool } = setup(t, {
+    snapshotScripts: new Map([["https://thin.test/", ['- heading "Short" [level=1]']]]),
+    config: { read: { settlePollMs: 10 } },
+  });
+
+  const out = await tool.read({ url: "https://thin.test/" });
+
+  const snapshots = fake.state.calls.filter((c) => c.path.includes("/snapshot"));
+  assert.equal(snapshots.length, 1 + STABLE_ROUNDS, "one look, then the confirmations that prove it is done");
+  assert.equal(out.thinAfterWait, true, "the model must be told the page stayed thin");
+});
+
+test("waitForSettleMs 0 reads a page with exactly one snapshot", async (t) => {
+  const { fake, tool } = setup(t, {
+    snapshotScripts: new Map([["https://thin.test/", ['- heading "Short" [level=1]']]]),
+    config: { read: { waitForSettleMs: 0 } },
+  });
+
+  await tool.read({ url: "https://thin.test/" });
+
+  assert.equal(fake.state.calls.filter((c) => c.path.includes("/snapshot")).length, 1);
+});
+
+test("a wall is classified without spending the settle budget on it", async (t) => {
+  const { fake, tool } = setup(t, {
+    snapshotScripts: new Map([["https://walled.test/", ['- main:\n  - heading "Before you continue to Google" [level=1]']]]),
+    config: { read: { settlePollMs: 10 } },
+  });
+
+  const error = await tool.read({ url: "https://walled.test/" }).catch((e) => e);
+
+  assert.equal(error.code, "consent_wall");
+  assert.equal(fake.state.calls.filter((c) => c.path.includes("/snapshot")).length, 1);
+});
+
+test("waitFor asks the gateway to hold for the selector before snapshotting", async (t) => {
+  // The client's own deadline is set above `read.waitForTimeoutMs` here so this reads as pure
+  // forwarding; what happens when the two disagree is `gateway.test.mjs`'s "never outlast" case.
+  const { fake, tool } = setup(t, { client: { timeoutMs: 8_000 } });
+
+  await tool.read({ url: "https://example.test/late", waitFor: "#article" });
+
+  const wait = fake.state.calls.find((c) => c.path.endsWith("/wait"));
+  assert.ok(wait, "no POST /tabs/{id}/wait was made");
+  assert.equal(wait.body.selector, "#article");
+  assert.equal(wait.body.userId, "u1");
+  assert.equal(wait.body.timeout, 5_000, "read.waitForTimeoutMs is forwarded while it fits our budget");
+  const order = fake.state.calls
+    .filter((c) => c.path.endsWith("/wait") || c.path.includes("/snapshot"))
+    .map((c) => c.path.split("/").pop().split("?")[0]);
+  assert.deepEqual(order, ["wait", "snapshot"], "waiting after the snapshot would be pointless");
+});
+
+test("a gateway without the wait route still reads the page, and says the wait was skipped", async (t) => {
+  const { tool } = setup(t, { waitRoute: false });
+
+  const out = await tool.read({ url: "https://example.test/late", waitFor: "#article" });
+
+  assert.match(out.text, /Page: https:\/\/example\.test\/late/u);
+  assert.match(out.waitNote, /waitFor "#article" was not performed: gateway has no \/wait route/u);
+});
+
+test("a selector that never appears does not fail the read, but is reported", async (t) => {
+  const { tool } = setup(t, { waitSelectorMisses: true });
+
+  const out = await tool.read({ url: "https://example.test/late", waitFor: "#never" });
+
+  assert.match(out.text, /Page: https:\/\/example\.test\/late/u);
+  assert.match(out.waitNote, /waitFor "#never" did not appear within 5000ms/u);
+});
+
+test("a wait the gateway refused is reported as a refusal, not as a slow page", async (t) => {
+  const { tool } = setup(t, { waitError: "Invalid selector" });
+
+  const out = await tool.read({ url: "https://example.test/late", waitFor: "###" });
+
+  assert.match(out.waitNote, /was refused: Invalid selector/u);
+});
+
+test("a wait the gateway never answers still returns the page, with the reason", async (t) => {
+  // The client's own deadline can fire before the gateway's selector timeout; that must cost the wait,
+  // not the read.
+  const { fake, tool } = setup(t, { waitHangsForMs: 500, client: { timeoutMs: 60 } });
+
+  const out = await tool.read({ url: "https://example.test/late", waitFor: "#slow" });
+
+  assert.match(out.text, /Page: https:\/\/example\.test\/late/u, "the page was lost with the wait");
+  assert.match(out.waitNote, /waitFor "#slow" was not performed: gateway did not respond within 60ms/u);
+  assert.equal(fake.state.calls.filter((c) => c.path.endsWith("/wait")).length, 1);
+});
+
+test("a continuation read of a long page is neither polled nor called unrendered", async (t) => {
+  // The tail of a rendered page is short, and "short" is what the settle loop watches for. It has to
+  // read the whole-page size, or every `offset` call pays two snapshots and gets told to wait.
+  const { fake, tool } = setup(t, {
+    pageContents: new Map([["https://long.test/", "w".repeat(45_000)]]),
+    config: { read: { settlePollMs: 10 } },
+  });
+
+  const out = await tool.read({ url: "https://long.test/", maxChars: 1_000, offset: 44_000 });
+
+  assert.equal(out.text.length, 1_000);
+  assert.equal(out.thinAfterWait, undefined, "a rendered page is not a skeleton");
+  assert.equal(out.settledInMs, undefined);
+  assert.equal(fake.state.calls.filter((c) => c.path.includes("/snapshot")).length, 1, "no polls on a finished page");
+});
+
+test("a page that navigates itself to an internal address is refused before its text is returned", async (t) => {
+  // `openTab` cannot see this one: the url we handed the gateway was public, the page moved on its own.
+  const { fake, tool } = setup(t, {
+    redirectAfterOpen: new Map([["https://public.test/x", "http://169.254.169.254/latest/meta-data/"]]),
+  });
+
+  const error = await tool.read({ url: "https://public.test/x" }).catch((e) => e);
+
+  assert.equal(error.code, "private_network");
+  assert.equal(error.details.host, "169.254.169.254");
+  assert.equal(fake.state.calls.filter((c) => c.path.includes("/extract")).length, 0);
+  assert.deepEqual(fake.liveTabs(), [], "the tab we were redirected into must not stay open");
+});
+
+test("an internal address is refused before any gateway call", async (t) => {
+  const { fake, tool } = setup(t);
+
+  for (const url of ["http://169.254.169.254/latest/meta-data/", "http://127.0.0.1:8080/admin", "https://localhost/", "http://10.0.4.9/", "http://[::1]:9200/"]) {
+    const error = await tool.read({ url }).catch((e) => e);
+    assert.equal(error.code, "private_network", `${url} should have been refused`);
+  }
+  assert.equal(fake.state.calls.filter((c) => c.path !== "/").length, 0, "refusing must not touch the gateway");
+});
+
+test("network.allowPrivateHosts restores access to internal hosts", async (t) => {
+  const { fake, tool } = setup(t, { config: { network: { allowPrivateHosts: true } } });
+
+  const out = await tool.read({ url: "http://127.0.0.1:8080/admin" });
+
+  assert.match(out.text, /Page: http:\/\/127\.0\.0\.1:8080\/admin/u);
+  assert.ok(fake.state.calls.some((c) => c.path === "/tabs/open"));
+});
+
+test("a page that moves after the tab opened is refused before any text is returned", async (t) => {
+  // `openTab` cannot see this move: the gateway reports no destination there, so its re-check has
+  // nothing to compare. The one response that does report it is `/snapshot`, which is why the
+  // destination check lives in the client rather than in this tool.
+  //
+  // The page is scripted thin on purpose. A short response is exactly what `worthPollingAgain` polls
+  // again, so if the refusal came after the loop — where this check used to live — the count below
+  // would be three, and two of those requests would have been aimed at the internal host.
+  const internal = "http://169.254.169.254/latest/meta-data/";
+  const { fake, tool } = setup(t, {
+    openReportsUrl: false,
+    redirectAfterOpen: new Map([["https://spa.test/late", internal]]),
+    snapshotScripts: new Map([[internal, ["instance-id"]]]),
+  });
+
+  const error = await tool.read({ url: "https://spa.test/late" }).catch((e) => e);
+
+  assert.equal(error.code, "private_network");
+  assert.equal(error.details.stage, "destination");
+  const snapshots = fake.state.calls.filter((c) => c.path.includes("/snapshot"));
+  assert.equal(snapshots.length, 1, "refused on the first look, not after two more polls of the internal host");
+});
+
+test("a page nothing can place is not returned as page text", async (t) => {
+  // The gateway will not say where the tab is, at either endpoint. Returning the body anyway would put
+  // it under the url we asked for, which reads as a clean result.
+  const { tool } = setup(t, { snapshotReportsUrl: false, tabsReportUrl: false });
+
+  const error = await tool.read({ url: "https://quiet.test/" }).catch((e) => e);
+
+  assert.equal(error.code, "destination_unreported");
+});
+
+test("a page that rotates text at a constant width is not mistaken for a finished one", async (t) => {
+  // The failure the settle loop exists to prevent, in the one shape length comparison cannot see: a
+  // skeleton that swaps content without changing width.
+  const frames = Array.from({ length: 6 }, (_unused, index) => `- text: loading ${index} of 5 [level=1]`);
+  assert.equal(new Set(frames.map((frame) => frame.length)).size, 1, "the frames must be the same width, that is the point");
+
+  const { fake, tool } = setup(t, {
+    snapshotScripts: new Map([["https://rot.test/", frames]]),
+    config: { read: { settlePollMs: 5 } },
+  });
+
+  const out = await tool.read({ url: "https://rot.test/" });
+
+  assert.match(out.text, /loading 5 of 5/u, "the loop waits for the frames to stop, not for their width to match");
+  const snapshots = fake.state.calls.filter((c) => c.path.includes("/snapshot")).length;
+  assert.ok(snapshots > 1 + STABLE_ROUNDS, `declared stable after two look-alikes (${snapshots} snapshots)`);
+});
+
+test("a slice the gateway capped does not read as a page that stopped growing", async (t) => {
+  // Every response here is exactly `snapshotLimit` characters, so the text is identical from one poll to
+  // the next while the page underneath it keeps growing. Only `totalChars` can tell those apart.
+  const frames = Array.from({ length: 6 }, (_unused, index) => "x".repeat(400 + index * 100));
+  const { fake, tool } = setup(t, {
+    snapshotLimit: 50,
+    snapshotScripts: new Map([["https://cap.test/", frames]]),
+    config: { read: { settlePollMs: 5 } },
+  });
+
+  await tool.read({ url: "https://cap.test/" });
+
+  const snapshots = fake.state.calls.filter((c) => c.path.includes("/snapshot")).length;
+  assert.ok(snapshots > 1 + STABLE_ROUNDS, `declared stable on capped slices (${snapshots} snapshots)`);
+});
+
+test("the poll interval never outlasts the settle budget", async (t) => {
+  const { tool } = setup(t, {
+    snapshotScripts: new Map([["https://slow.test/", ["- text: thin [level=1]"]]]),
+    config: { read: { waitForSettleMs: 40, settlePollMs: 5_000 } },
+  });
+
+  const startedAt = Date.now();
+  await tool.read({ url: "https://slow.test/" });
+
+  // `loadConfig` rejects a poll interval at or above the budget, so this pair only arrives from a config
+  // assembled by hand. The loop must still respect the budget it was given.
+  assert.ok(Date.now() - startedAt < 1_000, "the read slept through its own deadline and then polled anyway");
 });

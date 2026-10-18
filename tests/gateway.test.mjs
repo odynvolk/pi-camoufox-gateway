@@ -67,7 +67,11 @@ test("snapshot requests the tab path with userId and offset", async (t) => {
   const snap = await client.snapshot({ userId: "u1", tabId, offset: 100 });
 
   assert.equal(snap.url, "https://example.com");
-  assert.ok(snap.text.includes("Page:"));
+  assert.ok(snap.text.includes("content"), `slice was: ${snap.text.slice(0, 60)}`);
+  assert.ok(
+    snap.totalChars > snap.text.length,
+    "the gateway reports the whole page, so an offset has to come off the front of it",
+  );
   const call = fake.state.calls.find((c) => c.path.startsWith(`/tabs/${tabId}/snapshot`));
   assert.match(call.path, /userId=u1/u);
   assert.match(call.path, /offset=100/u);
@@ -187,6 +191,147 @@ test("surfaces the gateway's own error message", async (t) => {
     "blocked_url",
   );
   assert.match(error.message, /Blocked URL/iu);
+});
+
+test("waitFor posts selector, userId and timeout to the wait endpoint", async (t) => {
+  const { fake, client } = clientWith(t);
+  const { tabId } = await openTab(t, client, "u1", "https://example.com");
+
+  const wait = await client.waitFor({ userId: "u1", tabId, selector: "#article", timeoutMs: 1500 });
+
+  assert.equal(wait.ok, true);
+  assert.equal(wait.skipped, undefined);
+  const call = fake.state.calls.find((c) => c.path.endsWith("/wait"));
+  assert.equal(call.method, "POST");
+  assert.deepEqual(call.body, { userId: "u1", selector: "#article", timeout: 1500 });
+});
+
+test("waitFor reports a selector that never appeared without throwing", async (t) => {
+  const { client } = clientWith(t, { waitSelectorMisses: true });
+  const { tabId } = await openTab(t, client, "u1", "https://example.com");
+
+  const wait = await client.waitFor({ userId: "u1", tabId, selector: "#nope" });
+
+  assert.equal(wait.ok, false, "ok:false is an answer, not a failure");
+  assert.equal(wait.skipped, undefined, "the wait ran, so this is not a missing route");
+  assert.equal(wait.error, undefined, "nothing was refused, it just did not match");
+});
+
+test("waitFor carries the gateway's own reason for refusing", async (t) => {
+  const { client } = clientWith(t, { waitError: "Invalid selector" });
+  const { tabId } = await openTab(t, client, "u1", "https://example.com");
+
+  const wait = await client.waitFor({ userId: "u1", tabId, selector: "###" });
+
+  assert.equal(wait.ok, false);
+  assert.equal(wait.error, "Invalid selector", "a refused wait must not be reported as a slow page");
+});
+
+test("waitFor on a gateway with no wait endpoint says so instead of failing", async (t) => {
+  // `read` still has to return the page: an old gateway is not a reason to lose the content.
+  const { client } = clientWith(t, { waitRoute: false });
+  const { tabId } = await openTab(t, client, "u1", "https://example.com");
+
+  const wait = await client.waitFor({ userId: "u1", tabId, selector: "#article" });
+
+  assert.equal(wait.ok, false);
+  assert.equal(wait.skipped, "gateway has no /wait route");
+});
+
+test("waitFor counts only an explicit true as a wait that happened", async (t) => {
+  // A successful wait is silent in `read`, and silence is what the model reads as "the selector
+  // appeared". A gateway that omits the field gets the benefit of the doubt; one that answers `null`,
+  // `0`, or the string `"false"` does not get to mean success.
+  const cases = [
+    [{}, true],
+    [{ ok: true }, true],
+    [{ ok: null }, false],
+    [{ ok: 0 }, false],
+    [{ ok: "true" }, false],
+    [{ ok: "false" }, false],
+    [{ ok: [] }, false],
+  ];
+
+  for (const [body, expected] of cases) {
+    const { client } = clientWith(t, { waitBody: body });
+    const { tabId } = await openTab(t, client, "u1", "https://example.com");
+
+    const wait = await client.waitFor({ userId: "u1", tabId, selector: "#article" });
+
+    assert.equal(wait.ok, expected, `answered ${JSON.stringify(body)}`);
+  }
+});
+
+test("a missing /wait route is told apart by status, not by the sentence around it", async (t) => {
+  // The phrase "gateway has no route" is ours, composed in `httpError`, and free to be reworded. What
+  // decides this branch is the 404 — so a 500 that happens to say the same thing is still a gateway
+  // failure, and a reworded 404 is still a gateway without the endpoint.
+  const { client } = clientWith(t, { waitReject: { status: 500, message: "gateway has no route /wait" } });
+  const { tabId } = await openTab(t, client, "u1", "https://example.com");
+
+  const wait = await client.waitFor({ userId: "u1", tabId, selector: "#article" });
+
+  assert.equal(wait.ok, false);
+  assert.notEqual(wait.skipped, "gateway has no /wait route", "a server error is not a missing endpoint");
+  assert.match(wait.skipped, /gateway error 500/u);
+});
+
+test("waitFor never asks the gateway to outlast our own deadline", async (t) => {
+  // Two knobs, one request. Asking for 5s of waiting we will cut off at 200ms buys work the gateway
+  // does and we never collect. Config validation keeps the configured pair coherent, so this guards a
+  // client wired up by hand.
+  const { fake, client } = clientWith(t, { client: { timeoutMs: 200 } });
+  const { tabId } = await openTab(t, client, "u1", "https://example.com");
+
+  await client.waitFor({ userId: "u1", tabId, selector: "#article", timeoutMs: 5_000 });
+  await client.waitFor({ userId: "u1", tabId, selector: "#article" });
+
+  const waits = fake.state.calls.filter((c) => c.path.endsWith("/wait"));
+  assert.equal(waits[0].body.timeout, 200, "the gateway deadline was capped at our own");
+  assert.equal("timeout" in waits[1].body, false, "no deadline asked for, none sent");
+});
+
+test("waitFor gives up on a gateway that hangs, without spending the retry budget", async (t) => {
+  // A gateway that ignores its own `timeout` argument must not turn an optional wait into a failed
+  // read, and must not be retried: the caller already paid the deadline once.
+  const { fake, client } = clientWith(t, { waitHangsForMs: 500, client: { timeoutMs: 60 } });
+  const { tabId } = await openTab(t, client, "u1", "https://example.com");
+
+  const wait = await client.waitFor({ userId: "u1", tabId, selector: "#slow" });
+
+  assert.equal(wait.ok, false);
+  assert.match(wait.skipped, /did not respond within 60ms/u);
+  assert.equal(fake.state.calls.filter((c) => c.path.endsWith("/wait")).length, 1, "the wait got retried");
+});
+
+test("waitFor still propagates a tab that vanished underneath us", async (t) => {
+  const { client } = clientWith(t);
+  const { tabId } = await openTab(t, client, "u1", "https://example.com");
+
+  const error = await client.waitFor({ userId: "other", tabId, selector: "#article" }).catch((e) => e);
+
+  expectError(error, "tab_not_found");
+});
+
+test("each client enforces the policy it was constructed with", async (t) => {
+  const { fake, client } = clientWith(t);
+  const guarded = createGatewayClient({
+    baseUrl: BASE,
+    timeoutMs: 2000,
+    urlPolicy: { blockedHosts: ["forbidden.test"], allowPrivateHosts: false },
+  });
+
+  expectError(await guarded.openTab({ userId: "u1", url: "https://forbidden.test/x" }).catch((e) => e), "host_blocked");
+  expectError(await guarded.openTab({ userId: "u1", url: "http://192.168.0.1/" }).catch((e) => e), "private_network");
+  assert.equal(fake.state.calls.filter((c) => c.path === "/tabs/open").length, 0, "the guard is client-side, so nothing left");
+
+  // The policy is a constructor argument, not a module-level flag: a second client against the same
+  // gateway, built without the block, still opens the url the guarded one refused. Without this the
+  // test above would also pass if the policy leaked between instances.
+  const tab = await client.openTab({ userId: "u1", url: "https://forbidden.test/x" });
+  assert.ok(tab.tabId, "an unguarded client is unguarded");
+  assert.equal(fake.state.calls.filter((c) => c.path === "/tabs/open").length, 1, "and it reached the gateway");
+  await client.closeTab({ userId: "u1", tabId: tab.tabId });
 });
 
 test("aborts in-flight work when the caller signal aborts", async (t) => {

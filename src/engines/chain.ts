@@ -19,10 +19,17 @@ const BY_NAME: Record<string, () => Engine> = {
 };
 
 /**
- * Outcomes where trying a different engine is pointless. `host_blocked` is defensive: only the read
- * policy raises it, so no search can reach it here.
+ * Outcomes where trying a different engine is pointless. `host_blocked`/`private_network` are
+ * defensive: the url policy raises them at tab-open time, and no engine navigates anywhere those
+ * apply — but a policy refusal must not walk the chain either.
  */
-const TERMINAL_CODES: GatewayErrorCode[] = ["gateway_unreachable", "gateway_unauthorized", "timeout", "host_blocked"];
+const TERMINAL_CODES: GatewayErrorCode[] = [
+  "gateway_unreachable",
+  "gateway_unauthorized",
+  "timeout",
+  "host_blocked",
+  "private_network",
+];
 
 export interface TriedStep {
   engine: string;

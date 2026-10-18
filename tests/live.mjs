@@ -9,6 +9,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { loadConfig } from "../src/config.ts";
+import { urlPolicyFromConfig } from "../src/net-policy.ts";
 import { createCache } from "../src/cache.ts";
 import { createGatewayClient } from "../src/gateway.ts";
 import { createExtension } from "../src/extension.ts";
@@ -20,6 +21,8 @@ const client = createGatewayClient({
   baseUrl: config.gatewayUrl,
   ...(config.apiKey ? { apiKey: config.apiKey } : {}),
   timeoutMs: config.timeoutMs,
+  // Wired exactly as the extension wires it, so the live run exercises the real address guard.
+  urlPolicy: urlPolicyFromConfig(config),
 });
 const extension = createExtension({ config, client, cache: createCache(), userId: `pi-live-${process.pid}` });
 
@@ -43,11 +46,32 @@ test("live: read is bounded and says so", { skip: !live }, async () => {
   assert.ok(outcome.details.totalChars > config.read.defaultMaxChars);
   assert.ok(body.length <= config.read.defaultMaxChars + 200, `body was ${body.length} chars`);
   assert.equal("text" in outcome.details, false, "details must not duplicate the page body");
+  // The guard requires a reported destination, so a gateway that stays silent cannot be read at all.
+  // This is where that shows up if the real gateway ever stops reporting one.
+  assert.match(outcome.details.url, /^https:\/\//u, "the gateway reported no final url");
 });
 
 test("live: n above the page size is clamped and disclosed", { skip: !live }, async () => {
   const outcome = await extension.search({ query: "camoufox", n: 20 });
   assert.equal(outcome.details.clampedTo, 10);
+});
+
+// A live run must not become the thing the guard exists for. With `allowPrivateHosts` on, that address is
+// permitted, so the read would be attempted — a real request at the cloud metadata endpoint, from a test
+// suite, on a machine that may be the kind of host it is asking about.
+const internalGuardSkip = config.network.allowPrivateHosts
+  ? "network.allowPrivateHosts is on, so the url is permitted: firing it is the request the guard exists to stop"
+  : !live && "set CAMOUFOX_LIVE=1";
+
+test("live: an internal address is refused and costs the gateway nothing", { skip: internalGuardSkip }, async () => {
+  // `name` is checked rather than `instanceof GatewayError` so this file does not need an import for one
+  // assertion; the object form also means a read that *succeeds* reports itself as such, instead of
+  // throwing a TypeError off `undefined.code`.
+  await assert.rejects(
+    () => extension.read({ url: "http://169.254.169.254/latest/meta-data/" }),
+    { name: "GatewayError", code: "private_network" },
+  );
+  assert.equal(client.openTabCount(), 0, "the title promises this, so it is asserted");
 });
 
 test("live: teardown leaves the gateway without our session", { skip: !live }, async () => {

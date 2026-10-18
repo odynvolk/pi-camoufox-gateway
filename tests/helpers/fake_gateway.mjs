@@ -44,6 +44,17 @@ export function createFakeGateway(options = {}) {
     failSnapshot: false,
     failOpen: false,
     redirects: new Map(), // requested url -> final url the browser lands on
+    snapshotScripts: new Map(), // url -> successive snapshot texts (a page that renders late)
+    redirectAfterOpen: new Map(), // url -> where the page navigates itself once the tab is open
+    waitRoute: true, // false simulates a gateway with no POST /tabs/{id}/wait
+    waitSelectorMisses: false, // true answers { ok: false }: the selector never appeared
+    waitError: null, // string: the gateway refused the wait, e.g. "Invalid selector"
+    waitBody: undefined, // anything: answers /wait with exactly this, for shapes we must interpret
+    waitReject: null, // { status, message }: answer /wait with an error at that status
+    openReportsUrl: true, // false simulates a gateway that never reports where a tab ended up
+    snapshotReportsUrl: true, // false: `/snapshot` stays silent about where the page is
+    tabsReportUrl: true, // false: neither endpoint will say, so the location is genuinely unknown
+    waitHangsForMs: 0, // the gateway holds /wait past our per-request deadline, ignoring its own timeout
     openLatencyMs: 0,
     hangUrls: new Set(),
     hangForMs: 10_000,
@@ -79,12 +90,15 @@ export function createFakeGateway(options = {}) {
     if (url.includes("consent.google.com")) {
       return '- main:\n  - heading "Before you continue to Google" [level=1]';
     }
+    // Realistically long on purpose: `read` re-snapshots anything thinner than read.settleMinChars, so a
+    // two-line default page would make every unrelated read pay for the settle loop.
     return [
       `- heading "Page: ${url}" [level=1]`,
       '- link "Docs" [e1]:',
       "  - /url: https://camoufox.com/docs",
       "  - text: Documentation",
       "  - text: Some readable body content about the product.",
+      ...Array.from({ length: 14 }, (_unused, index) => `  - text: Paragraph ${index + 1} of the article, long enough to read as a rendered page rather than a skeleton (${"content ".repeat(12).trim()}).`),
     ].join("\n");
   }
 
@@ -94,6 +108,22 @@ export function createFakeGateway(options = {}) {
     if (!/google\.com\/(goto|url)\?/u.test(url)) return url;
     if (state.resolveFailures.has(url)) return url;
     return "https://github.com/daijro/camoufox";
+  }
+
+  /**
+   * The page as the browser sees it now.
+   *
+   * A scripted url hands back its entries one at a time and sticks on the last, which is how a test
+   * models a client-rendered page: skeleton first, hydrated content after the settle loop looks again.
+   */
+  function snapshotTextFor(tab) {
+    const script = state.snapshotScripts.get(tab.url);
+    if (Array.isArray(script) && script.length > 0) {
+      const index = Math.min(tab.snapshotCalls ?? 0, script.length - 1);
+      tab.snapshotCalls = index + 1;
+      return script[index];
+    }
+    return defaultSnapshotFor(tab.url);
   }
 
   function record(method, path, body, headers) {
@@ -138,7 +168,12 @@ export function createFakeGateway(options = {}) {
     }
     if (method === "GET" && path === "/tabs") {
       const userId = url.searchParams.get("userId") ?? "";
-      const tabs = [...tabsOf(userId, true).entries()].map(([tabId, tab]) => ({ tabId, targetId: tabId, url: tab.url, title: tab.title }));
+      const tabs = [...tabsOf(userId, true).entries()].map(([tabId, tab]) => ({
+        tabId,
+        targetId: tabId,
+        ...(state.tabsReportUrl ? { url: tab.url } : {}),
+        title: tab.title,
+      }));
       return json({ running: true, tabs });
     }
 
@@ -197,26 +232,52 @@ export function createFakeGateway(options = {}) {
           return json({ error: "Blocked URL scheme (only http/https allowed)" }, 400);
         }
         tab.url = resolveTarget(body.url);
-        return json({ ok: true, tabId, url: tab.url, refsAvailable: true });
+        // Some gateways answer `/tabs/open` with an id only, which is the case `openTab`'s destination
+        // re-check cannot see: it gets back the url we asked for, so it compares a string with itself.
+        return json({ ok: true, tabId, refsAvailable: true, ...(state.openReportsUrl ? { url: tab.url } : {}) });
       }
 
       if (method === "GET" && sub === "/snapshot") {
         if (state.failSnapshot) return json({ error: "snapshot exploded" }, 500);
-        const text = defaultSnapshotFor(tab.url);
+        // A page can move after we opened it (meta refresh, `location.href`), which is the case the
+        // pre-flight url check cannot see.
+        const jumped = state.redirectAfterOpen.get(tab.url);
+        if (jumped && !tab.jumped) {
+          tab.jumped = true;
+          tab.url = jumped;
+          tab.title = jumped;
+        }
+        const full = snapshotTextFor(tab);
+        // The real gateway paginates, so the fake must: `read` decides whether to poll on the size of
+        // the whole page and reports the slice, and a stub that ignored `offset` would hide any bug in
+        // telling those two apart.
+        const offset = Math.max(0, Number.parseInt(url.searchParams.get("offset") ?? "0", 10) || 0);
+        const text = full.slice(offset);
         const limit = state.snapshotLimit;
         const truncated = text.length > limit;
         return json({
-          url: tab.url,
+          ...(state.snapshotReportsUrl ? { url: tab.url } : {}),
           snapshot: truncated ? text.slice(0, limit) : text,
           refsCount: (text.match(/\[e\d+\]/g) ?? []).length,
           truncated,
-          totalChars: text.length,
+          totalChars: full.length,
           hasMore: truncated,
-          nextOffset: truncated ? limit : text.length,
+          nextOffset: truncated ? offset + limit : offset + text.length,
         });
       }
 
+      if (method === "POST" && sub === "/wait") {
+        if (!state.waitRoute) return json({ error: "Not Found" }, 404);
+        if (state.waitReject) return json({ error: state.waitReject.message }, state.waitReject.status);
+        if (state.waitBody !== undefined) return json(state.waitBody);
+        if (state.waitHangsForMs) await sleep(state.waitHangsForMs);
+        if (state.waitError) return json({ ok: false, error: state.waitError, tabId });
+        if (state.waitSelectorMisses) return json({ ok: false, tabId });
+        return json({ ok: true, tabId });
+      }
+
       if (method === "GET" && sub === "/links") {
+        // Not scripted: /links has no production caller, and a read must not consume a settle step.
         const text = defaultSnapshotFor(tab.url);
         const links = [...text.matchAll(/- link "([^"]+)"[^\n]*\n\s*- \/url: (\S+)/g)].map((m) => ({
           title: m[1],
@@ -226,6 +287,7 @@ export function createFakeGateway(options = {}) {
       }
 
       if (method === "POST" && sub === "/extract") {
+        // Same reason as /links: extraction must not advance a scripted page.
         const text = defaultSnapshotFor(tab.url);
         const properties = body?.schema?.properties ?? {};
         const found = Object.fromEntries(

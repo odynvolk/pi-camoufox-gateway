@@ -8,12 +8,19 @@
  */
 
 import { GatewayError, type GatewayErrorCode } from "./errors.ts";
+import { assertTabUrlAllowed, DEFAULT_URL_POLICY, policyCanRefuse, type UrlPolicy } from "./net-policy.ts";
 
 export interface GatewayClientOptions {
   baseUrl: string;
   apiKey?: string;
   /** Per-request deadline in milliseconds. */
   timeoutMs?: number;
+  /**
+   * Url policy applied to *every* tab open, not just the read tool: `resolve: true` opens urls that
+   * came out of a search engine's page, and engine adapters open their own. Defaults to the private
+   * address block with no host list.
+   */
+  urlPolicy?: UrlPolicy;
   /** Injectable fetch, mainly for tests. */
   fetchImpl?: typeof globalThis.fetch;
 }
@@ -41,6 +48,21 @@ export interface SnapshotResult {
   nextOffset: number;
 }
 
+export interface WaitOutcome {
+  /**
+   * True when the gateway says the selector appeared. A gateway that omits `ok` counts as success: the
+   * read still has to return the page, and a missing field is not evidence the selector was absent.
+   */
+  ok: boolean;
+  /** The gateway's own reason for a failed wait, e.g. an invalid selector. */
+  error?: string;
+  /**
+   * Set when the wait could not be performed at all — an older gateway without `POST /tabs/{id}/wait`
+   * — so the caller can say so instead of claiming the page was waited for.
+   */
+  skipped?: string;
+}
+
 export interface GatewayStatus {
   ok: boolean;
   enabled?: boolean;
@@ -57,11 +79,19 @@ interface RequestOptions {
   /** Treat a 404 as a no-op, used by idempotent teardown calls. */
   tolerateMissing?: boolean;
   /**
+   * Do not turn a `{ "ok": false }` body into an error. `POST /tabs/{tabId}/wait` answers `ok: false`
+   * for the ordinary condition "the selector never appeared", which the caller handles, not fails.
+   */
+  tolerateNotOk?: boolean;
+  /**
    * `"connect-only"` retries only when the request never landed (so the gateway could not have
    * created anything). Opening a tab must use this: a timeout usually means the tab exists and the
    * response was lost, so retrying creates a second tab whose id we never learn.
+   *
+   * `"never"` opts out of the retry budget entirely, for a request whose failure is reported rather
+   * than acted on — retrying an optional wait only doubles the latency the caller paid for it.
    */
-  retry?: "always" | "connect-only";
+  retry?: "always" | "connect-only" | "never";
 }
 
 const PREFLIGHT_TTL_MS = 60_000;
@@ -76,6 +106,7 @@ export const ENDPOINTS = {
   listTabs: { method: "GET", path: "/tabs" },
   navigate: { method: "POST", path: "/tabs/{tabId}/navigate" },
   snapshot: { method: "GET", path: "/tabs/{tabId}/snapshot" },
+  wait: { method: "POST", path: "/tabs/{tabId}/wait" },
   extract: { method: "POST", path: "/tabs/{tabId}/extract" },
   closeTab: { method: "DELETE", path: "/tabs/{tabId}" },
   deleteSession: { method: "DELETE", path: "/sessions/{userId}" },
@@ -97,6 +128,11 @@ export function endpointPath(name: EndpointName, params: Record<string, string> 
  * A connect failure cannot (nothing was sent). A timeout or a cancel can, because the request had
  * already landed. That distinction is what makes the sweep worth its cost.
  */
+/** Did this gateway answer 404 because the path does not exist, rather than because a tab is gone? */
+function isRouteMissing(error: GatewayError): boolean {
+  return (error.details as { routeMissing?: boolean } | undefined)?.routeMissing === true;
+}
+
 function isAmbiguousTabOpen(error: unknown): boolean {
   return error instanceof GatewayError && (error.code === "timeout" || error.code === "aborted");
 }
@@ -144,6 +180,7 @@ export class GatewayClient {
   private readonly baseUrl: string;
   private readonly apiKey: string | undefined;
   private readonly timeoutMs: number;
+  private readonly urlPolicy: UrlPolicy;
   private readonly fetchImpl: typeof globalThis.fetch;
   private preflightCache: GatewayStatus | undefined;
   private preflightAt = 0;
@@ -156,6 +193,7 @@ export class GatewayClient {
     this.baseUrl = options.baseUrl.replace(/\/+$/, "");
     this.apiKey = options.apiKey;
     this.timeoutMs = options.timeoutMs ?? 30_000;
+    this.urlPolicy = options.urlPolicy ?? DEFAULT_URL_POLICY;
     this.fetchImpl = (options.fetchImpl ?? globalThis.fetch).bind(globalThis);
   }
 
@@ -185,9 +223,9 @@ export class GatewayClient {
   }
 
   async openTab(params: { userId: string; url: string; signal?: AbortSignal }): Promise<OpenTabResult> {
-    if (!/^https?:\/\//i.test(params.url)) {
-      throw new GatewayError("blocked_url", `can only open http(s) URLs in a browser tab (got "${params.url}")`);
-    }
+    // The choke point: everything that puts a url in the browser goes through here, so a policy that
+    // only lived in the read tool could be walked around by url resolution.
+    assertTabUrlAllowed(params.url, this.urlPolicy);
     let body: Record<string, unknown>;
     const token = Symbol("openTab");
     this.pendingOpens.add(token);
@@ -217,12 +255,26 @@ export class GatewayClient {
       throw new GatewayError("gateway_error", "gateway opened a tab without reporting a tabId");
     }
     this.liveTabs.set(tabId, params.userId);
-    return {
+    const result: OpenTabResult = {
       tabId,
       targetId: typeof body.targetId === "string" ? body.targetId : undefined,
+      // A gateway that reports no destination gets back the url we asked for, so callers that merely
+      // report a url still get one. It is not evidence about where the page went — the check below has
+      // nothing to compare in that case — so `snapshot` is where the destination is enforced for real.
       url: typeof body.url === "string" ? body.url : params.url,
       title: typeof body.title === "string" ? body.title : undefined,
     };
+
+    // The browser followed redirects we never saw. Checking only the url we were handed would make
+    // any public page a free pass to an internal one, and the destination is already in the response.
+    try {
+      assertTabUrlAllowed(result.url, this.urlPolicy, "destination");
+    } catch (error) {
+      await this.closeTabQuietly({ userId: params.userId, tabId });
+      throw error;
+    }
+
+    return result;
   }
 
   /**
@@ -284,8 +336,27 @@ export class GatewayClient {
     const text = typeof body.snapshot === "string" ? body.snapshot : "";
     const totalChars = typeof body.totalChars === "number" ? body.totalChars : text.length;
     const nextOffset = typeof body.nextOffset === "number" ? body.nextOffset : text.length;
-    return {
-      url: typeof body.url === "string" ? body.url : "",
+    let url = typeof body.url === "string" ? body.url : "";
+
+    // A snapshot we cannot place is not a snapshot we may hand back: there would be nothing to check,
+    // the guard would be skipped silently, and `read` would report the url we asked for as though it
+    // were where the page ended up. That is how a client-side redirect to `169.254.169.254` returns an
+    // internal body under a public-looking header. Ask the tab list once, and refuse if that stays
+    // silent too — but only while the guard can still refuse something, so a caller that switched it
+    // off entirely is not blocked by a check that can no longer fire.
+    if (!url && policyCanRefuse(this.urlPolicy)) {
+      url = await this.tabLocation({ userId: params.userId, tabId: params.tabId, signal: params.signal });
+      if (!url) {
+        throw new GatewayError(
+          "destination_unreported",
+          "the gateway reported no destination for this page, so its content was not returned — a page that moves after opening would go unchecked",
+          { details: { tabId: params.tabId } },
+        );
+      }
+    }
+
+    const result: SnapshotResult = {
+      url,
       text,
       refsCount: typeof body.refsCount === "number" ? body.refsCount : (text.match(/\[e\d+\]/gu) ?? []).length,
       truncated: body.truncated === true,
@@ -293,6 +364,80 @@ export class GatewayClient {
       hasMore: body.hasMore === true,
       nextOffset,
     };
+    // Where the page actually ended up, from the one response that cannot be stale. `openTab` re-checks
+    // the destination it is handed, but a gateway that reports no url there leaves that check with
+    // nothing to compare — it falls back to the url we asked for, which is the one already vetted. This
+    // is the check that still holds, it is the one no caller can forget to write, and content from a
+    // destination we would have refused is content we must not hand back.
+    if (result.url) assertTabUrlAllowed(result.url, this.urlPolicy, "destination");
+    return result;
+  }
+
+  /** Where the tab list says this tab is. Empty when the gateway will not say, which is treated as unsafe. */
+  private async tabLocation(params: { userId: string; tabId: string; signal?: AbortSignal }): Promise<string> {
+    const body = await this.requestJson<Record<string, unknown>>("GET", endpointPath("listTabs"), {
+      userId: params.userId,
+      query: { userId: params.userId },
+      signal: params.signal,
+      tolerateMissing: true,
+    });
+    const tabs = Array.isArray(body.tabs) ? (body.tabs as Record<string, unknown>[]) : [];
+    for (const tab of tabs) {
+      const tabId = typeof tab.tabId === "string" ? tab.tabId : typeof tab.targetId === "string" ? tab.targetId : "";
+      if (tabId !== params.tabId) continue;
+      return typeof tab.url === "string" ? tab.url : "";
+    }
+    return "";
+  }
+
+  /**
+   * Ask the gateway to hold until a selector exists in the rendered page.
+   *
+   * An enhancement, so nothing that stops it may end the read: a gateway older than the endpoint
+   * answers 404, and one that ignores its own `timeout` argument is cut off by our per-request
+   * deadline. Both degrade to a reported skip and we snapshot anyway — once, because `retry: "never"`
+   * keeps an optional wait from costing the retry budget, and it is why an over-long gateway deadline
+   * cannot cost us twice. A cancelled call or a tab that vanished is different: there is nothing left
+   * to read, so `aborted` and `tab_not_found` are the only codes allowed out of here.
+   */
+  async waitFor(params: {
+    userId: string;
+    tabId: string;
+    selector: string;
+    timeoutMs?: number;
+    signal?: AbortSignal;
+  }): Promise<WaitOutcome> {
+    // Two deadlines on one request. Ours wins: telling the gateway to hold for longer than we can wait
+    // buys work we then abandon. Config validation keeps the pair coherent, so this only bites for a
+    // client built by hand.
+    const timeoutMs = params.timeoutMs === undefined ? undefined : Math.min(params.timeoutMs, this.timeoutMs);
+    try {
+      const body = await this.requestJson<Record<string, unknown>>("POST", endpointPath("wait", { tabId: params.tabId }), {
+        userId: params.userId,
+        body: {
+          userId: params.userId,
+          selector: params.selector,
+          ...(timeoutMs === undefined ? {} : { timeout: timeoutMs }),
+        },
+        signal: params.signal,
+        tolerateNotOk: true,
+        retry: "never",
+      });
+      // Only a gateway that omits the field gets the benefit of the doubt. Anything else has to say so
+      // outright: silence from `read` is what tells the model the selector appeared.
+      const ok = body.ok === undefined ? true : body.ok === true;
+      return { ok, ...(typeof body.error === "string" ? { error: body.error } : {}) };
+    } catch (error) {
+      if (error instanceof GatewayError) {
+        if (error.code === "gateway_error" && isRouteMissing(error)) {
+          return { ok: false, skipped: "gateway has no /wait route" };
+        }
+        if (error.code === "timeout" || error.code === "gateway_error") {
+          return { ok: false, skipped: error.message };
+        }
+      }
+      throw error;
+    }
   }
 
   async extract(params: {
@@ -380,7 +525,8 @@ export class GatewayClient {
       } catch (error) {
         const gatewayError = error instanceof GatewayError ? error : new GatewayError("gateway_error", String(error));
         const connectOnly = options.retry === "connect-only" && gatewayError.code !== "gateway_unreachable";
-        if (attempt === 0 && gatewayError.retryable && !connectOnly && !options.signal?.aborted) {
+        const never = options.retry === "never";
+        if (attempt === 0 && gatewayError.retryable && !never && !connectOnly && !options.signal?.aborted) {
           lastError = gatewayError;
           continue;
         }
@@ -427,7 +573,7 @@ export class GatewayClient {
         if (options.tolerateMissing && response.status === 404) return {} as T;
         throw this.httpError(response, body, path, options);
       }
-      if (body && typeof body === "object" && (body as Record<string, unknown>).ok === false) {
+      if (body && typeof body === "object" && (body as Record<string, unknown>).ok === false && !options.tolerateNotOk) {
         throw this.gatewayBodyError(body as Record<string, unknown>, path);
       }
       if (body === undefined) {
@@ -483,7 +629,9 @@ export class GatewayClient {
         const tabId = path.match(/^\/tabs\/([^/]+)/)?.[1] ?? "?";
         return new GatewayError("tab_not_found", `the browser tab ${tabId} is gone for user "${options.userId}"`, { details });
       }
-      return new GatewayError("gateway_error", `gateway has no route ${path}: ${message}`, { details });
+      // "We asked for a path this gateway does not have" — flagged structurally, because the caller that
+      // degrades on it must not be coupled to how this message is phrased.
+      return new GatewayError("gateway_error", `gateway has no route ${path}: ${message}`, { details: { ...details, routeMissing: true } });
     }
     if (response.status === 400 && /blocked url|scheme/i.test(message)) {
       return new GatewayError("blocked_url", message, { details });

@@ -6,6 +6,7 @@ import { join } from "node:path";
 
 import { DEFAULT_CONFIG, loadConfig } from "../src/config.ts";
 import { resolveConfig } from "../src/extension.ts";
+import { testConfig } from "./helpers/config.mjs";
 
 function withConfigFile(contents, t) {
   const dir = mkdtempSync(join(tmpdir(), "camoufox-config-"));
@@ -137,4 +138,114 @@ test("an explicitly configured config path that does not exist is a hard error",
     () => loadConfig({ env: { CAMOUFOX_CONFIG_PATH: "/tmp/definitely-not-here/camoufox.json" } }),
     /not found/u,
   );
+});
+
+test("the rendering-wait settings default to a bounded poll", (t) => {
+  const configPath = withConfigFile(undefined, t);
+  const config = loadConfig({ configPath, env: {} });
+
+  assert.equal(config.read.waitForSettleMs, DEFAULT_CONFIG.read.waitForSettleMs);
+  assert.ok(config.read.waitForSettleMs > 0, "reads must wait for hydration by default");
+  assert.ok(config.read.settlePollMs > 0 && config.read.settlePollMs < config.read.waitForSettleMs);
+  assert.ok(config.read.settleMinChars > 0);
+  assert.equal(config.network.allowPrivateHosts, false, "internal addresses are refused unless asked for");
+});
+
+test("waitForSettleMs accepts 0 as off, unlike the other read numbers", (t) => {
+  const configPath = withConfigFile(JSON.stringify({ read: { waitForSettleMs: 0 } }), t);
+  assert.equal(loadConfig({ configPath, env: {} }).read.waitForSettleMs, 0);
+
+  // The other half of why `assertNonNegativeNumber` exists rather than reusing `assertFiniteNumber`:
+  // without it, "off" and "a negative budget" are indistinguishable at load time.
+  const negativeSettle = withConfigFile(JSON.stringify({ read: { waitForSettleMs: -1 } }), t);
+  assert.throws(() => loadConfig({ configPath: negativeSettle, env: {} }), /read\.waitForSettleMs/u);
+
+  const negative = withConfigFile(JSON.stringify({ read: { settlePollMs: -1 } }), t);
+  assert.throws(() => loadConfig({ configPath: negative, env: {} }), /read\.settlePollMs/u);
+});
+
+test("a typo inside the network section is a hard error too", (t) => {
+  const configPath = withConfigFile(JSON.stringify({ network: { allowPrivateHost: true } }), t);
+
+  assert.throws(
+    () => loadConfig({ configPath, env: {} }),
+    (err) => {
+      assert.match(err.message, /network\.allowPrivateHost/u);
+      assert.match(err.message, /allowPrivateHosts/u, "lists what it meant to accept");
+      return true;
+    },
+  );
+});
+
+test("network.allowPrivateHosts must be a real boolean", (t) => {
+  const configPath = withConfigFile(JSON.stringify({ network: { allowPrivateHosts: "yes" } }), t);
+
+  assert.throws(() => loadConfig({ configPath, env: {} }), /must be true or false/u);
+});
+
+test("CAMOUFOX_ALLOW_PRIVATE_HOSTS overrides the file, and nonsense is refused", (t) => {
+  const configPath = withConfigFile(JSON.stringify({ network: { allowPrivateHosts: false } }), t);
+
+  assert.equal(loadConfig({ configPath, env: { CAMOUFOX_ALLOW_PRIVATE_HOSTS: "1" } }).network.allowPrivateHosts, true);
+  assert.equal(loadConfig({ configPath, env: { CAMOUFOX_ALLOW_PRIVATE_HOSTS: "false" } }).network.allowPrivateHosts, false);
+  assert.throws(
+    () => loadConfig({ configPath, env: { CAMOUFOX_ALLOW_PRIVATE_HOSTS: "maybe" } }),
+    /CAMOUFOX_ALLOW_PRIVATE_HOSTS/u,
+  );
+});
+
+test("the boolean env error lists every spelling the parser accepts", (t) => {
+  // The message used to name two of the six, so `y` was refused with advice that could not have helped.
+  const configPath = withConfigFile(undefined, t);
+
+  assert.throws(
+    () => loadConfig({ configPath, env: { CAMOUFOX_ALLOW_PRIVATE_HOSTS: "y" } }),
+    /"1" \| "true" \| "yes" \| "on" \| "0" \| "false" \| "no" \| "off"/u,
+  );
+});
+
+test("settings that cannot both be true are refused, naming both keys", (t) => {
+  // Individually valid values that make the settle loop or the selector wait silently useless; see
+  // `assertCoherent`.
+  const neverPolled = withConfigFile(JSON.stringify({ read: { waitForSettleMs: 500, settlePollMs: 500 } }), t);
+  assert.throws(
+    () => loadConfig({ configPath: neverPolled, env: {} }),
+    (err) => {
+      assert.match(err.message, /read\.settlePollMs/u);
+      assert.match(err.message, /read\.waitForSettleMs/u, "naming one key is not enough to fix it");
+      return true;
+    },
+  );
+
+  const unreachable = withConfigFile(JSON.stringify({ timeoutMs: 4000, read: { waitForTimeoutMs: 4000 } }), t);
+  assert.throws(
+    () => loadConfig({ configPath: unreachable, env: {} }),
+    (err) => {
+      assert.match(err.message, /read\.waitForTimeoutMs/u);
+      assert.match(err.message, /timeoutMs/u);
+      return true;
+    },
+  );
+});
+
+test("a disabled settle loop imposes no bound on the poll interval", (t) => {
+  // `waitForSettleMs: 0` means "never poll", so a long `settlePollMs` is not a contradiction.
+  const configPath = withConfigFile(JSON.stringify({ read: { waitForSettleMs: 0, settlePollMs: 5_000 } }), t);
+
+  assert.equal(loadConfig({ configPath, env: {} }).read.waitForSettleMs, 0);
+});
+
+test("the test config helper refuses what the loader would refuse", () => {
+  // `testConfig` builds configs without going through `loadConfig`, so it has to say no to a typo
+  // itself. Without this, a misspelled override merges in unseen and the setting keeps its default,
+  // which makes the test that set it describe a configuration it does not have.
+  assert.throws(() => testConfig({ read: { settlePolllMs: 10 } }), /unknown test config key "read\.settlePolllMs"/u);
+  assert.throws(() => testConfig({ network: { allowPrivateHost: true } }), /unknown test config key "network\.allowPrivateHost"/u);
+  assert.throws(() => testConfig({ timeoutM: 1000 }), /unknown test config key "timeoutM"/u);
+  assert.throws(() => testConfig({ read: 5 }), /"read" must be an object/u);
+
+  // `apiKey` is valid but has no default, and the sections a test does set have to survive.
+  assert.equal(testConfig({ apiKey: "sekret" }).apiKey, "sekret");
+  assert.equal(testConfig({ read: { settlePollMs: 10 } }).read.settlePollMs, 10);
+  assert.equal(testConfig({ read: { settlePollMs: 10 } }).read.waitForSettleMs, DEFAULT_CONFIG.read.waitForSettleMs);
 });

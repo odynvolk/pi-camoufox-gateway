@@ -1,12 +1,16 @@
 /**
- * The read side: navigate, report where we actually ended up, and hand back a bounded slice of the
- * page. The bound is the point — the gateway happily returns ~20K tokens of accessibility tree for
- * a single page, and the model asked for a page, not an eviction.
+ * The read side: navigate, let the page finish rendering, report where we actually ended up, and
+ * hand back a bounded slice of the page. The bound is the point — the gateway happily returns ~20K
+ * tokens of accessibility tree for a single page, and the model asked for a page, not an eviction.
+ *
+ * The settle loop exists because `openTab` returning does not mean the page is there: a client
+ * rendered site answers with its skeleton, and the old code snapshotted that and called it the page.
  */
 
 import type { CamoufoxConfig } from "../config.ts";
 import { GatewayError } from "../errors.ts";
-import type { GatewayClient } from "../gateway.ts";
+import type { GatewayClient, SnapshotResult } from "../gateway.ts";
+import { assertTabUrlAllowed, urlPolicyFromConfig } from "../net-policy.ts";
 import { detectWall, extractText, type ExtractedText } from "../snapshot.ts";
 
 export interface ReadToolDeps {
@@ -19,6 +23,8 @@ export interface ReadParams {
   url: string;
   maxChars?: number;
   offset?: number;
+  /** CSS selector to hold for before reading — for content the settle heuristic cannot see coming. */
+  waitFor?: string;
   /** JSON Schema with `x-ref` hints; requires a snapshot first, which this tool does for you. */
   schema?: Record<string, unknown>;
   signal?: AbortSignal;
@@ -33,42 +39,147 @@ export interface ReadOutcome {
   nextOffset: number | null;
   extracted?: Record<string, unknown>;
   refsCount: number;
+  /** Extra time spent re-snapshotting a thin page. Absent when no polling was needed. */
+  settledInMs?: number;
+  /** The settle budget ran out while the page was still growing, so a bigger one could help. */
+  stalledAtDeadline?: boolean;
+  /** Set when the page was still thin after every wait: probably client-rendered. */
+  thinAfterWait?: boolean;
+  /** True when the caller asked for a selector wait, so the notes can stop recommending it. */
+  waitForRequested?: boolean;
+  /** What a `waitFor` did not achieve, in words the model can act on. Absent when it worked. */
+  waitNote?: string;
 }
 
-/** Reject before the browser is touched: the gateway enforces no host policy of its own. */
-export function assertHostAllowed(url: string, blockedHosts: string[]): void {
-  let host: string;
-  try {
-    host = new URL(url).hostname.toLowerCase();
-  } catch {
-    throw new GatewayError("unsupported", `"${url}" is not a valid URL`);
-  }
-  for (const rule of blockedHosts) {
-    const needle = rule.toLowerCase();
-    if (!needle) continue;
-    const hit = needle.startsWith("*.")
-      ? host === needle.slice(2) || host.endsWith(needle.slice(1))
-      : host === needle || host.endsWith(`.${needle}`);
-    if (hit) {
-      throw new GatewayError("host_blocked", `"${host}" is listed in camoufox blockedHosts, so it was not fetched`, {
-        details: { host, rule: needle },
-      });
+/**
+ * How many identical snapshots in a row count as "the page is finished".
+ *
+ * Exported so the cost of the settle loop is pinned by a test instead of re-hardcoded in it.
+ */
+export const STABLE_ROUNDS = 2;
+
+/** Two consecutive snapshots are the same page, not merely two strings of the same length. */
+function samePage(left: SnapshotResult, right: SnapshotResult): boolean {
+  // `totalChars` and `refsCount` are cheap and catch the two shapes text alone cannot see: a slice the
+  // gateway capped, where the returned text stops growing while the page keeps going, and a skeleton
+  // that swaps content at a constant width.
+  return left.text === right.text && left.totalChars === right.totalChars && left.refsCount === right.refsCount;
+}
+
+function delay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new GatewayError("aborted", "the read was cancelled while waiting for the page to render"));
+      return;
     }
-  }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    function onAbort() {
+      clearTimeout(timer);
+      reject(new GatewayError("aborted", "the read was cancelled while waiting for the page to render"));
+    }
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 export function readTool(deps: ReadToolDeps) {
   const { client, config, userId } = deps;
+  const read = config.read;
 
-  async function read(params: ReadParams): Promise<ReadOutcome> {
-    if (!/^https?:\/\//iu.test(params.url ?? "")) {
-      throw new GatewayError("blocked_url", `camoufox_read only fetches http(s) urls (got "${params.url}")`);
+  /**
+   * Same rules `GatewayClient.openTab` applies, called here on purpose: a client constructed without
+   * a policy must not silently turn the read tool into the unguarded path.
+   */
+  function assertAllowed(url: string): void {
+    assertTabUrlAllowed(url, urlPolicyFromConfig(config));
+  }
+
+  /**
+   * How much of the page exists, as opposed to how much of it this call returned.
+   *
+   * `text` is the slice from `params.offset` onward, so judging thinness on it would call the last
+   * screen of a 45 000-char article "not yet rendered" and poll it twice before saying so.
+   */
+  function pageChars(snapshot: SnapshotResult): number {
+    return typeof snapshot.totalChars === "number" && snapshot.totalChars > 0 ? snapshot.totalChars : (snapshot.text ?? "").length;
+  }
+
+  /**
+   * A page worth re-snapshotting: too thin to be the real content, and not already classified.
+   *
+   * `empty_page` is deliberately still poll-worthy — "nothing rendered yet" is exactly the state a
+   * client-rendered site passes through. Any other wall is a stable answer, so waiting on it is
+   * wasted time the model pays for.
+   */
+  function worthPollingAgain(snapshot: SnapshotResult): boolean {
+    if (read.waitForSettleMs <= 0) return false;
+    if (pageChars(snapshot) >= read.settleMinChars) return false;
+    const wall = detectWall(snapshot);
+    return wall === null || wall === "empty_page";
+  }
+
+  async function snapshotSettled(
+    tabId: string,
+    offset: number | undefined,
+    signal?: AbortSignal,
+  ): Promise<{ snapshot: SnapshotResult; settledInMs: number; polled: boolean; stalledAtDeadline: boolean }> {
+    const first = await client.snapshot({ userId, tabId, offset, signal });
+    if (!worthPollingAgain(first)) return { snapshot: first, settledInMs: 0, polled: false, stalledAtDeadline: false };
+
+    const startedAt = Date.now();
+    const deadline = startedAt + read.waitForSettleMs;
+    let latest = first;
+    let unchanged = 0;
+    let polled = false;
+    // Whether the budget ran out while the page was still growing. That is the only case where
+    // "raise the budget" is honest advice: a page that stopped growing on its own will not grow
+    // because we asked again.
+    let stalledAtDeadline = true;
+    // One repeat is a slow script, two is a finished page: that is the stop signal available without
+    // knowing the app's selectors. The deadline bounds how long it can take, and each poll is its own
+    // gateway request, so the worst case is the deadline plus one request.
+    while (Date.now() < deadline) {
+      // Never sleep past the budget. Sleep the interval instead and a poll configured near the deadline
+      // sleeps through it and still issues its request, which is a longer read and a slower refusal than
+      // the comment above promises. Config validation keeps the configured pair sane, so the clamp is
+      // here for a budget assembled some other way.
+      await delay(Math.max(0, Math.min(read.settlePollMs, deadline - Date.now())), signal);
+      const next = await client.snapshot({ userId, tabId, offset, signal });
+      unchanged = samePage(next, latest) ? unchanged + 1 : 0;
+      latest = next;
+      polled = true;
+      if (unchanged >= STABLE_ROUNDS || !worthPollingAgain(next)) {
+        stalledAtDeadline = false;
+        break;
+      }
     }
-    assertHostAllowed(params.url, config.blockedHosts);
+    return { snapshot: latest, settledInMs: Date.now() - startedAt, polled, stalledAtDeadline };
+  }
+
+  async function run(params: ReadParams): Promise<ReadOutcome> {
+    assertAllowed(params.url ?? "");
 
     const tab = await client.openTab({ userId, url: params.url, signal: params.signal });
+    let waitNote: string | undefined;
     try {
-      let snapshot = await client.snapshot({ userId, tabId: tab.tabId, offset: params.offset, signal: params.signal });
+      if (params.waitFor) {
+        const wait = await client.waitFor({
+          userId,
+          tabId: tab.tabId,
+          selector: params.waitFor,
+          timeoutMs: read.waitForTimeoutMs,
+          signal: params.signal,
+        });
+        if (wait.skipped) waitNote = `waitFor "${params.waitFor}" was not performed: ${wait.skipped}`;
+        else if (!wait.ok)
+          waitNote = wait.error
+            ? `waitFor "${params.waitFor}" was refused: ${wait.error}`
+            : `waitFor "${params.waitFor}" did not appear within ${read.waitForTimeoutMs}ms`;
+      }
+
+      const { snapshot, settledInMs, polled, stalledAtDeadline } = await snapshotSettled(tab.tabId, params.offset, params.signal);
 
       const wall = detectWall(snapshot);
       if (wall) {
@@ -76,6 +187,11 @@ export function readTool(deps: ReadToolDeps) {
           details: { url: snapshot.url, refsCount: snapshot.refsCount },
         });
       }
+
+      // No destination check here: `client.snapshot` refuses a page from a host the policy would not
+      // have opened, which is the same rule with one fewer place to remember it. It runs while we poll,
+      // so a page that redirected somewhere internal is refused even when it never rendered — the
+      // refusal is the truer answer of the two.
 
       let extracted: Record<string, unknown> | undefined;
       if (params.schema) {
@@ -87,8 +203,9 @@ export function readTool(deps: ReadToolDeps) {
         }
       }
 
-      const budget = params.maxChars ?? config.read.defaultMaxChars;
+      const budget = params.maxChars ?? read.defaultMaxChars;
       const sliced: ExtractedText = extractText(snapshot, { maxChars: budget, offset: params.offset });
+      const thin = pageChars(snapshot) < read.settleMinChars;
 
       return {
         url: snapshot.url || tab.url,
@@ -99,11 +216,16 @@ export function readTool(deps: ReadToolDeps) {
         nextOffset: sliced.nextOffset,
         ...(extracted ? { extracted } : {}),
         refsCount: snapshot.refsCount,
+        ...(polled ? { settledInMs } : {}),
+        ...(polled && stalledAtDeadline ? { stalledAtDeadline: true } : {}),
+        ...(thin && (polled || params.waitFor) ? { thinAfterWait: true } : {}),
+        ...(params.waitFor ? { waitForRequested: true } : {}),
+        ...(waitNote ? { waitNote } : {}),
       };
     } finally {
       await client.closeTabQuietly({ userId, tabId: tab.tabId });
     }
   }
 
-  return { name: "camoufox_read", read };
+  return { name: "camoufox_read", read: run };
 }
