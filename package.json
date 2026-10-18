@@ -3,6 +3,7 @@
   "version": "0.1.1",
   "private": false,
   "description": "Let pi search the web and read pages through a camoufox gateway",
+  "homepage": "https://github.com/odynvolk/pi-camoufox-gateway#readme",
   "type": "module",
   "main": "src/camoufox-gateway.ts",
   "author": {
@@ -17,6 +18,10 @@
     "camoufox",
     "browser"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/odynvolk/pi-camoufox-gateway.git"
+  },
   "license": "MIT",
   "engines": {
     "node": ">=23"
