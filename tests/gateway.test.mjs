@@ -190,6 +190,24 @@ test("a cancelled probe is not remembered as the gateway being down", async (t) 
   assert.equal(status.ok, true);
 });
 
+test("a timeout is not retried, because it already spent its deadline", async () => {
+  let connects = 0;
+  const client = createGatewayClient({
+    baseUrl: BASE,
+    timeoutMs: 20,
+    fetchImpl: () => {
+      connects += 1;
+      return new Promise(() => {});
+    },
+  });
+
+  expectError(await client.preflight().catch((e) => e), "timeout");
+
+  // An absolute total, and the only place one belongs: this asserts the retry budget itself, which is
+  // what `retry: "connect-only"` decides for the status probe.
+  assert.equal(connects, 1);
+});
+
 test("a probe that fails slowly still holds its window, so the next call does not re-dial", async () => {
   let connects = 0;
   const client = createGatewayClient({
@@ -210,7 +228,6 @@ test("a probe that fails slowly still holds its window, so the next call does no
 
   await client.preflight().catch(() => undefined);
 
-  assert.equal(afterSlowProbe, 1, "a timeout is not retried — it already spent the deadline");
   assert.equal(connects, afterSlowProbe, "a failure that took longer than its window must still hold it");
 });
 
