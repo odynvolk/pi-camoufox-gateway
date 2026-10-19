@@ -25,9 +25,9 @@ export interface GatewayClientOptions {
   fetchImpl?: typeof globalThis.fetch;
   /**
    * How long a *failed* liveness probe is honoured, measured from when the failure was observed,
-   * before the gateway is dialled again. Defaults to `PREFLIGHT_RETRY_AFTER_MS`. Kept well below the
-   * 60s success window on purpose: a gateway that is up barely changes, but holding a failure for
-   * that long would turn one transient blip into a minute of refusals.
+   * before the gateway is dialled again. Defaults to `PREFLIGHT_RETRY_AFTER_MS`. Kept well below
+   * `PREFLIGHT_TTL_MS` on purpose: a gateway that is up barely changes, but holding a failure for the
+   * whole success window would turn one transient blip into that entire window of refusals.
    */
   preflightRetryAfterMs?: number;
 }
@@ -222,9 +222,10 @@ export class GatewayClient {
   }
 
   /**
-   * Cheap liveness check. A success is cached for 60s; a failure for a much shorter window, so a dead
-   * gateway is dialled once per window instead of once per tool call — while a gateway that blips
-   * once is not written off for a minute.
+   * Cheap liveness check. A success is cached for `PREFLIGHT_TTL_MS`; a failure for
+   * `preflightRetryAfterMs`, a much shorter window. So a dead gateway is dialled once per window
+   * instead of once per tool call — while a gateway that blips once is not written off for the whole
+   * success window. See `liveness` in `extension.ts` for what the shorter window cannot bound.
    */
   async preflight(signal?: AbortSignal): Promise<GatewayStatus> {
     const now = Date.now();

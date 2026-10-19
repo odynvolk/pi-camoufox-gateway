@@ -82,10 +82,15 @@ export function createExtension(deps: ExtensionDepsWithConfig): Extension {
   };
 
   /**
-   * Fail fast when the gateway is simply down. A successful probe is cached for 60s and a failed one
-   * for 5s, so a dead gateway costs one cheap `gateway_unreachable` per short window instead of a full
-   * connect timeout per tool call. The failure window is short deliberately: holding it for the full
-   * 60s would turn one transient blip into a minute of refusals.
+   * Fail fast when the gateway is simply down. A success is cached for the client's success window; a
+   * failure for its `preflightRetryAfterMs` window, a much shorter default. So a gateway that fails
+   * faster than that window costs one cheap `gateway_unreachable` per window instead of a full connect
+   * timeout per tool call, and concurrent callers share one probe however long a failure takes.
+   *
+   * The failure window is short deliberately: holding it for the whole success window would turn one
+   * transient blip into that entire window of refusals. It cannot bound a probe that itself runs to the
+   * client timeout — a gateway that hangs rather than refuses is re-dialled by each sequential caller.
+   * Recorded as D.4 in `docs/improvements/2026-10-18-code.md`.
    *
    * Anything else (an old gateway without `GET /`, a slow body) is not our business: let the real
    * request answer.
