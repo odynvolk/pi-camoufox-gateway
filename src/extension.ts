@@ -82,8 +82,11 @@ export function createExtension(deps: ExtensionDepsWithConfig): Extension {
   };
 
   /**
-   * Fail fast when the gateway is simply down. `preflight` caches for 60s, so a dead gateway costs
-   * one cheap `gateway_unreachable` per window instead of a full connect timeout per tool call.
+   * Fail fast when the gateway is simply down. A successful probe is cached for 60s and a failed one
+   * for 5s, so a dead gateway costs one cheap `gateway_unreachable` per short window instead of a full
+   * connect timeout per tool call. The failure window is short deliberately: holding it for the full
+   * 60s would turn one transient blip into a minute of refusals.
+   *
    * Anything else (an old gateway without `GET /`, a slow body) is not our business: let the real
    * request answer.
    */

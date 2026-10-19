@@ -246,19 +246,27 @@ test("a refusal after the browser moved does not claim nothing was sent", () => 
 });
 
 test("a dead gateway costs one liveness probe per window, not one timeout per call", async (t) => {
-  const fake = withFakeGateway(t);
+  withFakeGateway(t);
+  let connects = 0;
   const client = createGatewayClient({
     baseUrl: CONFIG.gatewayUrl,
     timeoutMs: 100,
-    fetchImpl: () => new Promise((_resolve, reject) => reject(Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" }))),
+    fetchImpl: () => {
+      connects += 1;
+      return Promise.reject(Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" }));
+    },
   });
   const extension = createExtension({ config: CONFIG, client, cache: createCache(), userId: "pi-dead" });
 
   const first = await extension.search({ query: "camoufox" }).catch((e) => e);
+  const afterFirstProbe = connects;
   const second = await extension.search({ query: "camoufox again" }).catch((e) => e);
 
   assert.equal(first.code, "gateway_unreachable");
   assert.equal(second.code, "gateway_unreachable");
+  // This is the claim the README makes. Asserting only the codes above passed while every call paid
+  // its own connect timeout, because a failed probe was never cached.
+  assert.equal(connects, afterFirstProbe, "the second tool call must not dial the gateway again");
 });
 
 test("shutdown sweeps sessions in one call", async (t) => {
