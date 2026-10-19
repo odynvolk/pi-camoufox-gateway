@@ -20,7 +20,7 @@ Searches through the browser and returns ranked titles, urls and snippets.
 - `resolve: true` turns Google's `google.com/goto?url=…` wrappers into final urls. It costs one
   extra page load per result and runs at most three tabs at a time, so it is off by default.
 
-### `camoufox_read(url, maxChars?, offset?, waitFor?, schema?)`
+### `camoufox_read(url, maxChars?, offset?, waitFor?, schema?, fresh?)`
 
 Loads a page in the browser and returns its text.
 
@@ -40,6 +40,18 @@ Loads a page in the browser and returns its text.
   `timeoutMs` — costs the wait, not the page: the read continues and says which it was.
 - `schema` accepts a JSON Schema whose properties carry `x-ref` hints; the tool snapshots the page
   first (refs only exist after a snapshot), then calls the gateway's extractor.
+- **Reads are cached for `cache.pageMs` (10 min) per pi session.** A second read of the same url at
+  the same `offset` comes back without opening a tab, and the output says it was served from cache.
+  `maxChars` does not split the cache — it is a slice of a page already held — but `offset` does,
+  because the gateway returns a window rather than a page. Requests carrying `waitFor` or `schema`
+  always navigate: a stored snapshot can neither confirm a selector nor supply live refs.
+- **A cached page is re-checked on the way out**, against the same destination rule that ran when it
+  was stored. Narrowing `blockedHosts` or turning `allowPrivateHosts` off takes effect on the next
+  read, not when the entry expires. Thin pages are never stored, so an unfinished render cannot
+  become the answer for ten minutes. `fresh: true` skips the lookup and **replaces** the entry with
+  what it fetches, so a plain read afterwards does not serve the older copy. One limit: a read already
+  in flight carries no ordering against that replacement, so one that fetched earlier and lands later
+  can still write its older page back.
 - Refuses internal addresses, and keeps refusing after the browser moves. `blockedHosts` is applied,
   and so is a block on loopback, RFC1918, link-local (including the cloud metadata IP) and other
   non-global addresses — see `network.allowPrivateHosts`. Every destination gets checked, at tab open
@@ -99,7 +111,7 @@ Environment: `CAMOUFOX_GATEWAY_URL`, `CAMOUFOX_API_KEY`, `CAMOUFOX_CONFIG_PATH`,
 | `gatewayUrl` | `http://localhost:9377` | must be absolute `http(s)` |
 | `apiKey` | unset | sent as `Bearer` only if set |
 | `engines` | google, duckduckgo | ordered fallback chain |
-| `cache.serpMs` / `cache.pageMs` | 30 min / 10 min | failures are never cached |
+| `cache.serpMs` / `cache.pageMs` | 30 min / 10 min | search results / read pages. Failures are never cached, and neither is a page that had not finished rendering |
 | `read.defaultMaxChars` | 12000 | per-read text budget |
 | `read.waitForSettleMs` | 2500 | extra time a read may spend re-snapshotting a thin page; `0` disables |
 | `read.settlePollMs` | 300 | gap between those polls |

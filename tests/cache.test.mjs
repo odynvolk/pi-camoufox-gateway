@@ -75,3 +75,27 @@ test("clear() during an in-flight producer drops the value instead of resurrecti
   const next = await cache.run("key", async () => "fresh", 60_000);
   assert.equal(next, "fresh", "the next call is free to produce again");
 });
+
+test("run returns what shouldStore rejects, and does not store it", async () => {
+  const cache = createCache();
+  const value = { text: "still rendering" };
+
+  const out = await cache.run("k", async () => value, 1000, { shouldStore: () => false });
+
+  // The caller still gets the answer; only the keeping is refused. Without this, a caller that needs
+  // one in-flight producer (`read`) would have to give up the rule about what is worth keeping.
+  assert.equal(out, value);
+  assert.equal(cache.get("k"), undefined);
+});
+
+test("a value shouldStore rejects does not block the next producer for that key", async () => {
+  const cache = createCache();
+
+  await cache.run("k", async () => ({ v: 1 }), 1000, { shouldStore: () => false });
+  assert.equal(cache.get("k"), undefined);
+
+  // Rejected, not remembered: the next read of the same url must be free to try again.
+  const next = await cache.run("k", async () => ({ v: 2 }), 1000);
+  assert.deepEqual(next, { v: 2 });
+  assert.deepEqual(cache.get("k"), { v: 2 });
+});

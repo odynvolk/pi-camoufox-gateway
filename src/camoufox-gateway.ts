@@ -33,6 +33,9 @@ const ReadSchema = Type.Object({
     }),
   ),
   schema: Type.Optional(Type.Record(Type.String(), Type.Any(), { description: "JSON Schema with x-ref hints" })),
+  fresh: Type.Optional(
+    Type.Boolean({ description: "Ignore the page cache and navigate (pages are reused until cache.pageMs passes)" }),
+  ),
 });
 
 type SearchArgs = Static<typeof SearchSchema>;

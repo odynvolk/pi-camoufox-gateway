@@ -225,6 +225,20 @@ test("a thin page we cut short is offered the text budget", async (t) => {
   assert.match(outcome.text, /read with a larger maxChars/u);
 });
 
+test("a cached read says so in the text the model gets", async (t) => {
+  const { extension } = extensionFor(t, "pi-cached");
+
+  const first = await extension.read({ url: "https://example.test/article" });
+  const second = await extension.read({ url: "https://example.test/article" });
+
+  assert.doesNotMatch(first.text, /served from the page cache/u);
+  assert.equal(second.details.fromCache, true);
+  // A page that was not re-fetched has to look different in the transcript, or a model reading it
+  // later cannot tell a stale read from a fresh one. `fresh` is the only lever, so name it.
+  assert.match(second.text, /served from the page cache/u);
+  assert.match(second.text, /fresh:true/u, "the note has to name the way out");
+});
+
 test("a refusal after the browser moved does not claim nothing was sent", () => {
   // The same codes come from the pre-flight check and from re-checking the destination the gateway
   // reports; only the first of those can say the gateway was never contacted.

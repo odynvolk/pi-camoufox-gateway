@@ -6,6 +6,7 @@ import { readFileSync } from "node:fs";
 import { withFakeGateway } from "./helpers/fake_gateway.mjs";
 import { testConfig } from "./helpers/config.mjs";
 import { createGatewayClient } from "../src/gateway.ts";
+import { createCache } from "../src/cache.ts";
 import { readTool, STABLE_ROUNDS } from "../src/tools/read.ts";
 import { assertHostAllowed, urlPolicyFromConfig } from "../src/net-policy.ts";
 
@@ -26,7 +27,10 @@ function setup(t, options = {}) {
     urlPolicy: urlPolicyFromConfig(config),
     ...(options.client ?? {}),
   });
-  return { fake, client, config, tool: readTool({ client, config, userId: "u1" }) };
+  // A cache per test, the way each pi session gets its own: page caching must not leak between
+  // cases, and the caching cases below need the handle to assert against.
+  const cache = createCache();
+  return { fake, client, config, cache, tool: readTool({ client, config, cache, userId: "u1" }) };
 }
 
 test("returns page text and the url we actually ended up on", async (t) => {
@@ -432,4 +436,219 @@ test("the poll interval never outlasts the settle budget", async (t) => {
   // `loadConfig` rejects a poll interval at or above the budget, so this pair only arrives from a config
   // assembled by hand. The loop must still respect the budget it was given.
   assert.ok(Date.now() - startedAt < 1_000, "the read slept through its own deadline and then polled anyway");
+});
+
+// --- the page cache (`cache.pageMs` had no page-cache consumer at all) -------------------------
+
+/** Navigation is the cost: one tab open per read that is not served from cache. */
+function opens(fake) {
+  return fake.state.calls.filter((c) => c.method === "POST" && c.path === "/tabs/open").length;
+}
+
+/**
+ * A page a read will actually keep.
+ *
+ * Padded on fixed text rather than on the marker, so rewording a marker cannot quietly drop the page
+ * below `settleMinChars` — a thin page is never stored, and a test about replacing an entry needs one
+ * to be in there.
+ */
+function page(marker) {
+  return `- heading "Page: https://example.com/article"\n${marker}\n${"content of the article body. ".repeat(120)}`;
+}
+
+test("the second identical read costs the gateway nothing", async (t) => {
+  const { fake, tool } = setup(t);
+
+  const first = await tool.read({ url: "https://example.test/article" });
+  const afterFirst = opens(fake);
+  const second = await tool.read({ url: "https://example.test/article" });
+
+  assert.equal(afterFirst, 1, "the first read must actually have navigated, or this proves nothing");
+  assert.equal(opens(fake), afterFirst, "a cached page must not open a tab");
+  assert.equal(first.fromCache, undefined);
+  assert.equal(second.fromCache, true);
+  assert.equal(second.text, first.text);
+});
+
+test("maxChars does not split the cache, so a cheap first read cannot cap a later one", async (t) => {
+  const { fake, tool } = setup(t, { pageContents: new Map([["https://big.test/", "x".repeat(30_000)]]) });
+
+  const cheap = await tool.read({ url: "https://big.test/", maxChars: 100 });
+  const afterFirst = opens(fake);
+  const wider = await tool.read({ url: "https://big.test/", maxChars: 5_000 });
+
+  assert.equal(cheap.text.length, 100);
+  assert.equal(opens(fake), afterFirst, "the whole window is cached, not the slice that was asked for");
+  assert.equal(wider.text.length, 5_000, "a small first read capped the page for everyone after it");
+});
+
+test("offset is part of the key, because the gateway returns a window rather than a page", async (t) => {
+  const { fake, tool } = setup(t, { pageContents: new Map([["https://big.test/", "z".repeat(30_000)]]) });
+
+  await tool.read({ url: "https://big.test/", maxChars: 10_000 });
+  const afterFirst = opens(fake);
+  await tool.read({ url: "https://big.test/", offset: 10_000 });
+
+  assert.equal(opens(fake), afterFirst + 1, "a different offset is different content, not a cache hit");
+});
+
+test("fresh:true ignores the cache", async (t) => {
+  const { fake, tool } = setup(t);
+
+  await tool.read({ url: "https://example.test/article" });
+  const afterFirst = opens(fake);
+  const fresh = await tool.read({ url: "https://example.test/article", fresh: true });
+
+  assert.equal(opens(fake), afterFirst + 1);
+  assert.equal(fresh.fromCache, undefined, "a navigated page must not be labelled as cached");
+});
+
+test("a hash-routed url is not confused with the page it hashes", async (t) => {
+  const { fake, tool } = setup(t, {
+    pageContents: new Map([
+      ["https://app.test/#/list", `${"l".repeat(2_000)} list`],
+      ["https://app.test/#/detail", `${"d".repeat(2_000)} detail`],
+    ]),
+  });
+
+  const list = await tool.read({ url: "https://app.test/#/list" });
+  const detail = await tool.read({ url: "https://app.test/#/detail" });
+  const secondList = await tool.read({ url: "https://app.test/#/list" });
+
+  // Stripping the fragment would collapse these into one entry, and this is where it shows: the third
+  // call would serve `detail`, because whichever page was cached second owns any shared key.
+  assert.equal(opens(fake), 2, "two fragments are two pages");
+  assert.equal(secondList.fromCache, true);
+  assert.equal(secondList.text, list.text);
+});
+
+test("waitFor and schema always navigate, and never populate the cache", async (t) => {
+  const { fake, tool, cache } = setup(t);
+
+  await tool.read({ url: "https://example.test/article", waitFor: "#nothing" });
+  await tool.read({
+    url: "https://example.test/article",
+    schema: { type: "object", properties: { title: { type: "string", "x-ref": "e1" } } },
+  });
+
+  assert.equal(opens(fake), 2, "neither of these can be answered from a stored snapshot");
+  assert.equal(cache.size, 0, "a read that could not honour its own wait must not leave a partial page behind");
+
+  // The discriminator: once a real page is cached, these must still refuse to use it.
+  await tool.read({ url: "https://example.test/article" });
+  assert.equal(opens(fake), 3);
+  const waited = await tool.read({ url: "https://example.test/article", waitFor: "#nothing" });
+  assert.equal(waited.fromCache, undefined, "waitFor served from cache would report a wait that never happened");
+});
+
+test("a page that had not finished rendering is not cached", async (t) => {
+  const { tool, cache } = setup(t, {
+    pageContents: new Map([["https://skeleton.test/", "- text: nothing rendered yet [level=1]"]]),
+    config: { read: { waitForSettleMs: 0 } },
+  });
+
+  const out = await tool.read({ url: "https://skeleton.test/" });
+
+  // Storing this would make an unfinished render the answer for `cache.pageMs`.
+  assert.ok(out.text.length < 1_500, "the fixture must stay thinner than read.settleMinChars");
+  assert.equal(cache.size, 0);
+});
+
+test("a wall is not cached", async (t) => {
+  const { fake, tool, cache } = setup(t, {
+    pageContents: new Map([["https://news.test/wall", '- main:\n  - heading "Before you continue to Google" [level=1]']]),
+  });
+
+  await tool.read({ url: "https://news.test/wall" }).catch(() => undefined);
+  const afterFirst = opens(fake);
+  await tool.read({ url: "https://news.test/wall" }).catch(() => undefined);
+
+  assert.equal(opens(fake), afterFirst + 1, "a refusal has to stay retryable");
+  assert.equal(cache.size, 0);
+});
+
+test("a cached page is re-checked against a policy that has since narrowed", async (t) => {
+  const finalUrl = "https://internal.test/report";
+  const { fake, tool, config } = setup(t, { redirects: new Map([["https://public.test/r", finalUrl]]) });
+
+  const first = await tool.read({ url: "https://public.test/r" });
+  assert.equal(first.url, finalUrl);
+
+  // The request url stays allowed, so only the destination rule can catch this. Turning a host off
+  // after the fact is the whole point: the cached body was allowed under an older decision.
+  config.blockedHosts = ["internal.test"];
+
+  const error = await tool.read({ url: "https://public.test/r" }).catch((e) => e);
+
+  assert.equal(error.code, "host_blocked");
+  assert.equal(error.details.stage, "destination", "the refusal must say it was the destination");
+  assert.equal(opens(fake), 1, "the cache was hit, and refused, before any navigation");
+});
+
+test("two reads of one page in flight open one tab", async (t) => {
+  const { fake, tool } = setup(t);
+
+  const [first, second] = await Promise.all([
+    tool.read({ url: "https://example.com/article" }),
+    tool.read({ url: "https://example.com/article" }),
+  ]);
+
+  // pi issues tool calls in parallel, so this is the common case rather than a corner — and on this
+  // gateway it is not only a wasted tab: `/tabs/open` creates the tab server-side before its response
+  // is read, so a lost response leaves one behind until session shutdown.
+  assert.equal(opens(fake), 1);
+  assert.equal(first.text.includes("content"), true);
+  assert.equal(second.text.includes("content"), true);
+});
+
+test("a page whose destination the gateway will not name is never kept", async (t) => {
+  // A Firefox profile with `remote.trustedOrigins` lock-down can leave a tab attached but
+  // unreachable, and the gateway then reports a page with no url. Readable once, under the same opt-
+  // out that lets a private host be read at all, but not keepable.
+  const { fake, tool, cache } = setup(t, { snapshotReportsUrl: false, config: { network: { allowPrivateHosts: true } } });
+
+  const out = await tool.read({ url: "https://example.com/article" });
+  assert.equal(opens(fake), 1);
+  const again = await tool.read({ url: "https://example.com/article" });
+
+  // Kept, it could never be re-checked on the way out — the guard has nothing to parse — so the entry
+  // would fail every later read with `unsupported: "" is not a valid URL` rather than navigate.
+  assert.equal(opens(fake), 2, "a page we cannot place must not be reused");
+  assert.equal(cache.get("read:https://example.com/article:0"), undefined);
+  assert.equal(again.fromCache, undefined);
+  assert.equal(out.text.length > 0, true, "and it must still be readable the first time");
+});
+
+test("fresh:true refreshes the entry as well as the answer", async (t) => {
+  const { fake, tool, cache } = setup(t);
+  const url = "https://example.com/article";
+  const key = "read:https://example.com/article:0";
+  fake.state.snapshotScripts.set(url, [page("SUPERSEDED")]);
+
+  const first = await tool.read({ url });
+  assert.equal(first.text.includes("SUPERSEDED"), true);
+  // The case this test exists for: an older entry has to be in the cache, or the forced read is
+  // filling an empty slot rather than replacing anything.
+  assert.notEqual(cache.get(key), undefined, "the first read must leave something to replace");
+
+  // The page changes server-side, and only a forced read goes and looks.
+  fake.state.snapshotScripts.set(url, [page("WRITTEN AFTER THE FORCED READ")]);
+  const forced = await tool.read({ url, fresh: true });
+  assert.equal(forced.text.includes("WRITTEN AFTER"), true);
+  assert.equal(opens(fake), 2);
+
+  const after = await tool.read({ url });
+  // The forced read holds the more current copy. Serving the older one next time is content moving
+  // backwards, which is the one thing a cache should never do.
+  assert.equal(after.fromCache, true);
+  assert.equal(after.text.includes("WRITTEN AFTER"), true);
+});
+
+test("a forced read still cannot smuggle a thin page into the cache", async (t) => {
+  const { tool, fake, cache } = setup(t);
+  const url = "https://example.com/article";
+  fake.state.snapshotScripts.set(url, ['- heading "soon"']);
+
+  await tool.read({ url, fresh: true });
+  assert.equal(cache.get("read:https://example.com/article:0"), undefined);
 });

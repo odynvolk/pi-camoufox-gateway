@@ -247,6 +247,10 @@ profile from returning text.
 
 ### 2.4 Per-call cache bypass, and fix what `cache.pageMs` means
 
+> **Shipped, with a deviation.** `cache.pageMs` now caches read pages (code doc §A.2, removed), and
+> `fresh: true` is the per-call bypass. What was *not* taken is the shape below: a boolean answers
+> "now or not" but not "how stale is acceptable", which is the more useful question for research.
+
 30 minutes of SERP staleness is right for research and wrong for "what's the latest", and nothing
 today lets the model say otherwise.
 
@@ -258,7 +262,18 @@ internal misnomer. See the code doc, §A.2.
 Prior art: Jina expresses freshness as `x-cache-tolerance: <seconds>` — **staleness tolerance rather
 than a boolean**, which is the better shape, with `x-no-cache` for the hard override.
 
+#### 2.4.1 `cache.pageMs` named a knob nothing turned — fixed
+
+Its only consumer was goto-wrapper resolution (`search.ts:133` → `resolve.ts:74-92`); `camoufox_read`
+had no cache dependency at all. The name is model-facing in the README config table, so this was not
+just an internal misnomer: someone who set it to 60 s and someone who left it alone got identical read
+behaviour, and `maxChars` looked like the cause. Removed from the code doc as fixed; the knob now
+means what it says.
+
 **Scope:** small. **Reachable:** purely client-side.
+
+**Status:** the bypass shipped, as `fresh`. What did *not* is the shape above — a boolean answers
+"now or not", but not "how stale is acceptable", which is the more useful question for research.
 
 ### 2.5 Multi-result reads — one call, several urls
 
