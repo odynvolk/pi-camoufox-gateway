@@ -246,19 +246,30 @@ test("a refusal after the browser moved does not claim nothing was sent", () => 
 });
 
 test("a dead gateway costs one liveness probe per window, not one timeout per call", async (t) => {
-  const fake = withFakeGateway(t);
+  const fake = withFakeGateway(t, { unreachable: true });
   const client = createGatewayClient({
     baseUrl: CONFIG.gatewayUrl,
     timeoutMs: 100,
-    fetchImpl: () => new Promise((_resolve, reject) => reject(Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" }))),
+    // Pinned so this asserts the mechanism — a cached failure suppresses the redial — rather than the
+    // length of the shipped default window, which is free to change.
+    preflightRetryAfterMs: 60_000,
   });
   const extension = createExtension({ config: CONFIG, client, cache: createCache(), userId: "pi-dead" });
 
+  // The fake's own call log, not a private counter: it is the only thing that can see a dial this
+  // test did not intend, such as one made outside the client under test.
+  const dials = () => fake.state.calls.length;
+
   const first = await extension.search({ query: "camoufox" }).catch((e) => e);
+  const afterFirstProbe = dials();
   const second = await extension.search({ query: "camoufox again" }).catch((e) => e);
 
   assert.equal(first.code, "gateway_unreachable");
   assert.equal(second.code, "gateway_unreachable");
+  assert.ok(afterFirstProbe > 0, "the first call must actually have dialled, or this proves nothing");
+  // Asserting only the two codes above passed while every call paid its own connect, because a failed
+  // probe was never cached.
+  assert.equal(dials(), afterFirstProbe, "the second tool call must not dial the gateway again");
 });
 
 test("shutdown sweeps sessions in one call", async (t) => {

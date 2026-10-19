@@ -253,7 +253,7 @@ today lets the model say otherwise.
 Separately: **`cache.pageMs` does not cache pages.** Its only consumer is goto-wrapper resolution
 (`search.ts:133` → `resolve.ts:74-92`); `camoufox_read` has no cache dependency at all
 (`read.ts:16-20`). That name is model-facing in the README config table, so it is not just an
-internal misnomer. See the code doc, §Docs-and-claims.
+internal misnomer. See the code doc, §A.2.
 
 Prior art: Jina expresses freshness as `x-cache-tolerance: <seconds>` — **staleness tolerance rather
 than a boolean**, which is the better shape, with `x-no-cache` for the hard override.

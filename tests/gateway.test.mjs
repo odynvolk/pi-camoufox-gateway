@@ -9,6 +9,20 @@ import { GatewayError } from "../src/errors.ts";
 
 const BASE = "http://gateway.test:9377";
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Probe attempts recorded against `/`.
+ *
+ * The status probe passes `retry: "connect-only"`: a connect failure that never landed is retried
+ * (two attempts, both free) while a timeout is not (one attempt, already expensive). So these tests
+ * assert *growth*, never absolute totals — the retry budget can change without them going red for the
+ * wrong reason.
+ */
+function attempts(fake) {
+  return fake.state.calls.filter((c) => c.path === "/").length;
+}
+
 function clientWith(t, options = {}) {
   // These tests drive the client directly and close what they open in their own `t.after`, which the
   // per-test check (registered earlier) would mistake for a leak. The file-level hook is the backstop
@@ -122,8 +136,113 @@ test("preflight caches its answer for 60 seconds", async (t) => {
 
   for (let i = 0; i < 10; i += 1) await client.preflight();
 
-  const pings = fake.state.calls.filter((c) => c.path === "/");
-  assert.equal(pings.length, 1);
+  assert.equal(attempts(fake), 1, "a success costs one attempt and is not retried");
+});
+
+test("a failed preflight is cached, so a dead gateway costs one probe per failure window", async (t) => {
+  const { fake, client } = clientWith(t, { unreachable: true });
+
+  await client.preflight().catch(() => undefined);
+  const afterFirstProbe = attempts(fake);
+
+  for (let i = 0; i < 10; i += 1) await client.preflight().catch(() => undefined);
+
+  // The 60s cache only ever held successes, so every call re-probed and paid its own timeout.
+  assert.equal(attempts(fake), afterFirstProbe, "ten calls behind one cached failure cost nothing extra");
+});
+
+test("a failed preflight still throws for every caller that asked", async (t) => {
+  const { client } = clientWith(t, { unreachable: true });
+
+  for (let i = 0; i < 3; i += 1) {
+    const error = expectError(await client.preflight().catch((e) => e), "gateway_unreachable");
+    assert.equal(error.retryable, true);
+    assert.match(error.message, /gateway\.test:9377/u);
+  }
+});
+
+test("a cached preflight failure is retried once the failure window passes", async (t) => {
+  const { fake, client } = clientWith(t, { unreachable: true, client: { preflightRetryAfterMs: 20 } });
+
+  await expectError(await client.preflight().catch((e) => e), "gateway_unreachable");
+  const afterFailure = attempts(fake);
+  await expectError(await client.preflight().catch((e) => e), "gateway_unreachable");
+  assert.equal(attempts(fake), afterFailure, "the second call rides the cached failure");
+
+  fake.state.unreachable = false;
+  await sleep(30);
+
+  const status = await client.preflight();
+  assert.equal(status.ok, true, "a recovered gateway must not stay cached as down");
+  assert.equal(attempts(fake), afterFailure + 1, "and it re-probes exactly once, the window having passed");
+});
+
+test("a cancelled probe is not remembered as the gateway being down", async (t) => {
+  const { client } = clientWith(t);
+  const cancelled = new AbortController();
+  cancelled.abort();
+
+  await expectError(await client.preflight(cancelled.signal).catch((e) => e), "aborted");
+
+  // The next caller never asked to cancel, and this gateway is up. An abort is one caller's decision,
+  // not a fact about the gateway, and the shared probe would otherwise hand it to them.
+  const status = await client.preflight();
+  assert.equal(status.ok, true);
+});
+
+test("a timeout is not retried, because it already spent its deadline", async () => {
+  let connects = 0;
+  const client = createGatewayClient({
+    baseUrl: BASE,
+    timeoutMs: 20,
+    fetchImpl: () => {
+      connects += 1;
+      return new Promise(() => {});
+    },
+  });
+
+  expectError(await client.preflight().catch((e) => e), "timeout");
+
+  // An absolute total, and the only place one belongs: this asserts the retry budget itself, which is
+  // what `retry: "connect-only"` decides for the status probe.
+  assert.equal(connects, 1);
+});
+
+test("a probe that fails slowly still holds its window, so the next call does not re-dial", async () => {
+  let connects = 0;
+  const client = createGatewayClient({
+    baseUrl: BASE,
+    // A probe is then slower than the window it is given, which is the only shape that can tell a
+    // start-stamped window from an end-stamped one: measured from the start, this failure is written
+    // down already expired and the very next call re-dials.
+    timeoutMs: 40,
+    fetchImpl: () => {
+      connects += 1;
+      return new Promise(() => {}); // never settles, so every attempt burns its whole deadline
+    },
+    preflightRetryAfterMs: 20,
+  });
+
+  expectError(await client.preflight().catch((e) => e), "timeout");
+  const afterSlowProbe = connects;
+
+  await client.preflight().catch(() => undefined);
+
+  assert.equal(connects, afterSlowProbe, "a failure that took longer than its window must still hold it");
+});
+
+test("concurrent preflights against a dead gateway share one probe", async (t) => {
+  const { fake, client } = clientWith(t, { unreachable: true });
+
+  const settled = await Promise.allSettled(Array.from({ length: 5 }, () => client.preflight()));
+
+  // One failed probe is the two attempts described above; five callers must not fan out to ten.
+  assert.ok(attempts(fake) <= 2, `expected one shared probe, got ${attempts(fake)} attempts`);
+  assert.equal(
+    settled.filter((r) => r.status === "rejected").length,
+    5,
+    "deduplicating the probe must not swallow anyone's failure",
+  );
 });
 
 test("sends the bearer token when apiKey is configured", async (t) => {

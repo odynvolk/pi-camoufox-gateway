@@ -127,7 +127,7 @@ The tool output starts with the code so the model can react instead of guessing.
 | Code | Meaning |
 |---|---|
 | `config_error` | the config file is unreadable or invalid, so nothing was attempted |
-| `gateway_unreachable` | cannot reach `gatewayUrl` (one cheap liveness probe per 60s window, not one timeout per call) |
+| `gateway_unreachable` | cannot reach `gatewayUrl`. Liveness is probed at most once per 60s while the gateway is up, once per 5s while it is down; a cached failure is re-thrown without dialling, so a burst of calls pays one probe rather than one timeout each |
 | `gateway_unauthorized` | gateway rejected `apiKey` |
 | `gateway_error` | the gateway answered with a failure, or something threw without a code |
 | `consent_wall` | Google served consent/CAPTCHA, not results |
