@@ -14,9 +14,9 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 /**
  * Probe attempts recorded against `/`.
  *
- * One *probe* costs two attempts while it fails — `gateway_unreachable` is retryable and the
- * documented budget is exactly one extra attempt — and one attempt once it succeeds. So these tests
- * assert *growth*, never absolute totals: the retry budget can change without them going red for the
+ * The status probe passes `retry: "connect-only"`: a connect failure that never landed is retried
+ * (two attempts, both free) while a timeout is not (one attempt, already expensive). So these tests
+ * assert *growth*, never absolute totals — the retry budget can change without them going red for the
  * wrong reason.
  */
 function attempts(fake) {
@@ -188,6 +188,30 @@ test("a cancelled probe is not remembered as the gateway being down", async (t) 
   // not a fact about the gateway, and the shared probe would otherwise hand it to them.
   const status = await client.preflight();
   assert.equal(status.ok, true);
+});
+
+test("a probe that fails slowly still holds its window, so the next call does not re-dial", async () => {
+  let connects = 0;
+  const client = createGatewayClient({
+    baseUrl: BASE,
+    // A probe is then slower than the window it is given, which is the only shape that can tell a
+    // start-stamped window from an end-stamped one: measured from the start, this failure is written
+    // down already expired and the very next call re-dials.
+    timeoutMs: 40,
+    fetchImpl: () => {
+      connects += 1;
+      return new Promise(() => {}); // never settles, so every attempt burns its whole deadline
+    },
+    preflightRetryAfterMs: 20,
+  });
+
+  expectError(await client.preflight().catch((e) => e), "timeout");
+  const afterSlowProbe = connects;
+
+  await client.preflight().catch(() => undefined);
+
+  assert.equal(afterSlowProbe, 1, "a timeout is not retried — it already spent the deadline");
+  assert.equal(connects, afterSlowProbe, "a failure that took longer than its window must still hold it");
 });
 
 test("concurrent preflights against a dead gateway share one probe", async (t) => {

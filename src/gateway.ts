@@ -24,10 +24,10 @@ export interface GatewayClientOptions {
   /** Injectable fetch, mainly for tests. */
   fetchImpl?: typeof globalThis.fetch;
   /**
-   * How long a *failed* liveness probe is honoured before the gateway is dialled again. Defaults to
-   * `PREFLIGHT_RETRY_AFTER_MS`. Kept well below the 60s success window on purpose: a gateway that is
-   * up barely changes, but holding a failure for that long would turn one transient blip into a
-   * minute of refusals.
+   * How long a *failed* liveness probe is honoured, measured from when the failure was observed,
+   * before the gateway is dialled again. Defaults to `PREFLIGHT_RETRY_AFTER_MS`. Kept well below the
+   * 60s success window on purpose: a gateway that is up barely changes, but holding a failure for
+   * that long would turn one transient blip into a minute of refusals.
    */
   preflightRetryAfterMs?: number;
 }
@@ -234,20 +234,35 @@ export class GatewayClient {
     }
 
     // One probe serves the window *and* its concurrent callers: raced to a dead gateway, N tool calls
-    // would otherwise each dial and each wait out their own timeout. Sharing the probe means sharing
-    // the first caller's signal — the alternative is N connections that all have to fail anyway.
+    // would otherwise each dial and each wait out their own timeout. Two consequences of sharing, both
+    // accepted: the probe is bound to the first caller's signal, so it cannot be cancelled by a later
+    // caller, and a later caller that cancels itself is not released early either — it waits out the
+    // shared probe, bounded by the retry budget. The alternative to sharing is N connections that all
+    // have to fail anyway.
     this.preflightInflight ??= this.probe(signal).finally(() => {
       this.preflightInflight = undefined;
     });
     return this.preflightInflight;
   }
 
-  /** The actual `GET /`, and the only place either preflight window is written. */
+  /**
+   * The actual `GET /`, and the only place either window is written.
+   *
+   * Both windows are stamped from the moment an outcome is *learned*, never from when the probe set
+   * off. A failure that took longer than its own window would otherwise be written down already
+   * expired and skipped by the very next call — and a connect timeout is precisely the failure this
+   * path exists to bound. `checkedAt` stays start-stamped: it records when we asked, not when we
+   * stopped asking.
+   */
   private async probe(signal?: AbortSignal): Promise<GatewayStatus> {
     const startedAt = Date.now();
     try {
       const status = await this.requestJson<Record<string, unknown>>("GET", endpointPath("status"), {
         signal,
+        // Retry a connect failure that never landed — it costs nothing to try again — but never a
+        // timeout, which has already spent the entire deadline. Retrying that doubles the latency
+        // every caller pays, including the ones sharing this probe. Same reasoning `waitFor` records.
+        retry: "connect-only",
       });
       const result: GatewayStatus = {
         ok: status.ok === true,
@@ -257,7 +272,7 @@ export class GatewayClient {
         checkedAt: startedAt,
       };
       this.preflightCache = result;
-      this.preflightAt = startedAt;
+      this.preflightAt = Date.now();
       this.preflightFailure = undefined;
       return result;
     } catch (error) {
@@ -268,7 +283,7 @@ export class GatewayClient {
       // to the real request, which stays the authority on them.
       if (error instanceof GatewayError && error.code !== "aborted") {
         this.preflightFailure = error;
-        this.preflightFailureAt = startedAt;
+        this.preflightFailureAt = Date.now();
       }
       throw error;
     }
