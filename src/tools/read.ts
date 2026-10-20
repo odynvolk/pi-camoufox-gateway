@@ -300,9 +300,9 @@ export function readTool(deps: ReadToolDeps) {
 
       const { snapshot, settledInMs, polled, stalledAtDeadline } = await snapshotSettled(tab.tabId, params.offset, params.signal);
 
-      // One classifier, and it is size-bounded: past `INTERSTITIAL_MAX_CHARS` a page is content whatever
-      // it mentions. `blockedHosts` is the branch that is not — an internal error page is refused at any
-      // width — which is why a *public* error page past that stays invisible to this tool: B.5.
+      // One classifier, and its phrase evidence is size-bounded: past `INTERSTITIAL_MAX_CHARS` nothing a
+      // page says can make it a wall. `blockedHosts` is the branch that isn't — an internal error page is
+      // refused at any width — which is why a *public* error page past that stays invisible here: B.5.
       const wall = detectWall(snapshot);
       if (wall) {
         throw new GatewayError(wall, `the page did not load as content (${wall}): ${snapshot.url}`, {
