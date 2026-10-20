@@ -17,6 +17,12 @@ import { GatewayError } from "../src/errors.ts";
 
 const CONFIG = testConfig({ gatewayUrl: "http://gateway.test:9377", timeoutMs: 2000 });
 
+/**
+ * What the error boundary is allowed to know about config: a url from a config that loaded. One shared
+ * value so the decision lives in one place — the only other shape, an empty context, is deliberate.
+ */
+const ERROR_CONTEXT = Object.freeze({ gatewayUrl: CONFIG.gatewayUrl });
+
 function extensionFor(t, userId = "pi-abcdef", options = {}) {
   // `config` belongs to the extension, not to the fake gateway; passing it through unsplit used to
   // land it in the fake's state, where it was silently ignored and the test ran on the defaults.
@@ -242,9 +248,9 @@ test("a cached read says so in the text the model gets", async (t) => {
 
 test("an error we could not classify is blamed on us, not on the gateway", () => {
   // The catch-all used to be `gateway_error`, which is how a fault in our own session-id derivation
-  // ended up reading as "the gateway is down". The client codes every outcome it can get from the
-  // service, so anything still bare at this boundary is ours.
-  const formatted = formatError(new Error("cannot derive a gateway session id"), { gatewayUrl: CONFIG.gatewayUrl });
+  // ended up reading as "the gateway is down". The client leaves no bare throw behind, so anything
+  // still unclassified at this boundary is ours.
+  const formatted = formatError(new Error("cannot derive a gateway session id"), ERROR_CONTEXT);
 
   assert.equal(formatted.details.code, "internal_error");
   assert.match(formatted.text, /^internal_error:/u);
@@ -255,13 +261,30 @@ test("an error we could not classify is blamed on us, not on the gateway", () =>
 test("an unusable pi session id fails as our own invariant, at the source", () => {
   // Anything that sanitises away to nothing is the same fault: pi handed us nothing to namespace by.
   // None of it is a gateway outage, and none of it is left as a bare `Error` for the boundary to guess at.
-  for (const unusable of ["", "   ", "---"]) {
+  // Three of these four are anything but empty, which is why the message names the condition.
+  for (const unusable of ["", "   ", "---", "???"]) {
     assert.throws(
       () => gatewaySessionId(unusable),
-      (error) => error instanceof GatewayError && error.code === "internal_error",
-      `"${unusable}" must fail as an internal invariant`,
+      (error) => {
+        assert.ok(error instanceof GatewayError && error.code === "internal_error", `"${unusable}" must fail as an internal invariant`);
+        assert.match(error.message, /reduces to nothing once sanitised/u);
+        assert.equal(/\bempty\b/u.test(error.message), false, "'empty' sends the reader hunting for a missing id");
+        assert.ok(error.message.includes(JSON.stringify(unusable)), `"${unusable}" must be quoted in the message`);
+        return true;
+      },
     );
   }
+});
+
+test("an over-long pi session id truncates, deterministically and at a cost", () => {
+  const long = "a".repeat(200);
+  assert.equal(gatewaySessionId(long).length, 128, "the gateway namespace is capped");
+  assert.equal(gatewaySessionId(long), gatewaySessionId(long));
+
+  // Pinned as a fact, not endorsed: the tail past 128 is discarded, so two ids agreeing on the first
+  // 125 characters land in one gateway namespace and share tabs — the thing the prefix exists to
+  // prevent. Recorded as D.5; this assertion is here so a fix is a decision, not a surprise.
+  assert.equal(gatewaySessionId(`${long}x`), gatewaySessionId(long), "the tail past 128 discriminates nothing");
 });
 
 test("punctuation that survives sanitising is still a usable namespace", () => {
@@ -287,7 +310,7 @@ test("a code the model acts on cannot be overwritten by error details", () => {
   // not be able to relabel the fault after the fact — that is the same misattribution B.1 exists to stop.
   const formatted = formatError(
     new GatewayError("timeout", "gateway did not respond", { details: { code: "gateway_error", url: "https://x.test/" } }),
-    { gatewayUrl: CONFIG.gatewayUrl },
+    ERROR_CONTEXT,
   );
 
   assert.equal(formatted.details.code, "timeout");
@@ -299,26 +322,26 @@ test("a refusal after the browser moved does not claim nothing was sent", () => 
   // reports; only the first of those can say the gateway was never contacted.
   const blocked = formatError(
     new GatewayError("host_blocked", "refused", { details: { host: "a.test", stage: "request" } }),
-    { gatewayUrl: CONFIG.gatewayUrl },
+    ERROR_CONTEXT,
   );
   assert.match(blocked.text, /blockedHosts list, so its content was not returned\.$/u);
 
   const afterRedirect = formatError(
     new GatewayError("host_blocked", "refused", { details: { host: "a.test", stage: "destination" } }),
-    { gatewayUrl: CONFIG.gatewayUrl },
+    ERROR_CONTEXT,
   );
   assert.match(afterRedirect.text, /The browser was redirected there\./u);
   assert.equal(/nothing was sent|nothing was fetched/iu.test(afterRedirect.text), false);
 
   const unsupportedAfterRedirect = formatError(
     new GatewayError("unsupported", "not a url", { details: { stage: "destination" } }),
-    { gatewayUrl: CONFIG.gatewayUrl },
+    ERROR_CONTEXT,
   );
   assert.equal(/Nothing was fetched/u.test(unsupportedAfterRedirect.text), false, "a tab was opened and a page was fetched");
 
   const unsupportedUpFront = formatError(
     new GatewayError("unsupported", "empty query"),
-    { gatewayUrl: CONFIG.gatewayUrl },
+    ERROR_CONTEXT,
   );
   assert.match(unsupportedUpFront.text, /Nothing was fetched from the gateway\./u);
 });
