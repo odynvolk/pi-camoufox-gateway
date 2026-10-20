@@ -39,7 +39,9 @@ Loads a page in the browser and returns its text.
   `/wait` route, or a gateway that ignores its own deadline until the client cuts it off at
   `timeoutMs` — costs the wait, not the page: the read continues and says which it was.
 - `schema` accepts a JSON Schema whose properties carry `x-ref` hints; the tool snapshots the page
-  first (refs only exist after a snapshot), then calls the gateway's extractor. Every top-level
+  first (refs only exist after a snapshot), then calls the gateway's extractor. `type` has to be
+  `"object"`, as the recorded contract requires — an omitted or different `type` is refused rather than
+  sent to a gateway that would reject it. Every top-level
   property has to carry one, and the check is all-or-nothing: a property without an `x-ref` is refused
   up front as `unsupported`, naming the key, and a schema that annotates only some of its properties is
   refused rather than answered with the subset it happens to address — as is an empty `properties`.
@@ -159,7 +161,7 @@ The tool output starts with the code so the model can react instead of guessing.
 | `destination_unreported` | nothing would say where the tab ended up, so the page was not returned |
 | `blocked_url` | not an http(s) url |
 | `tab_not_found` | the tab was closed under us (session teardown or a stray sweep) |
-| `unsupported` | bad input or an engine we have no adapter for — nothing was fetched. Includes a `schema` property with no `x-ref` |
+| `unsupported` | bad input or an engine we have no adapter for — nothing was fetched. Includes a `schema` with the wrong `type`, or a property with no `x-ref` |
 | `timeout` / `aborted` | deadline hit / tool call cancelled |
 
 ## What this does not do

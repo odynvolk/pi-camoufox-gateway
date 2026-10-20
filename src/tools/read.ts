@@ -8,6 +8,7 @@
  */
 
 import type { CamoufoxConfig } from "../config.ts";
+import { isRecord } from "../config.ts";
 import type { Cache } from "../cache.ts";
 import { GatewayError } from "../errors.ts";
 import type { GatewayClient, SnapshotResult } from "../gateway.ts";
@@ -73,18 +74,18 @@ function samePage(left: SnapshotResult, right: SnapshotResult): boolean {
   return left.text === right.text && left.totalChars === right.totalChars && left.refsCount === right.refsCount;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 /**
  * Refuse a schema that cannot be answered as asked, before spending a navigation on it.
  *
- * The recorded contract for `/extract` (`tests/fixtures/openapi.json`) names one way to reach page
- * content: a top-level property carrying `x-ref`. A schema without a single one is a typo, and left
- * unchecked it cost a whole page load and came back as `extraction_empty` — a message about refs on the
- * page, one step from "the gateway found nothing", sending the reader to the service rather than to
- * their schema.
+ * The recorded contract for `/extract` (`tests/fixtures/openapi.json`) requires `type` and
+ * `properties`, and constrains `type` to the single value `"object"`. Both halves are checked here
+ * because both are typos a caller makes, and the gateway's answer to either arrives only after a tab is
+ * opened and a page settled — and it arrives as `gateway_error`.
+ *
+ * The contract then names one way to reach page content: a top-level property carrying `x-ref`. A schema
+ * without a single one is a typo, and left unchecked it cost a whole page load and came back as
+ * `extraction_empty` — a message about refs on the page, one step from "the gateway found nothing",
+ * sending the reader to the service rather than to their schema.
  *
  * Stricter than that contract, deliberately, and the strictness is the rule: every top-level property
  * has to carry an `x-ref`, so a partly-annotated schema is refused rather than answered with the subset
@@ -92,6 +93,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * as well.
  */
 function assertSchemaUsable(schema: Record<string, unknown>): void {
+  if (schema.type !== "object") {
+    throw new GatewayError(
+      "unsupported",
+      `that schema is not extractable — "type" must be "object", got ${JSON.stringify(schema.type ?? null)?.slice(0, 60)}`,
+    );
+  }
+
   const properties = schema.properties;
   if (!isRecord(properties) || Object.keys(properties).length === 0) {
     throw new GatewayError(

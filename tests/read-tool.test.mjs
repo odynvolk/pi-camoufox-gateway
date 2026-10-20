@@ -126,6 +126,10 @@ test("a schema that cannot extract anything is refused before the page is fetche
     { type: "object", properties: { title: { type: "string", "x-ref": "e1" }, subtitle: { type: "string" } } },
     { type: "object", properties: {} },
     { type: "object" },
+    // Not redundant with the empty map above: a non-empty array has keys (`"0"`, `"1"`), so a
+    // predicate that let arrays through would accept this and post a schema whose properties are
+    // numbered. This is what pins `isRecord`'s `!Array.isArray`.
+    { type: "object", properties: [{ type: "string", "x-ref": "e1" }] },
   ];
 
   for (const schema of typos) {
@@ -138,6 +142,31 @@ test("a schema that cannot extract anything is refused before the page is fetche
   // Counted, not inferred from "no calls at all": the liveness probe is allowed to have dialled.
   assert.equal(fake.state.calls.filter((c) => c.path === "/tabs/open").length, 0, "a refused schema must not open a tab");
   assert.equal(fake.state.calls.filter((c) => c.path.endsWith("/extract")).length, 0, "nor be handed to the extractor");
+});
+
+test("a schema whose type is not \"object\" is refused on the same pre-navigation path", async (t) => {
+  const { fake, tool } = setup(t);
+
+  // The other half of the recorded contract: `/extract` requires `type` and constrains it to
+  // `"object"`, so these are requests the gateway would 400 — and a 400 it answers with is a
+  // `gateway_error`, after a tab, a settle loop and a close. The natural way to make the first typo is
+  // to assume `type: "object"` is implied by there being `properties`.
+  const wrongType = [
+    [{ properties: { title: { type: "string", "x-ref": "e1" } } }, "null"],
+    [{ type: "string", properties: { title: { type: "string", "x-ref": "e1" } } }, '"string"'],
+    [{ type: ["object"], properties: { title: { type: "string", "x-ref": "e1" } } }, '["object"]'],
+  ];
+
+  for (const [schema, got] of wrongType) {
+    const error = await tool.read({ url: "https://example.test/article", schema }).catch((e) => e);
+
+    assert.equal(error.code, "unsupported", `${JSON.stringify(schema)} is bad input`);
+    assert.match(error.message, /"type" must be "object"/u, "the message names the key that is wrong");
+    assert.ok(error.message.includes(got), `and quotes what it found, not a fixed word: ${error.message}`);
+    assert.equal(/x-ref/u.test(error.message), false, "and does not blame refs, which are fine in these schemas");
+  }
+
+  assert.equal(fake.state.calls.filter((c) => c.path === "/tabs/open").length, 0, "refused without opening a tab");
 });
 
 test("refuses non-http schemes before touching the gateway", async (t) => {
