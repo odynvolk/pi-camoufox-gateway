@@ -72,6 +72,29 @@ test("maxChars overrides the default budget", async (t) => {
   assert.equal(out.nextOffset, 100);
 });
 
+test("a maxChars past read.maxCharsCeiling is capped, and the outcome names what did it", async (t) => {
+  const ceiling = testConfig().read.maxCharsCeiling;
+  // `snapshotLimit` is the fake's own window (20 000 by default), not a gateway contract: left at the
+  // default it would be the thing that bound this reply, and the assertion would pass for a reason.
+  const { tool } = setup(t, {
+    pageContents: new Map([["https://huge.test/", "h".repeat(ceiling * 5)]]),
+    snapshotLimit: ceiling * 5,
+  });
+
+  const out = await tool.read({ url: "https://huge.test/", maxChars: ceiling * 10 });
+
+  assert.equal(out.text.length, ceiling, "the ceiling sized the reply, not the request");
+  assert.equal(out.cappedAt, ceiling, "and the outcome says so, because `truncated` alone cannot tell the two apart");
+  assert.equal(out.truncated, true, "there is more of the page, which is what `cappedAt` explains");
+  assert.equal(out.nextOffset, ceiling, "the way on is the offset, not a bigger number");
+
+  // A request inside the ceiling is not a capped one: the field has to mean "policy intervened", not
+  // "this call mentioned maxChars".
+  const under = await tool.read({ url: "https://huge.test/", maxChars: 100 });
+  assert.equal(under.cappedAt, undefined, `got ${under.cappedAt}`);
+  assert.equal(under.text.length, 100, "and the requested budget still wins below the ceiling");
+});
+
 test("offset continues where the last read stopped", async (t) => {
   const { fake, tool } = setup(t, {
     pageContents: new Map([["https://big.test/", "z".repeat(30_000)]]),

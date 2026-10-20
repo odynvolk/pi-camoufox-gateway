@@ -34,6 +34,8 @@ export interface CamoufoxConfig {
   cache: { serpMs: number; pageMs: number };
   read: {
     defaultMaxChars: number;
+    /** Highest `maxChars` a single call may ask for. A ceiling, not a default: see `MAX_CHARS_CEILING`. */
+    maxCharsCeiling: number;
     /** Extra time a read may spend re-snapshotting a thin page, `0` disables the hydration poll. */
     waitForSettleMs: number;
     /** Gap between settle polls. */
@@ -53,6 +55,17 @@ export interface CamoufoxConfig {
   timeoutMs: number;
 }
 
+/**
+ * How many results one engine page holds. Structural, not a preference: the gateway's `@google_search`
+ * macro takes a query and returns a single page, and there is no pagination to ask for.
+ *
+ * Declared here rather than in `tools/search.ts`, which is where it is enforced, because the validator
+ * has to refuse a `search.maxResults` above it and `config.ts` imports nothing but node builtins —
+ * importing the tool would be a cycle. The number lives in one file so a config bound and a runtime
+ * clamp cannot drift; `tools/search.ts` and the tool schema both read this.
+ */
+export const MAX_SEARCH_RESULTS = 10;
+
 export const DEFAULT_CONFIG: CamoufoxConfig = {
   gatewayUrl: "http://localhost:9377",
   engines: [
@@ -62,12 +75,13 @@ export const DEFAULT_CONFIG: CamoufoxConfig = {
   cache: { serpMs: 30 * 60 * 1000, pageMs: 10 * 60 * 1000 },
   read: {
     defaultMaxChars: 12_000,
+    maxCharsCeiling: 40_000,
     waitForSettleMs: 2_500,
     settlePollMs: 300,
     settleMinChars: 1_500,
     waitForTimeoutMs: 5_000,
   },
-  search: { maxResults: 10 },
+  search: { maxResults: MAX_SEARCH_RESULTS },
   blockedHosts: [],
   network: { allowPrivateHosts: false },
   timeoutMs: 30_000,
@@ -280,6 +294,9 @@ function mergeOntoDefaults(file: Record<string, unknown>, path: string): Camoufo
     if (read.defaultMaxChars !== undefined) {
       merged.read.defaultMaxChars = assertFiniteNumber(read.defaultMaxChars, "read.defaultMaxChars", path);
     }
+    if (read.maxCharsCeiling !== undefined) {
+      merged.read.maxCharsCeiling = assertFiniteNumber(read.maxCharsCeiling, "read.maxCharsCeiling", path);
+    }
     if (read.waitForSettleMs !== undefined) {
       merged.read.waitForSettleMs = assertNonNegativeNumber(read.waitForSettleMs, "read.waitForSettleMs", path);
     }
@@ -306,7 +323,17 @@ function mergeOntoDefaults(file: Record<string, unknown>, path: string): Camoufo
     if (file.search === null || typeof file.search !== "object") fail(`${path}: "search" must be an object`);
     const search = file.search as Record<string, unknown>;
     if (search.maxResults !== undefined) {
-      merged.search.maxResults = assertFiniteNumber(search.maxResults, "search.maxResults", path);
+      const maxResults = assertFiniteNumber(search.maxResults, "search.maxResults", path);
+      // Range-checked, not just finite. The ceiling is structural — one page, no pagination — so a
+      // value above it is not a setting the tool could ever honour, and leaving it in place meant the
+      // config said 25 while every call came back clamped to 10.
+      if (!Number.isInteger(maxResults) || maxResults > MAX_SEARCH_RESULTS) {
+        fail(
+          `${path}: "search.maxResults" (${maxResults}) must be a whole number between 1 and ${MAX_SEARCH_RESULTS}: ` +
+            `one engine page is ${MAX_SEARCH_RESULTS} results wide and the gateway has no pagination`,
+        );
+      }
+      merged.search.maxResults = maxResults;
     }
   }
 
@@ -326,13 +353,22 @@ function mergeOntoDefaults(file: Record<string, unknown>, path: string): Camoufo
  *   means exactly one poll that blocks for the whole interval — and `read.waitForSettleMs` stops
  *   meaning "extra time a read may spend";
  * - the gateway client aborts every request at `timeoutMs`, so a selector deadline at or above it is
- *   never reached: the client kills `POST /tabs/{id}/wait` first.
+ *   never reached: the client kills `POST /tabs/{id}/wait` first;
+ * - `read.maxCharsCeiling` bounds what one call may ask for, so a `read.defaultMaxChars` above it is a
+ *   default that would be capped on every call that omits `maxChars` — including the calls that never
+ *   mention a ceiling.
  */
 function assertCoherent(config: CamoufoxConfig, path: string): void {
   if (config.read.waitForSettleMs > 0 && config.read.settlePollMs >= config.read.waitForSettleMs) {
     fail(
       `${path}: "read.settlePollMs" (${config.read.settlePollMs}) must be smaller than "read.waitForSettleMs` +
         `" (${config.read.waitForSettleMs}) or the page is never polled more than once`,
+    );
+  }
+  if (config.read.defaultMaxChars > config.read.maxCharsCeiling) {
+    fail(
+      `${path}: "read.defaultMaxChars" (${config.read.defaultMaxChars}) cannot exceed "read.maxCharsCeiling` +
+        `" (${config.read.maxCharsCeiling}): the default would be capped on every read that omits maxChars`,
     );
   }
   if (config.read.waitForTimeoutMs >= config.timeoutMs) {

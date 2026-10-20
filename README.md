@@ -16,7 +16,8 @@ Searches through the browser and returns ranked titles, urls and snippets.
   interstitial. If Google walls us, DuckDuckGo answers and the output says which engines were tried.
 - Bing is not offered: through this gateway it returns a `Network Protocol Error` before results
   render, so it would only ever waste a page load.
-- `n` is clamped to 10. The macro takes only a query, so a longer list is not reachable.
+- `n` is clamped to 10. The macro takes only a query, so a longer list is not reachable — which is why
+  `search.maxResults` is refused above it rather than silently rounded down on every call.
 - `resolve: true` turns Google's `google.com/goto?url=…` wrappers into final urls. It costs one
   extra page load per result and runs at most three tabs at a time, so it is off by default.
 
@@ -28,6 +29,11 @@ Loads a page in the browser and returns its text.
 - Defaults to 12,000 characters (~3K tokens) and tells you the `offset` to continue from. A full
   page from the gateway runs 20K+ tokens, which is the difference between reading a page and losing
   your context window.
+- **A larger `maxChars` is capped at `read.maxCharsCeiling` (40,000), not honoured.** That default is
+  the guard against one call swallowing the context window, and the caller it guards against is the one
+  this tool is designed for — a model that guesses "more is better". The output says which of the two
+  cut the page short, because `truncated` on its own cannot tell "the page is long" from "policy
+  stopped me at the ceiling", and only the second one means a bigger request is pointless.
 - **Waits for the page to render.** `openTab` returning does not mean the content is there: a
   client-rendered site answers with its skeleton. A snapshot thinner than `read.settleMinChars` is
   re-taken until two consecutive snapshots come back identical — same text, same `totalChars` — up to
@@ -120,12 +126,13 @@ Environment: `CAMOUFOX_GATEWAY_URL`, `CAMOUFOX_API_KEY`, `CAMOUFOX_CONFIG_PATH`,
 | `apiKey` | unset | sent as `Bearer` only if set |
 | `engines` | google, duckduckgo | ordered fallback chain |
 | `cache.serpMs` / `cache.pageMs` | 30 min / 10 min | search results / read pages. Failures are never cached, and neither is a page that had not finished rendering |
-| `read.defaultMaxChars` | 12000 | per-read text budget |
+| `read.defaultMaxChars` | 12000 | per-read text budget; refused above `read.maxCharsCeiling` |
+| `read.maxCharsCeiling` | 40000 | the most one call may ask for. A bigger `maxChars` comes back capped at it, with the `offset` to continue from |
 | `read.waitForSettleMs` | 2500 | extra time a read may spend re-snapshotting a thin page; `0` disables |
 | `read.settlePollMs` | 300 | gap between those polls |
 | `read.settleMinChars` | 1500 | below this the page is treated as not yet rendered |
 | `read.waitForTimeoutMs` | 5000 | deadline handed to the gateway for an explicit `waitFor`, capped at `timeoutMs` |
-| `search.maxResults` | 10 | hard ceiling, engine page size |
+| `search.maxResults` | 10 | whole number from 1 to 10; refused above, because one engine page is 10 wide and there is no pagination to ask for |
 | `blockedHosts` | `[]` | applied to every destination we open or read back, incl. `resolve: true` and redirects; the gateway enforces none |
 | `network.allowPrivateHosts` | `false` | let tabs open loopback/RFC1918/link-local addresses |
 | `timeoutMs` | 30000 | per gateway request |
@@ -137,8 +144,10 @@ the wrong gateway.
 
 Values that are individually valid but cannot both be true are refused too, naming both keys:
 `read.settlePollMs` has to be below `read.waitForSettleMs` (at or above it the page is polled exactly
-once, and the budget stops meaning anything), and `read.waitForTimeoutMs` below `timeoutMs` (the
-client aborts any request at `timeoutMs`, so a longer selector deadline could never be reached).
+once, and the budget stops meaning anything), `read.waitForTimeoutMs` below `timeoutMs` (the client
+aborts any request at `timeoutMs`, so a longer selector deadline could never be reached), and
+`read.defaultMaxChars` at or below `read.maxCharsCeiling` (above it, the default is capped on every
+read that omits `maxChars` — which is most of them, and none of them mentions a ceiling).
 
 ## Error codes
 

@@ -13,8 +13,13 @@ import { assertTabUrlAllowed, DEFAULT_URL_POLICY, policyCanRefuse, type UrlPolic
 export interface GatewayClientOptions {
   baseUrl: string;
   apiKey?: string;
-  /** Per-request deadline in milliseconds. */
-  timeoutMs?: number;
+  /**
+   * Per-request deadline in milliseconds. Required: the only honest default for a request deadline is
+   * the one the product documents, and that lives in `config.ts` (`DEFAULT_CONFIG.timeoutMs`). A
+   * fallback here was a second, independent number — so a hand-built client ran on a deadline no doc
+   * mentioned, and the two could drift without either being wrong.
+   */
+  timeoutMs: number;
   /**
    * Url policy applied to *every* tab open, not just the read tool: `resolve: true` opens urls that
    * came out of a search engine's page, and engine adapters open their own. Defaults to the private
@@ -210,7 +215,7 @@ export class GatewayClient {
   constructor(options: GatewayClientOptions) {
     this.baseUrl = options.baseUrl.replace(/\/+$/, "");
     this.apiKey = options.apiKey;
-    this.timeoutMs = options.timeoutMs ?? 30_000;
+    this.timeoutMs = options.timeoutMs;
     this.urlPolicy = options.urlPolicy ?? DEFAULT_URL_POLICY;
     this.fetchImpl = (options.fetchImpl ?? globalThis.fetch).bind(globalThis);
     this.preflightRetryAfterMs = options.preflightRetryAfterMs ?? PREFLIGHT_RETRY_AFTER_MS;

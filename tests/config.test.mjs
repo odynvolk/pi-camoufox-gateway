@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { DEFAULT_CONFIG, loadConfig } from "../src/config.ts";
+import { DEFAULT_CONFIG, loadConfig, MAX_SEARCH_RESULTS } from "../src/config.ts";
 import { resolveConfig } from "../src/extension.ts";
 import { testConfig } from "./helpers/config.mjs";
 
@@ -223,6 +223,45 @@ test("settings that cannot both be true are refused, naming both keys", (t) => {
     (err) => {
       assert.match(err.message, /read\.waitForTimeoutMs/u);
       assert.match(err.message, /timeoutMs/u);
+      return true;
+    },
+  );
+});
+
+test("search.maxResults above what one engine page holds is refused at load", (t) => {
+  // The runtime clamped it silently, so a config saying 25 meant every call came back with 10 and a
+  // line blaming the engine page. The limit is structural — the macro takes a query and has no
+  // pagination — so a larger number is not a setting, and refusing it beats honouring it differently.
+  const over = withConfigFile(JSON.stringify({ search: { maxResults: 25 } }), t);
+  assert.throws(
+    () => loadConfig({ configPath: over, env: {} }),
+    (err) => {
+      assert.match(err.message, /search\.maxResults/u);
+      assert.match(err.message, new RegExp(String(MAX_SEARCH_RESULTS), "u"), "the message has to name the ceiling it refused");
+      assert.match(err.message, /pagination|page/u, "and say why the number cannot be honoured");
+      return true;
+    },
+  );
+
+  // The bound is the tool's own constant, not a copy that can drift from it.
+  assert.equal(loadConfig({ configPath: withConfigFile(JSON.stringify({ search: { maxResults: MAX_SEARCH_RESULTS } }), t), env: {} }).search.maxResults, MAX_SEARCH_RESULTS);
+});
+
+test("a fractional search.maxResults is refused rather than silently returned as fewer", (t) => {
+  // `Math.min(2.5, 10)` survives to an `Array.prototype.slice`, which floors it: the config said 2.5,
+  // the call got 2, and the disclosure line read "clamped to 2.5".
+  const fractional = withConfigFile(JSON.stringify({ search: { maxResults: 2.5 } }), t);
+  assert.throws(() => loadConfig({ configPath: fractional, env: {} }), /whole number/u);
+});
+
+test("a default text budget above its own ceiling is refused, naming both keys", (t) => {
+  // One would silently cap every read that omits `maxChars`, which is most of them.
+  const contradictory = withConfigFile(JSON.stringify({ read: { defaultMaxChars: 50_000, maxCharsCeiling: 40_000 } }), t);
+  assert.throws(
+    () => loadConfig({ configPath: contradictory, env: {} }),
+    (err) => {
+      assert.match(err.message, /read\.defaultMaxChars/u);
+      assert.match(err.message, /read\.maxCharsCeiling/u, "naming one key is not enough to fix it");
       return true;
     },
   );

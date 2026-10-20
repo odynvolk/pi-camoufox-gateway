@@ -232,6 +232,37 @@ test("a thin page we cut short is offered the text budget", async (t) => {
   assert.match(outcome.text, /read with a larger maxChars/u);
 });
 
+test("a capped read names the ceiling, and offers the one knob that can still reach more", async (t) => {
+  const ceiling = CONFIG.read.maxCharsCeiling;
+  // `snapshotLimit` is the fake's own window (20 000 chars), not a gateway contract: left at the default
+  // it, and not the ceiling, would be what bounds this reply.
+  const { extension } = extensionFor(t, "pi-capped", {
+    snapshotLimit: ceiling * 4,
+    pageContents: new Map([["https://huge.test/", "h".repeat(ceiling * 4)]]),
+  });
+
+  const outcome = await extension.read({ url: "https://huge.test/", maxChars: ceiling * 12 });
+
+  assert.equal(outcome.details.cappedAt, ceiling);
+  assert.match(outcome.text, new RegExp(`capped at ${ceiling} by read\\.maxCharsCeiling`, "u"), "the text says what did the cutting");
+  assert.match(outcome.text, /continue with offset/u);
+  // The knob this branch used to reach for is "read with a larger maxChars" — the one parameter that is
+  // provably useless here, since the bigger request is exactly what got capped. Asserting the phrase,
+  // not the words "larger maxChars", because the note above legitimately contains those.
+  assert.equal(/read with a larger maxChars/u.test(outcome.text), false, "no knob that cannot move the outcome");
+});
+
+test("a ceiling that cost nothing goes unmentioned", async (t) => {
+  const { extension } = extensionFor(t, "pi-capped-whole-page", {
+    pageContents: new Map([["https://tiny.test/", "t".repeat(300)]]),
+  });
+
+  const outcome = await extension.read({ url: "https://tiny.test/", maxChars: 500_000 });
+
+  assert.equal(outcome.details.cappedAt, CONFIG.read.maxCharsCeiling, "the policy fact stands");
+  assert.equal(/capped at/u.test(outcome.text), false, "but the whole page came back, so there is no offset to continue to");
+});
+
 test("a cached read says so in the text the model gets", async (t) => {
   const { extension } = extensionFor(t, "pi-cached");
 

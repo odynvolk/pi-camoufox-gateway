@@ -7,6 +7,7 @@
   "cache": { "serpMs": 1800000, "pageMs": 600000 },
   "read": {
     "defaultMaxChars": 12000,
+    "maxCharsCeiling": 40000,
     "waitForSettleMs": 2500,
     "settlePollMs": 300,
     "settleMinChars": 1500,
