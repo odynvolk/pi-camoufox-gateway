@@ -11,11 +11,21 @@ interface Entry<T> {
   expiresAt: number;
 }
 
+export interface RunOptions<T> {
+  /**
+   * Whether a produced value is worth keeping. "The call succeeded" and "this answer is stable" are
+   * different questions: a page that has not finished rendering is worth returning to the caller and
+   * not worth serving for the rest of the TTL. Defaults to storing every success, which is what the
+   * two-rule contract means by "only successes are stored".
+   */
+  shouldStore?: (value: T) => boolean;
+}
+
 export interface Cache<T> {
   get(key: string): T | undefined;
   set(key: string, value: T, ttlMs?: number): void;
   /** One in-flight producer per key. Failures are never stored. */
-  run(key: string, produce: () => Promise<T>, ttlMs?: number): Promise<T>;
+  run(key: string, produce: () => Promise<T>, ttlMs?: number, options?: RunOptions<T>): Promise<T>;
   get size(): number;
   clear(): void;
 }
@@ -58,7 +68,7 @@ export function createCache<T = unknown>(): Cache<T> {
       prune(Date.now());
     },
 
-    async run(key: string, produce: () => Promise<T>, ttlMs?: number): Promise<T> {
+    async run(key: string, produce: () => Promise<T>, ttlMs?: number, options?: RunOptions<T>): Promise<T> {
       const hit = this.get(key);
       if (hit !== undefined) return hit;
 
@@ -71,7 +81,7 @@ export function createCache<T = unknown>(): Cache<T> {
           inflight.delete(key);
           // A clear() while this was in flight means "drop everything", so the result is returned to
           // the caller but not stored — a later call must be free to produce a fresh value.
-          if (epoch === generation) this.set(key, value, ttlMs);
+          if (epoch === generation && (options?.shouldStore?.(value) ?? true)) this.set(key, value, ttlMs);
           return value;
         },
         (error) => {

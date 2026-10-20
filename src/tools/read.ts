@@ -8,6 +8,7 @@
  */
 
 import type { CamoufoxConfig } from "../config.ts";
+import type { Cache } from "../cache.ts";
 import { GatewayError } from "../errors.ts";
 import type { GatewayClient, SnapshotResult } from "../gateway.ts";
 import { assertTabUrlAllowed, urlPolicyFromConfig } from "../net-policy.ts";
@@ -16,6 +17,8 @@ import { detectWall, extractText, type ExtractedText } from "../snapshot.ts";
 export interface ReadToolDeps {
   client: GatewayClient;
   config: CamoufoxConfig;
+  /** Shared per-session cache. Holds heterogeneous values behind prefixed keys, as search's does. */
+  cache: Cache<unknown>;
   userId: string;
 }
 
@@ -27,6 +30,8 @@ export interface ReadParams {
   waitFor?: string;
   /** JSON Schema with `x-ref` hints; requires a snapshot first, which this tool does for you. */
   schema?: Record<string, unknown>;
+  /** Ignore the page cache and navigate. Otherwise a page is served from it for `cache.pageMs`. */
+  fresh?: boolean;
   signal?: AbortSignal;
 }
 
@@ -49,6 +54,8 @@ export interface ReadOutcome {
   waitForRequested?: boolean;
   /** What a `waitFor` did not achieve, in words the model can act on. Absent when it worked. */
   waitNote?: string;
+  /** Served from the page cache: no tab was opened, so nothing about this page was re-fetched. */
+  fromCache?: boolean;
 }
 
 /**
@@ -64,6 +71,24 @@ function samePage(left: SnapshotResult, right: SnapshotResult): boolean {
   // gateway capped, where the returned text stops growing while the page keeps going, and a skeleton
   // that swaps content at a constant width.
   return left.text === right.text && left.totalChars === right.totalChars && left.refsCount === right.refsCount;
+}
+
+/**
+ * Cache key for one window of one page.
+ *
+ * `maxChars` stays out of the key, exactly as search keeps `n` out of its own: it is our slice of a
+ * page we already hold, so a cheap first call must not cap a later one. The offset stays *in*, because
+ * the gateway returns a window rather than the page — a different offset is different content.
+ *
+ * The fragment is deliberately preserved. Dropping it would collapse `#/list` and `#/detail` on a
+ * hash-routed SPA into one entry, and then serve one in place of the other.
+ */
+function pageCacheKey(url: string, offset: number | undefined): string {
+  // Parsed rather than used raw, which folds host case, the default port, and a bare host's trailing
+  // slash. It does not fold the FQDN terminator — `http://Host./` and `http://Host/` stay two entries
+  // — and that only costs a missed hit, because the guard re-checks the stored destination, never the
+  // key.
+  return `read:${new URL(url).href}:${offset ?? 0}`;
 }
 
 function delay(ms: number, signal?: AbortSignal): Promise<void> {
@@ -96,6 +121,11 @@ export function readTool(deps: ReadToolDeps) {
     assertTabUrlAllowed(url, urlPolicyFromConfig(config));
   }
 
+  /** The check `GatewayClient.snapshot` applies to a reported destination, applied again on a cache hit. */
+  function assertDestinationAllowed(url: string): void {
+    assertTabUrlAllowed(url, urlPolicyFromConfig(config), "destination");
+  }
+
   /**
    * How much of the page exists, as opposed to how much of it this call returned.
    *
@@ -104,6 +134,11 @@ export function readTool(deps: ReadToolDeps) {
    */
   function pageChars(snapshot: SnapshotResult): number {
     return typeof snapshot.totalChars === "number" && snapshot.totalChars > 0 ? snapshot.totalChars : (snapshot.text ?? "").length;
+  }
+
+  /** Thin enough that storing it would freeze an unfinished render. */
+  function thin(snapshot: SnapshotResult): boolean {
+    return pageChars(snapshot) < read.settleMinChars;
   }
 
   /**
@@ -158,9 +193,56 @@ export function readTool(deps: ReadToolDeps) {
     return { snapshot: latest, settledInMs: Date.now() - startedAt, polled, stalledAtDeadline };
   }
 
-  async function run(params: ReadParams): Promise<ReadOutcome> {
-    assertAllowed(params.url ?? "");
+  /**
+   * Shape a snapshot into the outcome. One place on purpose: a page served from cache and a page
+   * freshly navigated to must not disagree about what they report.
+   */
+  function outcomeFrom(
+    snapshot: SnapshotResult,
+    params: ReadParams,
+    meta: {
+      /** Used only when the snapshot reports no destination of its own. */
+      fallbackUrl: string;
+      polled: boolean;
+      settledInMs: number;
+      stalledAtDeadline: boolean;
+      waitNote?: string;
+      extracted?: Record<string, unknown>;
+      fromCache: boolean;
+    },
+  ): ReadOutcome {
+    const budget = params.maxChars ?? read.defaultMaxChars;
+    const sliced: ExtractedText = extractText(snapshot, { maxChars: budget, offset: params.offset });
+    const isThin = thin(snapshot);
 
+    return {
+      url: snapshot.url || meta.fallbackUrl,
+      text: sliced.text,
+      truncated: sliced.truncated,
+      hasMore: sliced.hasMore,
+      totalChars: sliced.totalChars,
+      nextOffset: sliced.nextOffset,
+      ...(meta.extracted ? { extracted: meta.extracted } : {}),
+      refsCount: snapshot.refsCount,
+      ...(meta.polled ? { settledInMs: meta.settledInMs } : {}),
+      ...(meta.polled && meta.stalledAtDeadline ? { stalledAtDeadline: true } : {}),
+      ...(isThin && (meta.polled || params.waitFor) ? { thinAfterWait: true } : {}),
+      ...(params.waitFor ? { waitForRequested: true } : {}),
+      ...(meta.waitNote ? { waitNote: meta.waitNote } : {}),
+      ...(meta.fromCache ? { fromCache: true } : {}),
+    };
+  }
+
+  /** What a fresh navigation cost. Absent from a cache hit, because on that path nothing was waited for. */
+  type FetchMeta = { polled: boolean; settledInMs: number; stalledAtDeadline: boolean; waitNote?: string };
+
+  /**
+   * Everything a page costs to fetch: open, the optional selector wait, the settle loop, wall
+   * classification, and the extraction that only a live tab can serve. The tab is always closed.
+   */
+  async function navigate(
+    params: ReadParams,
+  ): Promise<{ snapshot: SnapshotResult; fallbackUrl: string; extracted?: Record<string, unknown>; meta: FetchMeta }> {
     const tab = await client.openTab({ userId, url: params.url, signal: params.signal });
     let waitNote: string | undefined;
     try {
@@ -203,28 +285,110 @@ export function readTool(deps: ReadToolDeps) {
         }
       }
 
-      const budget = params.maxChars ?? read.defaultMaxChars;
-      const sliced: ExtractedText = extractText(snapshot, { maxChars: budget, offset: params.offset });
-      const thin = pageChars(snapshot) < read.settleMinChars;
-
       return {
-        url: snapshot.url || tab.url,
-        text: sliced.text,
-        truncated: sliced.truncated,
-        hasMore: sliced.hasMore,
-        totalChars: sliced.totalChars,
-        nextOffset: sliced.nextOffset,
+        snapshot,
+        fallbackUrl: tab.url,
         ...(extracted ? { extracted } : {}),
-        refsCount: snapshot.refsCount,
-        ...(polled ? { settledInMs } : {}),
-        ...(polled && stalledAtDeadline ? { stalledAtDeadline: true } : {}),
-        ...(thin && (polled || params.waitFor) ? { thinAfterWait: true } : {}),
-        ...(params.waitFor ? { waitForRequested: true } : {}),
-        ...(waitNote ? { waitNote } : {}),
+        meta: { polled, settledInMs, stalledAtDeadline, ...(waitNote ? { waitNote } : {}) },
       };
     } finally {
       await client.closeTabQuietly({ userId, tabId: tab.tabId });
     }
+  }
+
+  /**
+   * Whether a page may be kept. Two things have to hold, and the second is the subtle one.
+   *
+   * - Not thin. An unfinished render must not become the answer for `cache.pageMs`. This also covers a
+   *   page whose settle budget ran out while it was still growing: `worthPollingAgain` is what keeps
+   *   polling, and it only polls thin pages, so a stalled page is thin by construction.
+   * - It reports a destination. A page that cannot is still readable once — under the explicit opt-out
+   *   that let it be read at all — but it cannot be *re*-checked on a later read, and re-checking is
+   *   the only reason the cache-hit guard exists. Storing one would also poison the entry: the guard
+   *   has nothing to parse, so every later read fails on an empty url instead of navigating again.
+   */
+  function storable(snapshot: SnapshotResult): boolean {
+    return Boolean(snapshot.url) && !thin(snapshot);
+  }
+
+  async function run(params: ReadParams): Promise<ReadOutcome> {
+    assertAllowed(params.url ?? "");
+
+    // A stored snapshot can only answer a plain read. Extraction needs refs, which die at the next
+    // navigation, and a `waitFor` is a question a page fetched earlier cannot answer. Neither reads
+    // nor writes: a stored page must not claim a wait it never performed, or refs it never had.
+    const key = !params.schema && !params.waitFor ? pageCacheKey(params.url, params.offset) : undefined;
+
+    // `fresh` skips the lookup, not the write-back. The page it fetches is strictly more current than
+    // the one stored, and leaving the older entry behind would make the next plain read serve a body
+    // that a call a moment ago had already superseded. One limit: a plain read already in flight has
+    // no ordering token against this one, so if it fetched earlier and finishes later it writes its
+    // older page back. The common late finisher is a page still growing at its deadline, and that one
+    // is thin by construction, so it writes nothing.
+    if (key && !params.fresh) {
+      const stored = deps.cache.get(key) as SnapshotResult | undefined;
+      if (stored) {
+        // Re-checked, not trusted. `blockedHosts` and `allowPrivateHosts` are config the user can
+        // change between two calls; the stored page cannot have changed with them, so it is measured
+        // against them again rather than served on the strength of an older decision.
+        assertDestinationAllowed(stored.url);
+        return outcomeFrom(stored, params, {
+          // The requested url, not the stored one: this field exists to stand in when a snapshot
+          // reports no destination, and the url we asked for is the one piece of location that the
+          // cache guarantees is present.
+          fallbackUrl: params.url,
+          polled: false,
+          settledInMs: 0,
+          stalledAtDeadline: false,
+          fromCache: true,
+        });
+      }
+
+      // `run`, not a second get/set pair, so two concurrent identical reads share one navigation: pi
+      // issues parallel tool calls, and on this gateway a duplicated `/tabs/open` whose response is
+      // lost leaks a tab until session shutdown. Sharers ride the first caller's signal, which is what
+      // sharing one navigation means.
+      //
+      // What the navigation cost is carried out through this closure rather than the return value,
+      // because a cache cannot return two shapes. It is per call, so the caller who produced the page
+      // reports its settle and a caller who merely rode along reports none — correct for cost, which
+      // is the thing a sharer did not spend.
+      //
+      // The part a sharer loses is not cost but page state: `stalledAtDeadline` and `thinAfterWait`
+      // are both keyed off whether *this* call polled, so two callers riding one navigation can
+      // receive the same incomplete page and be told different things about it. Not stored, and not
+      // reachable a second time: a thin page fails `storable`, so only concurrent sharers see it.
+      // Carrying page state through the shared value, separate from per-call cost, is the fix if this
+      // ever stops being acceptable.
+      let meta: FetchMeta = { polled: false, settledInMs: 0, stalledAtDeadline: false };
+      let fallbackUrl = params.url;
+      // The cache is heterogeneous by design, so both directions cast — the same convention
+      // `resolve.ts` uses on it.
+      const snapshot = (await deps.cache.run(
+        key,
+        async () => {
+          const page = await navigate(params);
+          meta = page.meta;
+          fallbackUrl = page.fallbackUrl;
+          return page.snapshot;
+        },
+        config.cache.pageMs,
+        { shouldStore: (value) => storable(value as SnapshotResult) },
+      )) as SnapshotResult;
+      return outcomeFrom(snapshot, params, { fallbackUrl, ...meta, fromCache: false });
+    }
+
+    const page = await navigate(params);
+    if (key && storable(page.snapshot)) {
+      deps.cache.set(key, page.snapshot, config.cache.pageMs);
+    }
+
+    return outcomeFrom(page.snapshot, params, {
+      fallbackUrl: page.fallbackUrl,
+      ...page.meta,
+      ...(page.extracted ? { extracted: page.extracted } : {}),
+      fromCache: false,
+    });
   }
 
   return { name: "camoufox_read", read: run };

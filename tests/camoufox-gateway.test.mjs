@@ -51,7 +51,7 @@ test("the parameter objects match what README documents", () => {
   const { byName } = registered();
 
   assert.deepEqual(Object.keys(byName.camoufox_search.parameters.properties).sort(), ["engine", "n", "query", "resolve"]);
-  assert.deepEqual(Object.keys(byName.camoufox_read.parameters.properties).sort(), ["maxChars", "offset", "schema", "url", "waitFor"]);
+  assert.deepEqual(Object.keys(byName.camoufox_read.parameters.properties).sort(), ["fresh", "maxChars", "offset", "schema", "url", "waitFor"]);
 
   // Making a key optional is a contract change the model cannot see; only `query` and `url` need
   // to be supplied.
@@ -158,4 +158,12 @@ test("the registered tool enforces the configured address guard end to end", asy
   const opens = fake.state.calls.filter((c) => c.path === "/tabs/open");
   assert.equal(opens.length, 2);
   assert.equal(new Set(opens.map((c) => c.body?.userId)).size, 1, "both reads ran through the one extension built for this session");
+});
+
+test("the fresh parameter points at the setting rather than a copy of its value", () => {
+  const description = registered().byName.camoufox_read.parameters.properties.fresh.description ?? "";
+  // Interpolating the resolved TTL would tell a user who set `cache.pageMs` something about their own
+  // config that was not true, and this extension has no way to know it at schema-build time.
+  assert.match(description, /cache\.pageMs/u);
+  assert.doesNotMatch(description, /\d+\s*(minute|second|hour)/u);
 });

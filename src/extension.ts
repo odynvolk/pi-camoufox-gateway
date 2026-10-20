@@ -45,6 +45,8 @@ export interface ReadToolArgs {
   /** Hold for this selector before reading, for content the settle heuristic would miss. */
   waitFor?: string;
   schema?: Record<string, unknown>;
+  /** Bypass the page cache. */
+  fresh?: boolean;
 }
 
 export interface Extension {
@@ -62,6 +64,7 @@ export const READ_DESCRIPTION =
   "Read a web page through a Camoufox browser gateway so JavaScript-rendered pages work. " +
   "Thin pages are re-snapshotted until they stop growing; pass waitFor (a CSS selector) for content that renders late. " +
   "Returns page text (bounded, use offset to continue) and optionally a JSON-Schema extraction. " +
+  "Pages are cached for a few minutes; pass fresh:true when you need the page as it is now. " +
   "Internal addresses are refused unless network.allowPrivateHosts is set.";
 
 export interface ExtensionDepsWithConfig extends ExtensionDeps {
@@ -73,7 +76,7 @@ export function createExtension(deps: ExtensionDepsWithConfig): Extension {
   const { client, config, cache, userId } = deps;
 
   const search = searchTool({ client, engines: enginesFromConfig(config.engines), config, cache, userId });
-  const read = readTool({ client, config, userId });
+  const read = readTool({ client, config, cache, userId });
 
   const guard = (): void => {
     if (deps.configError) {
@@ -147,6 +150,11 @@ function renderRead(outcome: ReadOutcome): string {
   // budget, so more `maxChars` helps only where we did the cutting, and a bigger settle budget is
   // only the answer when it ran out while the page was still growing.
   const notes: string[] = [];
+  // Name the cache before anything a cached page can mislead about: the model cannot tell a page it
+  // fetched from one it did not, and `fresh` is the only lever that changes that.
+  if (outcome.fromCache) {
+    notes.push("[served from the page cache — the page was not re-fetched; read again with fresh:true to force a navigation]");
+  }
   if (outcome.thinAfterWait) {
     const waited = outcome.settledInMs ? ` after waiting ${outcome.settledInMs}ms` : "";
     const knobs: string[] = [];
