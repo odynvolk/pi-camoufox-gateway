@@ -58,9 +58,12 @@ const INTERSTITIAL_MAX_CHARS = 3_000;
  * the wall check declined, and only together with the structure axis — how many link blocks the page
  * has.
  *
- * Keeping it below `INTERSTITIAL_MAX_CHARS` is what keeps a wall-shaped page out of "no results" — and
- * it is testable, not just asserted: `tests/snapshot.test.mjs` has a link-less page past 3 000 carrying
- * error vocabulary, which is the case an inverted pairing would flip.
+ * What this threshold's position controls is a page nothing catches by shape: a link-less one. At any
+ * value, a page carrying a wall phrase under `INTERSTITIAL_MAX_CHARS` is still `blocked` — `detectWall`
+ * runs first and width is never consulted. But between the two constants, a wide page we could not read
+ * would come back as "the engine returned nothing", and keeping this below that is what closes the
+ * band. `tests/snapshot.test.mjs` has the page that would otherwise fall through it; the matrix in that
+ * file pins each constant's value at its own boundary.
  */
 const PARSEABLE_MIN_CHARS = 2_000;
 

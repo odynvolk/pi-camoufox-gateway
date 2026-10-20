@@ -14,10 +14,11 @@ export function gatewaySessionId(piSessionId: string): string {
   if (!sanitized) {
     // Not "empty": an id of spaces, of separators, or of anything the sanitizer drops lands here too,
     // and a message saying "empty" sends the reader looking for a missing id rather than a unusable one.
-    // Bounded and JSON-quoted, because this text reaches a transcript and the input is arbitrary.
+    // Bounded and JSON-quoted: this text reaches a transcript, and the input is arbitrary.
+    const got = JSON.stringify(piSessionId.slice(0, 64));
     throw new GatewayError(
       "internal_error",
-      `cannot derive a gateway session id: the pi session id reduces to nothing once sanitised (got ${JSON.stringify(piSessionId.slice(0, 64))})`,
+      `cannot derive a gateway session id: it reduces to nothing once sanitised (got ${got})`,
     );
   }
   // Truncating is what lets two ids agree on the first 125 characters share one namespace — recorded as
