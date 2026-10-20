@@ -17,6 +17,14 @@ function fixture(name, url = "https://example.test/") {
   };
 }
 
+/**
+ * A consent interstitial wide enough to be past the interstitial threshold, so only the host can settle
+ * it. One literal for both axes that assert that: `detectWall` on its own, and `classifySerp` against
+ * the size rules. Two copies drift, and the second is the one that silently stops proving.
+ */
+const longConsent = `- heading "Before you continue to Google" [level=1]\n${"- paragraph:\n  - text: cookie notice\n".repeat(300)}`;
+const CONSENT_HOST = "https://consent.google.com/ml?continue=x";
+
 test("parses Google results from a real recorded SERP", () => {
   const { results } = parseSerp(fixture("serp-google.txt", "https://www.google.com/search?q=camoufox"), "google");
 
@@ -168,13 +176,11 @@ test("a tiny page made only of a captcha challenge is a wall", () => {
 });
 
 test("the consent host wins even when the interstitial is long", () => {
-  const longConsent = `- heading "Before you continue to Google" [level=1]\n${"- paragraph:\n  - text: cookie notice\n".repeat(300)}`;
-  assert.equal(longConsent.length > 3_000, true);
+  // The width is the whole point, so it is pinned here: the `classifySerp` case reuses this page, and an
+  // assertion in only one of the two leaves the other asserting a shape it never checked.
+  assert.ok(longConsent.length > 3_000, `consent page is ${longConsent.length} chars, which is not past the threshold`);
 
-  assert.equal(
-    detectWall({ url: "https://consent.google.com/ml?continue=x", text: longConsent }),
-    "consent_wall",
-  );
+  assert.equal(detectWall({ url: CONSENT_HOST, text: longConsent }), "consent_wall");
 });
 
 test("one call decides what a SERP was, and every branch is asserted together", () => {
@@ -189,7 +195,6 @@ test("one call decides what a SERP was, and every branch is asserted together", 
   // blamed on our parser. This is the case that keeps `PARSEABLE_MIN_CHARS` from being read as the
   // whole rule.
   const chromeOnly = `- heading "Google" [level=1]\n${'- link "Images" [e1]:\n  - /url: https://www.google.com/imghp\n'.repeat(60)}`;
-  const longConsent = `- heading "Before you continue to Google" [level=1]\n${"- paragraph:\n  - text: cookie notice\n".repeat(300)}`;
 
   assert.ok(wideLinkless.length > 2_000 && wideLinkless.length <= 3_000, `wide link-less page is ${wideLinkless.length} chars`);
   assert.ok(thinLinkless.length <= 2_000, `thin link-less page is ${thinLinkless.length} chars`);
@@ -209,7 +214,7 @@ test("one call decides what a SERP was, and every branch is asserted together", 
     "consent_wall",
     "host evidence outranks every threshold",
   );
-  assert.equal(code(longConsent, "https://consent.google.com/ml?continue=x").code, "consent_wall");
+  assert.equal(code(longConsent, CONSENT_HOST).code, "consent_wall");
   assert.equal(code(wideLinkless).code, "parse_error", "wide enough to have been a page, so blame the parser");
   assert.equal(code(thinLinkless).code, "empty_results", "a page this thin says something about the query");
   assert.equal(code(chromeOnly).code, "empty_results", "links we recognised as chrome mean the page parsed fine");
@@ -222,7 +227,10 @@ test("one call decides what a SERP was, and every branch is asserted together", 
   assert.equal(code(oversizedLinkless).code, "parse_error", "main did this too, and for the same reason");
 
   // Both sides of the threshold itself, so its value cannot drift unnoticed: 2 000 chars is thin, 2 001
-  // is a page we should have been able to read.
+  // is a page we should have been able to read. The widths are literals on purpose. Deriving them from
+  // `PARSEABLE_MIN_CHARS` would move the fixtures with the constant and keep the test passing, which is
+  // the one outcome these cases exist to prevent; each fixture's branch is asserted again below, so a
+  // page that grows for an unrelated reason fails there rather than silently changing branches.
   const linklessAt2000 = "x".repeat(2_000);
   const linklessPast2000 = `${"x".repeat(1_992)}${"y".repeat(9)}`; // 2,001, still no link line
   assert.equal(linklessAt2000.length, 2_000);

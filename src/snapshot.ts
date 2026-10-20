@@ -70,6 +70,9 @@ const PARSEABLE_MIN_CHARS = 2_000;
 /** Snippets are model-facing, so the cap is explicit rather than an inline slice. */
 const SNIPPET_MAX_CHARS = 400;
 
+/** Same reason for excerpts, which is all `excerpt` has to say about why it is not inline. */
+const EXCERPT_MAX_CHARS = 200;
+
 const LINK_LINE = /^(\s*)-\s+link\s+"(.*)"\s*(?:\[(e\d+)\])?\s*:?\s*$/u;
 const URL_LINE = /^\s*-\s*\/url:\s*(\S+)\s*$/u;
 const CITE_LINE = /^\s*-\s*cite:\s*(.+?)\s*$/u;
@@ -163,8 +166,8 @@ function isChrome(engine: string, url: string): boolean {
 }
 
 /** Leading slice of a snapshot as one line, for a diagnostic excerpt. Used in `classifySerp`'s details. */
-function excerpt(snapshot: SnapshotLike, limit = 200): string {
-  return (snapshot.text ?? "").replace(/\s+/gu, " ").trim().slice(0, limit);
+function excerpt(snapshot: SnapshotLike): string {
+  return (snapshot.text ?? "").replace(/\s+/gu, " ").trim().slice(0, EXCERPT_MAX_CHARS);
 }
 
 /**
@@ -277,6 +280,12 @@ export function classifySerp(snapshot: SnapshotLike, engine: string): SerpVerdic
   // Split once, because the block count is evidence in its own right: a page whose only links are the
   // engine's own tabs answered cleanly, with nothing organic in it. That is a different emptiness from
   // a page where nothing matched `link` at all, and only the second one is a changed tree.
+  //
+  // The middle case is not decidable from here, and is recorded as B.6: an engine that moved organic
+  // results to a node type we do not read, while its chrome links survive, has the shape of an engine
+  // that answered with nothing. `empty_results` is not terminal, so the chain still falls through to the
+  // next engine and one blind adapter is recovered; two would be a wrong answer. Nothing structural
+  // separates the two — the recorded `serp-no-results.txt` *is* chrome-with-urls and zero organics.
   const blocks = linkBlocks(text);
   const results = organicResults(blocks, engine);
   if (results.length > 0) return { kind: "results", results };
