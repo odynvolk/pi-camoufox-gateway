@@ -78,12 +78,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * Refuse a schema that cannot extract anything, before spending a navigation on it.
+ * Refuse a schema that cannot be answered as asked, before spending a navigation on it.
  *
- * The only thing this gateway can pull out of a page is a value addressed by `x-ref`, so a schema
- * without them is a typo, not a question the gateway can answer. Left unchecked it cost a whole page
- * load and came back as `extraction_empty` — a message about refs on the page, which is one step from
- * "the gateway found nothing", and sends the reader to the service instead of to their schema.
+ * The recorded contract for `/extract` (`tests/fixtures/openapi.json`) names one way to reach page
+ * content: a top-level property carrying `x-ref`. A schema without a single one is a typo, and left
+ * unchecked it cost a whole page load and came back as `extraction_empty` — a message about refs on the
+ * page, one step from "the gateway found nothing", sending the reader to the service rather than to
+ * their schema.
+ *
+ * Stricter than that contract, deliberately, and the strictness is the rule: every top-level property
+ * has to carry an `x-ref`, so a partly-annotated schema is refused rather than answered with the subset
+ * it does address. Refs are read at the top level only, which is why a nested `properties` is refused
+ * as well.
  */
 function assertSchemaUsable(schema: Record<string, unknown>): void {
   const properties = schema.properties;

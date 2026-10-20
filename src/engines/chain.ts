@@ -73,7 +73,9 @@ export async function searchWithFallback(
     try {
       const outcome = await engine.search(query, context);
       if (outcome.results.length === 0) {
-        // An engine can answer cleanly with nothing; that is a fallback trigger, not a success.
+        // A guard on the `Engine` type, not a state either adapter reaches: `classifySerp` answers a
+        // clean page with nothing organic as an error verdict, which both adapters throw rather than
+        // return. A hand-made engine is the only way in, and `tests/engines.test.mjs` drives it.
         tried.push({ engine: engine.name, code: "empty_results", message: "no results" });
         firstError ??= new GatewayError("empty_results", `no engine returned results for "${query}"`);
         continue;
@@ -81,8 +83,10 @@ export async function searchWithFallback(
       tried.push({ engine: engine.name, code: "ok", message: "served" });
       return { engine: engine.name, results: outcome.results, tried };
     } catch (error) {
-      // Anything with a gateway code was coded at the transport boundary. A bare throw here came out of
-      // an adapter's own code, so it is not the service's doing.
+      // A code here says nothing about where it came from: the transport codes its own failures, but
+      // `classifySerp`, the address guard and the post-response checks code theirs too. What makes the
+      // fallback label honest is the other case — the client leaves no bare throw behind, so an
+      // unclassified error here is an adapter failing on its own.
       const gatewayError = error instanceof GatewayError ? error : new GatewayError("internal_error", String(error));
       tried.push({ engine: engine.name, code: gatewayError.code, message: gatewayError.message });
       firstError ??= gatewayError;

@@ -81,9 +81,9 @@ interface ToolFailure {
 /**
  * The shape pi gets back when a tool call fails.
  *
- * Only a url the user's own config supplied is worth quoting. Used to fall back to `resolveConfig()`,
- * which returns the shipped defaults when the file will not load — so a broken config reported a
- * gateway url the user never set, in the one message they are reading carefully.
+ * The url quoted here is the one this client was built with, never one re-read on the error path: the
+ * address has to describe the call that just failed. `resolveConfig()` used to be called here, and a
+ * file that will not load makes it return the shipped defaults — the address of no call at all.
  */
 function failure(error: unknown, extension?: Extension): ToolFailure {
   const gatewayUrl = extension && !extension.configError ? extension.gatewayUrl : undefined;

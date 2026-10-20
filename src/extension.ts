@@ -207,7 +207,7 @@ export function formatError(error: unknown, context: ErrorContext): { text: stri
     lines.push(
       context.gatewayUrl
         ? `Gateway configured as ${context.gatewayUrl}. Check the service and try \`GET ${context.gatewayUrl}/\`.`
-        : "No gateway url was resolved for this call.",
+        : "No gateway url is known for this client.",
     );
   }
   if (gatewayError.code === "consent_wall") {

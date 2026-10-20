@@ -39,10 +39,13 @@ Loads a page in the browser and returns its text.
   `/wait` route, or a gateway that ignores its own deadline until the client cuts it off at
   `timeoutMs` — costs the wait, not the page: the read continues and says which it was.
 - `schema` accepts a JSON Schema whose properties carry `x-ref` hints; the tool snapshots the page
-  first (refs only exist after a snapshot), then calls the gateway's extractor. A property without an
-  `x-ref` is refused up front as `unsupported`, naming the key — an empty `properties` too. Checked
-  before the navigation, because a schema that cannot address anything is a typo, not a page the
-  gateway came back empty from.
+  first (refs only exist after a snapshot), then calls the gateway's extractor. Every top-level
+  property has to carry one, and the check is all-or-nothing: a property without an `x-ref` is refused
+  up front as `unsupported`, naming the key, and a schema that annotates only some of its properties is
+  refused rather than answered with the subset it happens to address — as is an empty `properties`.
+  Refs are read at the top level only, so a nested `properties` is refused too. Checked before the
+  navigation, because a schema that cannot address anything is a typo, not a page the gateway came back
+  empty from.
 - **Reads are cached for `cache.pageMs` (10 min) per pi session.** A second read of the same url at
   the same `offset` comes back without opening a tab, and the output says it was served from cache.
   `maxChars` does not split the cache — it is a slice of a page already held — but `offset` does,
@@ -142,7 +145,7 @@ The tool output starts with the code so the model can react instead of guessing.
 | Code | Meaning |
 |---|---|
 | `config_error` | the config file is unreadable or invalid, so nothing was attempted |
-| `internal_error` | our own plumbing failed — an invariant, or a throw with no code. Never "the gateway is down": a gateway fault is coded where it is caught |
+| `internal_error` | our own plumbing failed — an invariant, or a throw with no code. Never "the gateway is down": every gateway outcome this client sees is coded, so an unclassified throw is ours |
 | `gateway_unreachable` | cannot reach `gatewayUrl`. Liveness is probed at most once per 60s while the gateway is up, once per 5s while it is down; a cached failure is re-thrown without dialling, so a burst of calls pays one probe rather than one timeout each |
 | `gateway_unauthorized` | gateway rejected `apiKey` |
 | `gateway_error` | the gateway answered with a failure, or answered with something unreadable |

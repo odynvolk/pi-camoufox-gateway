@@ -121,6 +121,9 @@ test("a schema that cannot extract anything is refused before the page is fetche
     { type: "object", properties: { title: { type: "string", ref: "e1" } } },
     { type: "object", properties: { title: { type: "string", "x-ref": "" } } },
     { type: "object", properties: { title: "e1" } },
+    // Partly annotated is the same fault, not a partial answer: honouring the half that did carry a ref
+    // would report a `title` and no `subtitle`, which reads as a page with no subtitle.
+    { type: "object", properties: { title: { type: "string", "x-ref": "e1" }, subtitle: { type: "string" } } },
     { type: "object", properties: {} },
     { type: "object" },
   ];

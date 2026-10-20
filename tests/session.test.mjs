@@ -272,12 +272,11 @@ test("punctuation that survives sanitising is still a usable namespace", () => {
 });
 
 test("with no config resolved for the call, the error names no gateway", () => {
-  // The reachable shape of a config fault: the code says `config_error`, and this is what stands in
-  // for a url. The shipped default used to be quoted here instead, which sent a user to check a
-  // service they never configured.
+  // A type-level guard on `ErrorContext`: `guard()` short-circuits a config fault before this code is
+  // reachable through a tool call, so driving it means calling `formatError` directly with no url.
   const formatted = formatError(new GatewayError("gateway_unreachable", "cannot reach the gateway"), {});
 
-  assert.match(formatted.text, /No gateway url was resolved/u);
+  assert.match(formatted.text, /No gateway url is known for this client/u);
   assert.equal(formatted.text.includes(DEFAULT_CONFIG.gatewayUrl), false, "no shipped default is quoted");
   assert.equal(/https?:\/\//u.test(formatted.text), false, "and no other address either");
   assert.equal(/undefined/u.test(formatted.text), false, "an absent url must not print as one");

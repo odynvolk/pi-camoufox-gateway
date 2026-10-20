@@ -42,7 +42,10 @@ interface LinkBlock {
 const CHROME_TITLES =
   /^(all|images|videos|news|maps|webb|short videos|more|next|page \d+|sign in|privacy|terms|settings|search domain .+)$/iu;
 
-/** Above this size a page is content, not an interstitial, whatever it happens to mention. */
+/**
+ * Above this size a page is content rather than an interstitial, whatever it mentions — unless its host
+ * already says otherwise, which is size-independent (`detectWall`'s first branch).
+ */
 const INTERSTITIAL_MAX_CHARS = 3_000;
 
 /**
@@ -51,12 +54,13 @@ const INTERSTITIAL_MAX_CHARS = 3_000;
  *
  * Two thresholds decide what a page with no results means, and only one of them is this one: a wall or
  * an empty page is `detectWall`'s answer, and it is always taken first, because `classifySerp` is the
- * only caller and runs both in one place. So this threshold reaches exactly the pages the wall check
- * declined, and only together with the structure axis — how many link blocks the page has.
+ * only caller of *this threshold* and runs both checks in one place. So it reaches exactly the pages
+ * the wall check declined, and only together with the structure axis — how many link blocks the page
+ * has.
  *
- * Keeping it below `INTERSTITIAL_MAX_CHARS` is what keeps a wall-shaped page out of "no results", but
- * that is now a fact about one function rather than about the order two files happen to call things
- * in. `tests/snapshot.test.mjs` pins every branch.
+ * Keeping it below `INTERSTITIAL_MAX_CHARS` is what keeps a wall-shaped page out of "no results" — and
+ * it is testable, not just asserted: `tests/snapshot.test.mjs` has a link-less page past 3 000 carrying
+ * error vocabulary, which is the case an inverted pairing would flip.
  */
 const PARSEABLE_MIN_CHARS = 2_000;
 
@@ -155,11 +159,17 @@ function isChrome(engine: string, url: string): boolean {
   return host.endsWith("google.com") && !isWrapper(url);
 }
 
-/** Leading slice of a snapshot as one line, for a diagnostic excerpt. */
-export function excerpt(snapshot: SnapshotLike, limit = 200): string {
+/** Leading slice of a snapshot as one line, for a diagnostic excerpt. Used in `classifySerp`'s details. */
+function excerpt(snapshot: SnapshotLike, limit = 200): string {
   return (snapshot.text ?? "").replace(/\s+/gu, " ").trim().slice(0, limit);
 }
 
+/**
+ * The parsing seam: blocks in, filtered results out.
+ *
+ * Production classifies through `classifySerp`, which owns the order; this stays exported so the
+ * recorded fixtures can be asserted against the parser alone, without a verdict in the way.
+ */
 export function parseSerp(snapshot: SnapshotLike, engine: string): { results: SearchResult[] } {
   return { results: organicResults(linkBlocks(snapshot.text ?? ""), engine) };
 }

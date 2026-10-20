@@ -237,3 +237,20 @@ test("one call decides what a SERP was, and every branch is asserted together", 
   assert.ok(wallInBand.length > 2_000 && wallInBand.length <= 3_000, `wall inside the band is ${wallInBand.length} chars`);
   assert.equal(code(wallInBand).code, "consent_wall", "the wall check owns the band, not the parser");
 });
+
+test("a wide browser error page is a tree we could not read, not an empty query", () => {
+  // The pairing between the two thresholds, as the case that can fail it. The page is deliberately
+  // just past 3 000: these words are `detectWall`'s, so thin they answer `navigation_failed`, and this
+  // is the width where phrase evidence stops being taken. Lift `PARSEABLE_MIN_CHARS` above
+  // `INTERSTITIAL_MAX_CHARS` and a page this wide falls through both checks and starts reporting
+  // `empty_results` — a query blamed for a tree we could not read.
+  const errorLine = "- paragraph:\n  - text: A network protocol error occurred and the page cannot be repaired.\n";
+  const thinBrowserError = `- heading "Problem loading page" [level=1]\n${errorLine}`;
+  const wideBrowserError = `- heading "Problem loading page" [level=1]\n${errorLine.repeat(33)}`;
+
+  assert.ok(wideBrowserError.length > 3_000 && wideBrowserError.length < 3_100, `wide browser error is ${wideBrowserError.length} chars`);
+
+  const code = (text) => classifySerp({ url: "https://www.google.com/search?q=camoufox", text }, "google").code;
+  assert.equal(code(thinBrowserError), "navigation_failed", "thin, the same words are the browser's own refusal");
+  assert.equal(code(wideBrowserError), "parse_error", "too wide for phrase evidence and nothing link-shaped, so the parser is on trial");
+});
