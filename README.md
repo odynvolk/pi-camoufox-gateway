@@ -39,15 +39,15 @@ Loads a page in the browser and returns its text.
   `/wait` route, or a gateway that ignores its own deadline until the client cuts it off at
   `timeoutMs` — costs the wait, not the page: the read continues and says which it was.
 - `schema` accepts a JSON Schema whose properties carry `x-ref` hints; the tool snapshots the page
-  first (refs only exist after a snapshot), then calls the gateway's extractor. `type` has to be
-  `"object"`, as the recorded contract requires — an omitted or different `type` is refused rather than
-  sent to a gateway that would reject it. Every top-level
-  property has to carry one, and the check is all-or-nothing: a property without an `x-ref` is refused
-  up front as `unsupported`, naming the key, and a schema that annotates only some of its properties is
-  refused rather than answered with the subset it happens to address — as is an empty `properties`.
-  Refs are read at the top level only, so a nested `properties` is refused too. Checked before the
-  navigation, because a schema that cannot address anything is a typo, not a page the gateway came back
-  empty from.
+  first (refs only exist after a snapshot), then calls the gateway's extractor. The recorded contract
+  requires `type: "object"`, so an omitted or different `type` is refused rather than sent to a gateway
+  that would reject it. Every top-level property has to carry an `x-ref`, and the check is
+  all-or-nothing: a property without one is refused up front as `unsupported`, naming the key, and a
+  schema that annotates only some of its properties is refused rather than answered with the subset it
+  happens to address — as is an empty `properties`. Refs are read at the top level only, so a nested
+  `properties` is refused too. All of it is checked before the navigation: a schema that cannot address
+  anything is a typo, and the gateway's own answer to one costs a page load and arrives as
+  `gateway_error`.
 - **Reads are cached for `cache.pageMs` (10 min) per pi session.** A second read of the same url at
   the same `offset` comes back without opening a tab, and the output says it was served from cache.
   `maxChars` does not split the cache — it is a slice of a page already held — but `offset` does,
