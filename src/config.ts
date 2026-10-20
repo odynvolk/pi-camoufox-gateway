@@ -34,7 +34,7 @@ export interface CamoufoxConfig {
   cache: { serpMs: number; pageMs: number };
   read: {
     defaultMaxChars: number;
-    /** Highest `maxChars` a single call may ask for. A ceiling, not a default: see `MAX_CHARS_CEILING`. */
+    /** Highest `maxChars` a single call may ask for. A ceiling, not a default: a bigger ask is capped to it, not honoured. */
     maxCharsCeiling: number;
     /** Extra time a read may spend re-snapshotting a thin page, `0` disables the hydration poll. */
     waitForSettleMs: number;

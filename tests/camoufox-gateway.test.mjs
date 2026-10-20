@@ -147,7 +147,9 @@ test("the configured timeoutMs is the deadline a call actually obeys", async (t)
     rmSync(dir, { recursive: true, force: true });
   });
 
-  withFakeGateway(t, { hangUrls: new Set(["https://slow.test/"]), hangForMs: 30_000 });
+  // Long enough that answering at all would mean the client never cut it off; short enough that the
+  // uncancellable fake timer does not become the suite's wall clock.
+  withFakeGateway(t, { hangUrls: new Set(["https://slow.test/"]), hangForMs: 1_000 });
   const { byName } = registered();
   const ctx = { sessionManager: { getSessionId: () => "pi-configured-timeout" } };
 
@@ -156,7 +158,7 @@ test("the configured timeoutMs is the deadline a call actually obeys", async (t)
 
   assert.match(result.content[0].text, /^timeout:/u, `"${result.content[0].text}" is not a deadline`);
   assert.match(result.content[0].text, /within 250ms/u, "the message names the configured number, not a default it invented");
-  assert.ok(Date.now() - started < 5_000, "the hung gateway would have taken 30s on an unused default");
+  assert.ok(Date.now() - started < 5_000, "the call outlived its deadline instead of being aborted at 250ms");
 });
 
 test("the registered tool enforces the configured address guard end to end", async (t) => {
