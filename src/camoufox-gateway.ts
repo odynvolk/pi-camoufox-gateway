@@ -71,11 +71,25 @@ function getExtension(ctx: ExtensionContext): Extension {
   return extension;
 }
 
-function failure(error: unknown, extension?: Extension) {
-  const config = extension?.config ?? resolveConfig().config;
-  const formatted = formatError(error, config);
+/** What pi gets back when a tool call fails. `isError` stays a literal, because pi branches on it. */
+interface ToolFailure {
+  content: [{ type: "text"; text: string }];
+  details: Record<string, unknown>;
+  isError: true;
+}
+
+/**
+ * The shape pi gets back when a tool call fails.
+ *
+ * Only a url the user's own config supplied is worth quoting. Used to fall back to `resolveConfig()`,
+ * which returns the shipped defaults when the file will not load — so a broken config reported a
+ * gateway url the user never set, in the one message they are reading carefully.
+ */
+function failure(error: unknown, extension?: Extension): ToolFailure {
+  const gatewayUrl = extension && !extension.configError ? extension.gatewayUrl : undefined;
+  const formatted = formatError(error, { ...(gatewayUrl ? { gatewayUrl } : {}) });
   return {
-    content: [{ type: "text" as const, text: formatted.text }],
+    content: [{ type: "text", text: formatted.text }],
     details: formatted.details,
     isError: true,
   };

@@ -591,6 +591,8 @@ export class GatewayClient {
       try {
         return await this.perform<T>(method, path, options);
       } catch (error) {
+        // This is the transport boundary, so a bare throw here happened while talking to the gateway —
+        // an unreadable body, a half-open socket. It stays `gateway_error`; anything further out is ours.
         const gatewayError = error instanceof GatewayError ? error : new GatewayError("gateway_error", String(error));
         const connectOnly = options.retry === "connect-only" && gatewayError.code !== "gateway_unreachable";
         const never = options.retry === "never";

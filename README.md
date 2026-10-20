@@ -39,7 +39,10 @@ Loads a page in the browser and returns its text.
   `/wait` route, or a gateway that ignores its own deadline until the client cuts it off at
   `timeoutMs` — costs the wait, not the page: the read continues and says which it was.
 - `schema` accepts a JSON Schema whose properties carry `x-ref` hints; the tool snapshots the page
-  first (refs only exist after a snapshot), then calls the gateway's extractor.
+  first (refs only exist after a snapshot), then calls the gateway's extractor. A property without an
+  `x-ref` is refused up front as `unsupported`, naming the key — an empty `properties` too. Checked
+  before the navigation, because a schema that cannot address anything is a typo, not a page the
+  gateway came back empty from.
 - **Reads are cached for `cache.pageMs` (10 min) per pi session.** A second read of the same url at
   the same `offset` comes back without opening a tab, and the output says it was served from cache.
   `maxChars` does not split the cache — it is a slice of a page already held — but `offset` does,
@@ -139,9 +142,10 @@ The tool output starts with the code so the model can react instead of guessing.
 | Code | Meaning |
 |---|---|
 | `config_error` | the config file is unreadable or invalid, so nothing was attempted |
+| `internal_error` | our own plumbing failed — an invariant, or a throw with no code. Never "the gateway is down": a gateway fault is coded where it is caught |
 | `gateway_unreachable` | cannot reach `gatewayUrl`. Liveness is probed at most once per 60s while the gateway is up, once per 5s while it is down; a cached failure is re-thrown without dialling, so a burst of calls pays one probe rather than one timeout each |
 | `gateway_unauthorized` | gateway rejected `apiKey` |
-| `gateway_error` | the gateway answered with a failure, or something threw without a code |
+| `gateway_error` | the gateway answered with a failure, or answered with something unreadable |
 | `consent_wall` | Google served consent/CAPTCHA, not results |
 | `empty_results` | clean page, zero organic results |
 | `empty_page` / `navigation_failed` | nothing rendered / browser error page |
@@ -152,7 +156,7 @@ The tool output starts with the code so the model can react instead of guessing.
 | `destination_unreported` | nothing would say where the tab ended up, so the page was not returned |
 | `blocked_url` | not an http(s) url |
 | `tab_not_found` | the tab was closed under us (session teardown or a stray sweep) |
-| `unsupported` | bad input or an engine we have no adapter for — nothing was fetched |
+| `unsupported` | bad input or an engine we have no adapter for — nothing was fetched. Includes a `schema` property with no `x-ref` |
 | `timeout` / `aborted` | deadline hit / tool call cancelled |
 
 ## What this does not do

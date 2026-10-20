@@ -81,7 +81,9 @@ export async function searchWithFallback(
       tried.push({ engine: engine.name, code: "ok", message: "served" });
       return { engine: engine.name, results: outcome.results, tried };
     } catch (error) {
-      const gatewayError = error instanceof GatewayError ? error : new GatewayError("gateway_error", String(error));
+      // Anything with a gateway code was coded at the transport boundary. A bare throw here came out of
+      // an adapter's own code, so it is not the service's doing.
+      const gatewayError = error instanceof GatewayError ? error : new GatewayError("internal_error", String(error));
       tried.push({ engine: engine.name, code: gatewayError.code, message: gatewayError.message });
       firstError ??= gatewayError;
 

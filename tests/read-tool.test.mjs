@@ -110,6 +110,33 @@ test("no matching refs is an explicit empty, not a silent null", async (t) => {
   assert.equal(error.code, "extraction_empty");
 });
 
+test("a schema that cannot extract anything is refused before the page is fetched", async (t) => {
+  const { fake, tool } = setup(t);
+
+  // Each of these is a typo, not a question the gateway can answer. Run through it anyway and the
+  // answer came back as `extraction_empty` — the gateway finding nothing, when the schema was the
+  // part that could not be answered — and only after a whole navigation.
+  const typos = [
+    { type: "object", properties: { title: { type: "string" } } },
+    { type: "object", properties: { title: { type: "string", ref: "e1" } } },
+    { type: "object", properties: { title: { type: "string", "x-ref": "" } } },
+    { type: "object", properties: { title: "e1" } },
+    { type: "object", properties: {} },
+    { type: "object" },
+  ];
+
+  for (const schema of typos) {
+    const error = await tool.read({ url: "https://example.test/article", schema }).catch((e) => e);
+
+    assert.equal(error.code, "unsupported", `${JSON.stringify(schema)} is bad input, not an empty extraction`);
+    assert.match(error.message, /x-ref/u, "the message names the key the typo is about");
+  }
+
+  // Counted, not inferred from "no calls at all": the liveness probe is allowed to have dialled.
+  assert.equal(fake.state.calls.filter((c) => c.path === "/tabs/open").length, 0, "a refused schema must not open a tab");
+  assert.equal(fake.state.calls.filter((c) => c.path.endsWith("/extract")).length, 0, "nor be handed to the extractor");
+});
+
 test("refuses non-http schemes before touching the gateway", async (t) => {
   const { fake, tool } = setup(t);
 

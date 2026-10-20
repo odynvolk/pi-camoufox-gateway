@@ -160,6 +160,56 @@ test("the registered tool enforces the configured address guard end to end", asy
   assert.equal(new Set(opens.map((c) => c.body?.userId)).size, 1, "both reads ran through the one extension built for this session");
 });
 
+test("a session id we cannot derive is reported as our own fault", async () => {
+  // Nothing was dialled and no gateway is involved, so the code has to say so. It used to reach the
+  // model as `gateway_error`, which is how a broken session id started a gateway investigation.
+  const { byName } = registered();
+  const ctx = { sessionManager: { getSessionId: () => "   " } };
+
+  const result = await byName.camoufox_read.execute("id", { url: "https://example.test/" }, undefined, () => undefined, ctx);
+
+  assert.equal(result.isError, true);
+  assert.equal(result.details.code, "internal_error");
+  assert.match(result.content[0].text, /^internal_error:/u);
+  assert.equal(/(^|\n)gateway_error:/u.test(result.content[0].text), false);
+});
+
+test("a config that will not load lends no url to the error it produces", async (t) => {
+  // The shipped default is `http://localhost:9377`. Quoting it while the user's own file sits broken
+  // points them at a gateway they never configured, in the one message they are reading closely.
+  const dir = mkdtempSync(join(tmpdir(), "camoufox-failing-"));
+  const configPath = join(dir, "camoufox.json");
+  writeFileSync(configPath, '{ "gatewayTimout": 5 }', "utf8");
+  const ambient = Object.fromEntries(
+    Object.keys(process.env).filter((key) => key.startsWith("CAMOUFOX_")).map((key) => [key, process.env[key]]),
+  );
+  const scrub = () => {
+    for (const key of Object.keys(process.env)) if (key.startsWith("CAMOUFOX_")) delete process.env[key];
+  };
+  scrub();
+  process.env.CAMOUFOX_CONFIG_PATH = configPath;
+  t.after(() => {
+    scrub();
+    Object.assign(process.env, ambient);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  const fake = withFakeGateway(t);
+  const { byName } = registered();
+  const ctx = { sessionManager: { getSessionId: () => "pi-broken-config" } };
+
+  const result = await byName.camoufox_read.execute("id", { url: "https://example.test/" }, undefined, () => undefined, ctx);
+
+  assert.match(result.content[0].text, /^config_error:/u);
+  assert.match(result.content[0].text, /unknown config key/u, "the key that is actually wrong");
+  assert.match(result.content[0].text, /Nothing was sent to the gateway/u);
+  assert.equal(result.content[0].text.includes(DEFAULT_CONFIG.gatewayUrl), false, `must not name "${DEFAULT_CONFIG.gatewayUrl}"`);
+  // Counted, so "nothing was attempted" is a fact about the gateway rather than a sentence in a message.
+  assert.equal(fake.state.calls.filter((c) => c.path === "/tabs/open").length, 0, "a config fault opens no tab");
+  assert.equal(fake.state.calls.filter((c) => c.path.endsWith("/snapshot")).length, 0, "and reads no page");
+  assert.equal(/(^|\n)gateway_error:/u.test(result.content[0].text), false, "a config fault is not a gateway fault");
+});
+
 test("the fresh parameter points at the setting rather than a copy of its value", () => {
   const description = registered().byName.camoufox_read.parameters.properties.fresh.description ?? "";
   // Interpolating the resolved TTL would tell a user who set `cache.pageMs` something about their own

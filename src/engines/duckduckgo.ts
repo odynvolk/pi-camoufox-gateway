@@ -4,7 +4,7 @@
  */
 
 import { GatewayError } from "../errors.ts";
-import { detectWall, excerpt, looksUnparseable, parseSerp } from "../snapshot.ts";
+import { classifySerp } from "../snapshot.ts";
 import type { Engine, EngineContext, EngineOutcome } from "./types.ts";
 
 /** `html.duckduckgo.com` is deliberately avoided: it returns a search form, not results. */
@@ -20,24 +20,11 @@ export function duckduckgoEngine(): Engine {
       try {
         const snapshot = await client.snapshot({ userId, tabId: tab.tabId, signal });
 
-        const wall = detectWall(snapshot);
-        if (wall) {
-          throw new GatewayError(wall, `duckduckgo did not serve results (got ${snapshot.url})`, {
-            details: { url: snapshot.url, engine: "duckduckgo" },
-          });
+        const verdict = classifySerp(snapshot, "duckduckgo");
+        if (verdict.kind === "error") {
+          throw new GatewayError(verdict.code, verdict.message, { details: verdict.details });
         }
-
-        const { results } = parseSerp(snapshot, "duckduckgo");
-        if (results.length === 0) {
-          if (looksUnparseable(snapshot)) {
-            throw new GatewayError("parse_error", `duckduckgo served a page we could not read as a results list`, {
-              details: { url: snapshot.url, excerpt: excerpt(snapshot) },
-            });
-          }
-          throw new GatewayError("empty_results", "duckduckgo returned no organic results for that query", {
-            details: { url: snapshot.url },
-          });
-        }
+        const results = verdict.results;
 
         return { results: results.slice(0, Math.min(context.maxResults, results.length)) };
       } finally {

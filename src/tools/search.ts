@@ -5,7 +5,7 @@
 
 import type { CamoufoxConfig } from "../config.ts";
 import { GatewayError } from "../errors.ts";
-import { searchWithFallback, type ChainOutcome, type TriedStep } from "../engines/chain.ts";
+import { searchWithFallback, type TriedStep } from "../engines/chain.ts";
 import type { Engine } from "../engines/types.ts";
 import type { GatewayClient } from "../gateway.ts";
 import { resolveUrls, type ResolvableResult } from "../resolve.ts";
@@ -110,19 +110,15 @@ export function searchTool(deps: SearchToolDeps) {
     const cached = cache.get(key);
     if (cached) fromCache = true;
 
+    // A failure is never cached — `run` stores only on a resolved value — so the next call is free to
+    // try the chain again, and the error keeps the single code it was given where it was caught.
     const outcome = await cache.run(key, async () => {
-      let chain: ChainOutcome;
-      try {
-        chain = await searchWithFallback(query, activeEngines, {
-          client,
-          userId,
-          signal: params.signal,
-          maxResults: MAX_RESULTS_HARD_LIMIT,
-        });
-      } catch (error) {
-        // Never cache a failure: the next call must be free to try the chain again.
-        throw error instanceof GatewayError ? error : new GatewayError("gateway_error", String(error));
-      }
+      const chain = await searchWithFallback(query, activeEngines, {
+        client,
+        userId,
+        signal: params.signal,
+        maxResults: MAX_RESULTS_HARD_LIMIT,
+      });
       return { query, engine: chain.engine, results: chain.results, tried: chain.tried };
     }, config.cache.serpMs);
 

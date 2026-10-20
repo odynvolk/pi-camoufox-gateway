@@ -7,6 +7,14 @@
  */
 
 export type GatewayErrorCode =
+  /**
+   * Our own plumbing failed — an invariant we hold, not a fault the gateway reported.
+   *
+   * Every gateway-boundary failure is classified where it is caught, so by the time an error reaches
+   * the tool boundary an unclassified one cannot be the gateway's doing. Labelling it `gateway_error`
+   * sends the reader to check a service that is fine.
+   */
+  | "internal_error"
   | "config_error"
   | "gateway_unreachable"
   | "gateway_unauthorized"

@@ -73,6 +73,37 @@ function samePage(left: SnapshotResult, right: SnapshotResult): boolean {
   return left.text === right.text && left.totalChars === right.totalChars && left.refsCount === right.refsCount;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Refuse a schema that cannot extract anything, before spending a navigation on it.
+ *
+ * The only thing this gateway can pull out of a page is a value addressed by `x-ref`, so a schema
+ * without them is a typo, not a question the gateway can answer. Left unchecked it cost a whole page
+ * load and came back as `extraction_empty` — a message about refs on the page, which is one step from
+ * "the gateway found nothing", and sends the reader to the service instead of to their schema.
+ */
+function assertSchemaUsable(schema: Record<string, unknown>): void {
+  const properties = schema.properties;
+  if (!isRecord(properties) || Object.keys(properties).length === 0) {
+    throw new GatewayError(
+      "unsupported",
+      'that schema has no "properties" to extract — each property needs an "x-ref" naming a ref from the page',
+    );
+  }
+
+  for (const [key, spec] of Object.entries(properties)) {
+    if (!isRecord(spec) || typeof spec["x-ref"] !== "string" || spec["x-ref"].trim() === "") {
+      throw new GatewayError(
+        "unsupported",
+        `schema property "${key}" has no "x-ref" — refs come from an earlier read, e.g. { "x-ref": "e12" }`,
+      );
+    }
+  }
+}
+
 /**
  * Cache key for one window of one page.
  *
@@ -313,6 +344,9 @@ export function readTool(deps: ReadToolDeps) {
 
   async function run(params: ReadParams): Promise<ReadOutcome> {
     assertAllowed(params.url ?? "");
+    // Before anything is fetched or cached: a schema with no refs to fill is not a question a page —
+    // fresh or stored — could answer.
+    if (params.schema) assertSchemaUsable(params.schema);
 
     // A stored snapshot can only answer a plain read. Extraction needs refs, which die at the next
     // navigation, and a `waitFor` is a question a page fetched earlier cannot answer. Neither reads

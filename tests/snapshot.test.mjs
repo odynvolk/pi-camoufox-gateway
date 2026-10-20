@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { detectWall, extractText, parseSerp } from "../src/snapshot.ts";
+import { classifySerp, detectWall, extractText, parseSerp } from "../src/snapshot.ts";
 
 function fixture(name, url = "https://example.test/") {
   const text = readFileSync(new URL(`./fixtures/${name}`, import.meta.url), "utf8");
@@ -175,4 +175,65 @@ test("the consent host wins even when the interstitial is long", () => {
     detectWall({ url: "https://consent.google.com/ml?continue=x", text: longConsent }),
     "consent_wall",
   );
+});
+
+test("one call decides what a SERP was, and every branch is asserted together", () => {
+  // The order used to live in two engine files: reorder `detectWall` / `parseSerp` /
+  // `looksUnparseable` there and a wall-shaped page started reading as "no results", or a thin one
+  // started blaming our parser. `classifySerp` owns the order now, so this is the seam.
+  const line = "- paragraph:\n  - text: page text without links.\n"; // 48 chars
+  const wideLinkless = `- heading "Google Results" [level=1]\n${line.repeat(50)}`; // 2,438 chars
+  const thinLinkless = `- heading "Google Results" [level=1]\n${line.repeat(35)}`; // 1,718 chars
+  // Chrome only, and past *both* thresholds: a clean engine page with nothing organic on it is this
+  // shape and roughly this long. The structure axis has to win, or a normal no-results page gets
+  // blamed on our parser. This is the case that keeps `PARSEABLE_MIN_CHARS` from being read as the
+  // whole rule.
+  const chromeOnly = `- heading "Google" [level=1]\n${'- link "Images" [e1]:\n  - /url: https://www.google.com/imghp\n'.repeat(60)}`;
+  const longConsent = `- heading "Before you continue to Google" [level=1]\n${"- paragraph:\n  - text: cookie notice\n".repeat(300)}`;
+
+  assert.ok(wideLinkless.length > 2_000 && wideLinkless.length <= 3_000, `wide link-less page is ${wideLinkless.length} chars`);
+  assert.ok(thinLinkless.length <= 2_000, `thin link-less page is ${thinLinkless.length} chars`);
+  assert.ok(chromeOnly.length > 3_000, `chrome-only page is ${chromeOnly.length} chars, past the interstitial threshold`);
+
+  const code = (text, url = "https://www.google.com/search?q=camoufox") =>
+    classifySerp({ url, text }, "google");
+
+  const served = classifySerp(fixture("serp-google.txt", "https://www.google.com/search?q=camoufox"), "google");
+  assert.equal(served.kind, "results");
+  assert.ok(served.results.length >= 3);
+
+  // The recorded consent page is 4 193 chars — past the interstitial threshold — and still a wall,
+  // because the host says so. Nothing about the size thresholds may outrank that.
+  assert.equal(
+    classifySerp(fixture("wall-consent.txt", "https://consent.google.com/ml?continue=x"), "google").code,
+    "consent_wall",
+    "host evidence outranks every threshold",
+  );
+  assert.equal(code(longConsent, "https://consent.google.com/ml?continue=x").code, "consent_wall");
+  assert.equal(code(wideLinkless).code, "parse_error", "wide enough to have been a page, so blame the parser");
+  assert.equal(code(thinLinkless).code, "empty_results", "a page this thin says something about the query");
+  assert.equal(code(chromeOnly).code, "empty_results", "links we recognised as chrome mean the page parsed fine");
+
+  // And past the interstitial threshold as well, deliberately. Note what this case does *not* decide:
+  // it has no link blocks either, so it cannot say which of the two axes wins. `chromeOnly` above is the
+  // assertion that settles that, and it is the one that would break if the thresholds were collapsed.
+  const oversizedLinkless = `- heading "Google Results" [level=1]\n${line.repeat(200)}`; // 9,618 chars
+  assert.ok(oversizedLinkless.length > 3_000, `oversized link-less page is ${oversizedLinkless.length} chars`);
+  assert.equal(code(oversizedLinkless).code, "parse_error", "main did this too, and for the same reason");
+
+  // Both sides of the threshold itself, so its value cannot drift unnoticed: 2 000 chars is thin, 2 001
+  // is a page we should have been able to read.
+  const linklessAt2000 = "x".repeat(2_000);
+  const linklessPast2000 = `${"x".repeat(1_992)}${"y".repeat(9)}`; // 2,001, still no link line
+  assert.equal(linklessAt2000.length, 2_000);
+  assert.equal(linklessPast2000.length, 2_001);
+  assert.equal(code(linklessAt2000).code, "empty_results", "at the threshold, still thin");
+  assert.equal(code(linklessPast2000).code, "parse_error", "one past it, and the parser is on trial");
+
+  // The threshold pairing, stated as behaviour rather than as a comment about two numbers: a wall page
+  // with a link block on it, inside the band, is still a wall. Drop `INTERSTITIAL_MAX_CHARS` below
+  // `PARSEABLE_MIN_CHARS` and this is the assertion that fails.
+  const wallInBand = `- heading "Confirm you are not a robot" [level=1]\n- link "Sign in" [e1]:\n  - /url: https://accounts.google.com/ServiceLogin\n- paragraph:\n  - text: ${"complete the captcha to continue. ".repeat(60)}`;
+  assert.ok(wallInBand.length > 2_000 && wallInBand.length <= 3_000, `wall inside the band is ${wallInBand.length} chars`);
+  assert.equal(code(wallInBand).code, "consent_wall", "the wall check owns the band, not the parser");
 });
