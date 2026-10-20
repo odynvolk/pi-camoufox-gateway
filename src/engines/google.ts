@@ -7,7 +7,7 @@
  */
 
 import { GatewayError } from "../errors.ts";
-import { detectWall, excerpt, looksUnparseable, parseSerp } from "../snapshot.ts";
+import { classifySerp } from "../snapshot.ts";
 import type { Engine, EngineContext, EngineOutcome } from "./types.ts";
 
 const SEED_URL = "https://example.com/";
@@ -25,24 +25,11 @@ export function googleEngine(): Engine {
         await client.navigateMacro({ userId, tabId: tab.tabId, macro: MACRO, query, signal });
         const snapshot = await client.snapshot({ userId, tabId: tab.tabId, signal });
 
-        const wall = detectWall(snapshot);
-        if (wall) {
-          throw new GatewayError(wall, `google did not serve results (got ${snapshot.url})`, {
-            details: { url: snapshot.url, engine: "google" },
-          });
+        const verdict = classifySerp(snapshot, "google");
+        if (verdict.kind === "error") {
+          throw new GatewayError(verdict.code, verdict.message, { details: verdict.details });
         }
-
-        const { results } = parseSerp(snapshot, "google");
-        if (results.length === 0) {
-          if (looksUnparseable(snapshot)) {
-            throw new GatewayError("parse_error", `google served a page we could not read as a results list`, {
-              details: { url: snapshot.url, excerpt: excerpt(snapshot) },
-            });
-          }
-          throw new GatewayError("empty_results", "google returned no organic results for that query", {
-            details: { url: snapshot.url },
-          });
-        }
+        const results = verdict.results;
 
         const wanted = Math.max(1, Math.min(context.maxResults, GOOGLE_PAGE_SIZE));
         return { results: results.slice(0, wanted) };

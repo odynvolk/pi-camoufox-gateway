@@ -210,6 +210,28 @@ test("every terminal code stops the chain before the next engine is tried", asyn
   }
 });
 
+test("an engine that throws something bare is our fault, not the gateway's", async (t) => {
+  // A gateway fault arrives coded, because the client codes it at the transport boundary. A `TypeError`
+  // out of an adapter is our own code tripping, and it must not reach the model as `gateway_error`.
+  const { client } = setup(t);
+  const broken = {
+    name: "broken",
+    search: async () => {
+      throw new TypeError("cannot read properties of undefined");
+    },
+  };
+
+  const error = await searchWithFallback("camoufox", [broken], { client, userId: "u1", maxResults: 5 }).catch((e) => e);
+
+  assert.equal(error.code, "internal_error");
+  assert.match(error.message, /cannot read properties of undefined/u, "the real fault, still named");
+  assert.deepEqual(
+    error.details.tried.map((step) => step.code),
+    ["internal_error"],
+    "the step is credited with the same code",
+  );
+});
+
 test("honours enabled flags and ordering from config", async (t) => {
   const engines = enginesFromConfig([
     { name: "google", enabled: true },

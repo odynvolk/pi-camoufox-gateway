@@ -56,6 +56,11 @@ export interface Extension {
   shutdown(): Promise<void>;
   gatewayUrl: string;
   config: CamoufoxConfig;
+  /**
+   * Set when the config file could not be read, which means `config` is only the shipped defaults.
+   * Error rendering needs it: a defaults-only `gatewayUrl` is a url the user never configured.
+   */
+  configError?: string;
 }
 
 export const SEARCH_DESCRIPTION =
@@ -109,6 +114,7 @@ export function createExtension(deps: ExtensionDepsWithConfig): Extension {
   return {
     gatewayUrl: config.gatewayUrl,
     config,
+    ...(deps.configError ? { configError: deps.configError } : {}),
 
     async search(args, context) {
       guard();
@@ -171,12 +177,38 @@ function renderRead(outcome: ReadOutcome): string {
   return `${header}\n\n${outcome.text}${extracted}${notes.length ? `\n\n${notes.join("\n")}` : ""}${footer}`;
 }
 
-/** Failure text the model can act on: the code is stated first, then the evidence. */
-export function formatError(error: unknown, config: CamoufoxConfig): { text: string; details: Record<string, unknown> } {
-  const gatewayError = error instanceof GatewayError ? error : new GatewayError("gateway_error", String(error));
+export interface ErrorContext {
+  /** The configured gateway url, but only once a config has actually been loaded and read. */
+  gatewayUrl?: string;
+}
+
+/**
+ * Failure text the model can act on: the code first, then whatever the reader can do with.
+ *
+ * `context` carries only what was verified. A config that failed to load resolves to the shipped
+ * defaults, and quoting those is how a broken file used to send a user to debug a gateway at an
+ * address they never set.
+ */
+export function formatError(error: unknown, context: ErrorContext): { text: string; details: Record<string, unknown> } {
+  // Anything from the transport arrives already coded: `requestJson` wraps even a bare throw at that
+  // boundary. So an error reaching here unclassified came from our own code, and calling it
+  // `gateway_error` would send the reader to debug a service that reported nothing.
+  const gatewayError = error instanceof GatewayError ? error : new GatewayError("internal_error", String(error));
   const lines = [`${gatewayError.code}: ${gatewayError.message}`];
+  if (gatewayError.code === "internal_error") {
+    // Worded as what this branch actually knows: nothing arrived with a gateway code. Whether a request
+    // went out and came back clean is not something the type can establish from here.
+    lines.push("No gateway code was reported, so this is the extension's own plumbing, not a gateway fault.");
+  }
+  if (gatewayError.code === "config_error") {
+    lines.push("Nothing was sent to the gateway: fix the config file and try again.");
+  }
   if (gatewayError.code === "gateway_unreachable") {
-    lines.push(`Gateway configured as ${config.gatewayUrl}. Check the service and try \`GET ${config.gatewayUrl}/\`.`);
+    lines.push(
+      context.gatewayUrl
+        ? `Gateway configured as ${context.gatewayUrl}. Check the service and try \`GET ${context.gatewayUrl}/\`.`
+        : "No gateway url is known for this client.",
+    );
   }
   if (gatewayError.code === "consent_wall") {
     lines.push("Google interstitial rather than results; a narrower query or the fallback engine usually clears this.");
@@ -204,7 +236,9 @@ export function formatError(error: unknown, config: CamoufoxConfig): { text: str
   }
   return {
     text: lines.join("\n"),
-    details: { code: gatewayError.code, ...(gatewayError.details ?? {}) },
+    // `code` last, because it is the thing the model acts on: details come from wherever the error
+    // carries them, and one of them must not be able to relabel the fault after the fact.
+    details: { ...(gatewayError.details ?? {}), code: gatewayError.code },
   };
 }
 

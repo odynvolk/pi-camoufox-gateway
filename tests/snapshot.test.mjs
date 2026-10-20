@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { detectWall, extractText, parseSerp } from "../src/snapshot.ts";
+import { classifySerp, detectWall, extractText, parseSerp } from "../src/snapshot.ts";
 
 function fixture(name, url = "https://example.test/") {
   const text = readFileSync(new URL(`./fixtures/${name}`, import.meta.url), "utf8");
@@ -16,6 +16,14 @@ function fixture(name, url = "https://example.test/") {
     nextOffset: text.length,
   };
 }
+
+/**
+ * A consent interstitial wide enough to be past the interstitial threshold, so only the host can settle
+ * it. One literal for both axes that assert that: `detectWall` on its own, and `classifySerp` against
+ * the size rules. Two copies drift, and the second is the one that silently stops proving.
+ */
+const longConsent = `- heading "Before you continue to Google" [level=1]\n${"- paragraph:\n  - text: cookie notice\n".repeat(300)}`;
+const CONSENT_HOST = "https://consent.google.com/ml?continue=x";
 
 test("parses Google results from a real recorded SERP", () => {
   const { results } = parseSerp(fixture("serp-google.txt", "https://www.google.com/search?q=camoufox"), "google");
@@ -168,11 +176,89 @@ test("a tiny page made only of a captcha challenge is a wall", () => {
 });
 
 test("the consent host wins even when the interstitial is long", () => {
-  const longConsent = `- heading "Before you continue to Google" [level=1]\n${"- paragraph:\n  - text: cookie notice\n".repeat(300)}`;
-  assert.equal(longConsent.length > 3_000, true);
+  // The width is the whole point, so it is pinned here: the `classifySerp` case reuses this page, and an
+  // assertion in only one of the two leaves the other asserting a shape it never checked.
+  assert.ok(longConsent.length > 3_000, `consent page is ${longConsent.length} chars, which is not past the threshold`);
 
+  assert.equal(detectWall({ url: CONSENT_HOST, text: longConsent }), "consent_wall");
+});
+
+test("one call decides what a SERP was, and every branch is asserted together", () => {
+  // The order used to live in two engine files: reorder `detectWall` / `parseSerp` /
+  // `looksUnparseable` there and a wall-shaped page started reading as "no results", or a thin one
+  // started blaming our parser. `classifySerp` owns the order now, so this is the seam.
+  const line = "- paragraph:\n  - text: page text without links.\n"; // 48 chars
+  const wideLinkless = `- heading "Google Results" [level=1]\n${line.repeat(50)}`; // 2,438 chars
+  const thinLinkless = `- heading "Google Results" [level=1]\n${line.repeat(35)}`; // 1,718 chars
+  // Chrome only, and past *both* thresholds: a clean engine page with nothing organic on it is this
+  // shape and roughly this long. The structure axis has to win, or a normal no-results page gets
+  // blamed on our parser. This is the case that keeps `PARSEABLE_MIN_CHARS` from being read as the
+  // whole rule.
+  const chromeOnly = `- heading "Google" [level=1]\n${'- link "Images" [e1]:\n  - /url: https://www.google.com/imghp\n'.repeat(60)}`;
+
+  assert.ok(wideLinkless.length > 2_000 && wideLinkless.length <= 3_000, `wide link-less page is ${wideLinkless.length} chars`);
+  assert.ok(thinLinkless.length <= 2_000, `thin link-less page is ${thinLinkless.length} chars`);
+  assert.ok(chromeOnly.length > 3_000, `chrome-only page is ${chromeOnly.length} chars, past the interstitial threshold`);
+
+  const code = (text, url = "https://www.google.com/search?q=camoufox") =>
+    classifySerp({ url, text }, "google");
+
+  const served = classifySerp(fixture("serp-google.txt", "https://www.google.com/search?q=camoufox"), "google");
+  assert.equal(served.kind, "results");
+  assert.ok(served.results.length >= 3);
+
+  // The recorded consent page is 4 193 chars — past the interstitial threshold — and still a wall,
+  // because the host says so. Nothing about the size thresholds may outrank that.
   assert.equal(
-    detectWall({ url: "https://consent.google.com/ml?continue=x", text: longConsent }),
+    classifySerp(fixture("wall-consent.txt", "https://consent.google.com/ml?continue=x"), "google").code,
     "consent_wall",
+    "host evidence outranks every threshold",
   );
+  assert.equal(code(longConsent, CONSENT_HOST).code, "consent_wall");
+  assert.equal(code(wideLinkless).code, "parse_error", "wide enough to have been a page, so blame the parser");
+  assert.equal(code(thinLinkless).code, "empty_results", "a page this thin says something about the query");
+  assert.equal(code(chromeOnly).code, "empty_results", "links we recognised as chrome mean the page parsed fine");
+
+  // And past the interstitial threshold as well, deliberately. Note what this case does *not* decide:
+  // it has no link blocks either, so it cannot say which of the two axes wins. `chromeOnly` above is the
+  // assertion that settles that, and it is the one that would break if the thresholds were collapsed.
+  const oversizedLinkless = `- heading "Google Results" [level=1]\n${line.repeat(200)}`; // 9,618 chars
+  assert.ok(oversizedLinkless.length > 3_000, `oversized link-less page is ${oversizedLinkless.length} chars`);
+  assert.equal(code(oversizedLinkless).code, "parse_error", "main did this too, and for the same reason");
+
+  // Both sides of the threshold itself, so its value cannot drift unnoticed: 2 000 chars is thin, 2 001
+  // is a page we should have been able to read. The widths are literals on purpose. Deriving them from
+  // `PARSEABLE_MIN_CHARS` would move the fixtures with the constant and keep the test passing, which is
+  // the one outcome these cases exist to prevent; each fixture's branch is asserted again below, so a
+  // page that grows for an unrelated reason fails there rather than silently changing branches.
+  const linklessAt2000 = "x".repeat(2_000);
+  const linklessPast2000 = `${"x".repeat(1_992)}${"y".repeat(9)}`; // 2,001, still no link line
+  assert.equal(linklessAt2000.length, 2_000);
+  assert.equal(linklessPast2000.length, 2_001);
+  assert.equal(code(linklessAt2000).code, "empty_results", "at the threshold, still thin");
+  assert.equal(code(linklessPast2000).code, "parse_error", "one past it, and the parser is on trial");
+
+  // The threshold pairing, stated as behaviour rather than as a comment about two numbers: a wall page
+  // with a link block on it, inside the band, is still a wall. Drop `INTERSTITIAL_MAX_CHARS` below
+  // `PARSEABLE_MIN_CHARS` and this is the assertion that fails.
+  const wallInBand = `- heading "Confirm you are not a robot" [level=1]\n- link "Sign in" [e1]:\n  - /url: https://accounts.google.com/ServiceLogin\n- paragraph:\n  - text: ${"complete the captcha to continue. ".repeat(60)}`;
+  assert.ok(wallInBand.length > 2_000 && wallInBand.length <= 3_000, `wall inside the band is ${wallInBand.length} chars`);
+  assert.equal(code(wallInBand).code, "consent_wall", "the wall check owns the band, not the parser");
+});
+
+test("a wide browser error page is a tree we could not read, not an empty query", () => {
+  // The pairing between the two thresholds, as the case that can fail it. The page is deliberately
+  // just past 3 000: these words are `detectWall`'s, so thin they answer `navigation_failed`, and this
+  // is the width where phrase evidence stops being taken. Lift `PARSEABLE_MIN_CHARS` above
+  // `INTERSTITIAL_MAX_CHARS` and a page this wide falls through both checks and starts reporting
+  // `empty_results` — a query blamed for a tree we could not read.
+  const errorLine = "- paragraph:\n  - text: A network protocol error occurred and the page cannot be repaired.\n";
+  const thinBrowserError = `- heading "Problem loading page" [level=1]\n${errorLine}`;
+  const wideBrowserError = `- heading "Problem loading page" [level=1]\n${errorLine.repeat(33)}`;
+
+  assert.ok(wideBrowserError.length > 3_000 && wideBrowserError.length < 3_100, `wide browser error is ${wideBrowserError.length} chars`);
+
+  const code = (text) => classifySerp({ url: "https://www.google.com/search?q=camoufox", text }, "google").code;
+  assert.equal(code(thinBrowserError), "navigation_failed", "thin, the same words are the browser's own refusal");
+  assert.equal(code(wideBrowserError), "parse_error", "too wide for phrase evidence and nothing link-shaped, so the parser is on trial");
 });

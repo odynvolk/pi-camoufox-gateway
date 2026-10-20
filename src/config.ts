@@ -163,12 +163,22 @@ function parseGatewayUrl(raw: unknown, path: string): string {
  */
 const OPTIONAL_KEYS: (keyof CamoufoxConfig)[] = ["apiKey"];
 
+/**
+ * A plain object — not an array, not null — which is what every validator in this repo has to
+ * establish before it can look at keys.
+ *
+ * Exported for the other place that validates unknown input against a recorded contract:
+ * `tools/read.ts` checks a schema against `tests/fixtures/openapi.json`. One predicate in one place,
+ * rather than a second copy that can drift. It lives here rather than in a module of its own because
+ * `config.ts` imports nothing but node builtins, so tools may depend on it and never the reverse.
+ */
+export function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 /** Valid keys per section, derived from the defaults so a new setting validates itself. */
 const SECTION_FIELDS = new Map<string, Set<string>>(
-  Object.entries(DEFAULT_CONFIG).map(([key, value]) => [
-    key,
-    typeof value === "object" && value !== null && !Array.isArray(value) ? new Set(Object.keys(value as Record<string, unknown>)) : new Set<string>(),
-  ]),
+  Object.entries(DEFAULT_CONFIG).map(([key, value]) => [key, isRecord(value) ? new Set(Object.keys(value)) : new Set<string>()]),
 );
 
 const KNOWN_TOP_LEVEL = new Set<string>([...SECTION_FIELDS.keys(), ...OPTIONAL_KEYS]);

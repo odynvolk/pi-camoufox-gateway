@@ -12,9 +12,16 @@ import { createCache } from "../src/cache.ts";
 import { gatewaySessionId } from "../src/session.ts";
 import { urlPolicyFromConfig } from "../src/net-policy.ts";
 import { createExtension, formatError, resolveConfig } from "../src/extension.ts";
+import { DEFAULT_CONFIG } from "../src/config.ts";
 import { GatewayError } from "../src/errors.ts";
 
 const CONFIG = testConfig({ gatewayUrl: "http://gateway.test:9377", timeoutMs: 2000 });
+
+/**
+ * What the error boundary is allowed to know about config: a url from a config that loaded. One shared
+ * value so the decision lives in one place — the only other shape, an empty context, is deliberate.
+ */
+const ERROR_CONTEXT = Object.freeze({ gatewayUrl: CONFIG.gatewayUrl });
 
 function extensionFor(t, userId = "pi-abcdef", options = {}) {
   // `config` belongs to the extension, not to the fake gateway; passing it through unsplit used to
@@ -239,23 +246,103 @@ test("a cached read says so in the text the model gets", async (t) => {
   assert.match(second.text, /fresh:true/u, "the note has to name the way out");
 });
 
+test("an error we could not classify is blamed on us, not on the gateway", () => {
+  // The catch-all used to be `gateway_error`, which is how a fault in our own session-id derivation
+  // ended up reading as "the gateway is down". The client leaves no bare throw behind, so anything
+  // still unclassified at this boundary is ours.
+  const formatted = formatError(new Error("cannot derive a gateway session id"), ERROR_CONTEXT);
+
+  assert.equal(formatted.details.code, "internal_error");
+  assert.match(formatted.text, /^internal_error:/u);
+  assert.match(formatted.text, /own plumbing/u, "the reader has to be told where to look");
+  assert.equal(/(^|\n)gateway_error:/u.test(formatted.text), false, "one code per line, or the model reads two culprits");
+});
+
+test("an unusable pi session id fails as our own invariant, at the source", () => {
+  // Anything that sanitises away to nothing is the same fault: pi handed us nothing to namespace by.
+  // None of it is a gateway outage, and none of it is left as a bare `Error` for the boundary to guess at.
+  // Three of these four are anything but empty, which is why the message names the condition.
+  for (const unusable of ["", "   ", "---", "???"]) {
+    assert.throws(
+      () => gatewaySessionId(unusable),
+      (error) => {
+        assert.ok(error instanceof GatewayError && error.code === "internal_error", `"${unusable}" must fail as an internal invariant`);
+        assert.match(error.message, /reduces to nothing once sanitised/u);
+        assert.equal(/\bempty\b/u.test(error.message), false, "'empty' sends the reader hunting for a missing id");
+        assert.ok(error.message.includes(JSON.stringify(unusable)), `"${unusable}" must be quoted in the message`);
+        return true;
+      },
+    );
+  }
+});
+
+test("an over-long pi session id truncates, deterministically and at a cost", () => {
+  const long = "a".repeat(200);
+  assert.equal(gatewaySessionId(long).length, 128, "the gateway namespace is capped");
+  assert.equal(gatewaySessionId(long), gatewaySessionId(long));
+
+  // Pinned as a fact, not endorsed: the tail past 128 is discarded, so two ids agreeing on the first
+  // 125 characters land in one gateway namespace and share tabs — the thing the prefix exists to
+  // prevent. Recorded as D.5; this assertion is here so a fix is a decision, not a surprise.
+  assert.equal(gatewaySessionId(`${long}x`), gatewaySessionId(long), "the tail past 128 discriminates nothing");
+});
+
+test("punctuation that survives sanitising is still a usable namespace", () => {
+  // Refusing these would be a new way to break ordinary reads: only a name that reduces to nothing
+  // is unusable.
+  assert.equal(gatewaySessionId("..."), "pi-...");
+  assert.equal(gatewaySessionId("a/../b"), "pi-a-..-b");
+});
+
+test("with no config resolved for the call, the error names no gateway", () => {
+  // A type-level guard on `ErrorContext`: `guard()` short-circuits a config fault before this code is
+  // reachable through a tool call, so driving it means calling `formatError` directly with no url.
+  const formatted = formatError(new GatewayError("gateway_unreachable", "cannot reach the gateway"), {});
+
+  assert.match(formatted.text, /No gateway url is known for this client/u);
+  assert.equal(formatted.text.includes(DEFAULT_CONFIG.gatewayUrl), false, "no shipped default is quoted");
+  assert.equal(/https?:\/\//u.test(formatted.text), false, "and no other address either");
+  assert.equal(/undefined/u.test(formatted.text), false, "an absent url must not print as one");
+});
+
+test("a code the model acts on cannot be overwritten by error details", () => {
+  // Details arrive from wherever an error carries them, including a gateway payload. One of them must
+  // not be able to relabel the fault after the fact — that is the same misattribution B.1 exists to stop.
+  const formatted = formatError(
+    new GatewayError("timeout", "gateway did not respond", { details: { code: "gateway_error", url: "https://x.test/" } }),
+    ERROR_CONTEXT,
+  );
+
+  assert.equal(formatted.details.code, "timeout");
+  assert.equal(formatted.details.url, "https://x.test/", "the rest of the evidence survives");
+});
+
 test("a refusal after the browser moved does not claim nothing was sent", () => {
   // The same codes come from the pre-flight check and from re-checking the destination the gateway
   // reports; only the first of those can say the gateway was never contacted.
-  const blocked = formatError(new GatewayError("host_blocked", "refused", { details: { host: "a.test", stage: "request" } }), CONFIG);
+  const blocked = formatError(
+    new GatewayError("host_blocked", "refused", { details: { host: "a.test", stage: "request" } }),
+    ERROR_CONTEXT,
+  );
   assert.match(blocked.text, /blockedHosts list, so its content was not returned\.$/u);
 
-  const afterRedirect = formatError(new GatewayError("host_blocked", "refused", { details: { host: "a.test", stage: "destination" } }), CONFIG);
+  const afterRedirect = formatError(
+    new GatewayError("host_blocked", "refused", { details: { host: "a.test", stage: "destination" } }),
+    ERROR_CONTEXT,
+  );
   assert.match(afterRedirect.text, /The browser was redirected there\./u);
   assert.equal(/nothing was sent|nothing was fetched/iu.test(afterRedirect.text), false);
 
   const unsupportedAfterRedirect = formatError(
     new GatewayError("unsupported", "not a url", { details: { stage: "destination" } }),
-    CONFIG,
+    ERROR_CONTEXT,
   );
   assert.equal(/Nothing was fetched/u.test(unsupportedAfterRedirect.text), false, "a tab was opened and a page was fetched");
 
-  const unsupportedUpFront = formatError(new GatewayError("unsupported", "empty query"), CONFIG);
+  const unsupportedUpFront = formatError(
+    new GatewayError("unsupported", "empty query"),
+    ERROR_CONTEXT,
+  );
   assert.match(unsupportedUpFront.text, /Nothing was fetched from the gateway\./u);
 });
 

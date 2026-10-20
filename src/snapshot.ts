@@ -42,25 +42,36 @@ interface LinkBlock {
 const CHROME_TITLES =
   /^(all|images|videos|news|maps|webb|short videos|more|next|page \d+|sign in|privacy|terms|settings|search domain .+)$/iu;
 
-/** Above this size a page is content, not an interstitial, whatever it happens to mention. */
+/**
+ * Above this size a page is content rather than an interstitial, whatever it mentions — unless its host
+ * already says otherwise, which is size-independent (`detectWall`'s first branch).
+ */
 const INTERSTITIAL_MAX_CHARS = 3_000;
 
 /**
- * A link-less page past this size is a parser failure rather than a thin query.
+ * Past this size, a page with no link blocks at all has outgrown "thin query": a real results list of
+ * that width would have had some. Below it, link-less text is a query that matched nothing.
  *
- * Both engines ask `detectWall` first (google.ts:28, duckduckgo.ts:25), so host and phrase evidence
- * owns everything up to `INTERSTITIAL_MAX_CHARS` — this threshold has no say in that, and the two
- * values are not in competition. What it does decide is narrower: among the pages the wall check
- * declined, link-less text inside this band reads as `parse_error`, and anything shorter reads as
- * `empty_results`. Above `INTERSTITIAL_MAX_CHARS` the answer is `parse_error` regardless, so keeping
- * this below it is what stops a link-less page inside the wall window being reported as "no results".
+ * Two thresholds decide what a page with no results means, and only one of them is this one: a wall or
+ * an empty page is `detectWall`'s answer, and it is always taken first, because `classifySerp` is the
+ * only caller of *this threshold* and runs both checks in one place. So it reaches exactly the pages
+ * the wall check declined, and only together with the structure axis — how many link blocks the page
+ * has.
  *
- * If that call order ever changes, this threshold's meaning changes with it.
+ * What this threshold's position controls is a page nothing catches by shape: a link-less one. At any
+ * value, a page carrying a wall phrase under `INTERSTITIAL_MAX_CHARS` is still `blocked` — `detectWall`
+ * runs first and width is never consulted. But between the two constants, a wide page we could not read
+ * would come back as "the engine returned nothing", and keeping this below that is what closes the
+ * band. `tests/snapshot.test.mjs` has the page that would otherwise fall through it; the matrix in that
+ * file pins each constant's value at its own boundary.
  */
 const PARSEABLE_MIN_CHARS = 2_000;
 
 /** Snippets are model-facing, so the cap is explicit rather than an inline slice. */
 const SNIPPET_MAX_CHARS = 400;
+
+/** Same reason for excerpts, which is all `excerpt` has to say about why it is not inline. */
+const EXCERPT_MAX_CHARS = 200;
 
 const LINK_LINE = /^(\s*)-\s+link\s+"(.*)"\s*(?:\[(e\d+)\])?\s*:?\s*$/u;
 const URL_LINE = /^\s*-\s*\/url:\s*(\S+)\s*$/u;
@@ -154,27 +165,27 @@ function isChrome(engine: string, url: string): boolean {
   return host.endsWith("google.com") && !isWrapper(url);
 }
 
+/** Leading slice of a snapshot as one line, for a diagnostic excerpt. Used in `classifySerp`'s details. */
+function excerpt(snapshot: SnapshotLike): string {
+  return (snapshot.text ?? "").replace(/\s+/gu, " ").trim().slice(0, EXCERPT_MAX_CHARS);
+}
+
 /**
- * True when a snapshot is too long to be a wall or an empty page yet contains no link blocks. That
- * means the accessibility tree changed shape — a different failure from "the engine served a clean
- * page with no organic results", and the difference matters when deciding whether to retry.
+ * The parsing seam: blocks in, filtered results out.
+ *
+ * Production classifies through `classifySerp`, which owns the order; this stays exported so the
+ * recorded fixtures can be asserted against the parser alone, without a verdict in the way.
  */
-export function looksUnparseable(snapshot: SnapshotLike): boolean {
-  const text = snapshot.text ?? "";
-  if (text.length <= PARSEABLE_MIN_CHARS) return false;
-  return linkBlocks(text).length === 0;
-}
-
-/** Leading slice of a snapshot as one line, for a diagnostic excerpt. */
-export function excerpt(snapshot: SnapshotLike, limit = 200): string {
-  return (snapshot.text ?? "").replace(/\s+/gu, " ").trim().slice(0, limit);
-}
-
 export function parseSerp(snapshot: SnapshotLike, engine: string): { results: SearchResult[] } {
+  return { results: organicResults(linkBlocks(snapshot.text ?? ""), engine) };
+}
+
+/** Blocks the engine links to as results, after chrome, dead urls, and duplicates are dropped. */
+function organicResults(blocks: LinkBlock[], engine: string): SearchResult[] {
   const results: SearchResult[] = [];
   const seen = new Set<string>();
 
-  for (const block of linkBlocks(snapshot.text)) {
+  for (const block of blocks) {
     const url = block.url?.trim();
     if (!url || !/^https?:\/\//iu.test(url)) continue;
     if (isChrome(engine, url)) continue;
@@ -200,7 +211,7 @@ export function parseSerp(snapshot: SnapshotLike, engine: string): { results: Se
     });
   }
 
-  return { results };
+  return results;
 }
 
 /**
@@ -228,6 +239,73 @@ export function detectWall(snapshot: SnapshotLike): GatewayErrorCode | null {
   }
 
   return null;
+}
+
+/**
+ * A SERP snapshot that is not results, and the code the model should be told.
+ *
+ * Every error branch carries `url` and `engine` in `details`, plus `excerpt` where it is the evidence:
+ * the chain records `code` and `message` per step, so a step that reported no engine could not be
+ * attributed after the fact.
+ */
+export type SerpVerdict =
+  | { kind: "results"; results: SearchResult[] }
+  | { kind: "error"; code: GatewayErrorCode; message: string; details: Record<string, unknown> };
+
+/**
+ * One SERP snapshot, one verdict: wall, results, or — with nothing organic to hand back — why not.
+ *
+ * The two axes of the last branch are read here, not inferred from call order: how wide the page is,
+ * and whether anything in it had the shape of a link at all. Both engines used to repeat the sequence
+ * themselves, which made the *meaning* of `PARSEABLE_MIN_CHARS` an emergent property of that order —
+ * swap two calls and a wall-shaped page reports `empty_results`, or a thin one blames our parser. Now
+ * one call site holds the order, and the branches are asserted together in `tests/snapshot.test.mjs`.
+ */
+export function classifySerp(snapshot: SnapshotLike, engine: string): SerpVerdict {
+  const url = snapshot.url ?? "";
+  const text = snapshot.text ?? "";
+
+  // Host and phrase evidence first: an interstitial is a substituted page, and naming it is more
+  // useful than reporting a page we could not parse.
+  const wall = detectWall(snapshot);
+  if (wall) {
+    return {
+      kind: "error",
+      code: wall,
+      message: `${engine} did not serve results (got ${url})`,
+      details: { url, engine },
+    };
+  }
+
+  // Split once, because the block count is evidence in its own right: a page whose only links are the
+  // engine's own tabs answered cleanly, with nothing organic in it. That is a different emptiness from
+  // a page where nothing matched `link` at all, and only the second one is a changed tree.
+  //
+  // The middle case is not decidable from here, and is recorded as B.6: an engine that moved organic
+  // results to a node type we do not read, while its chrome links survive, has the shape of an engine
+  // that answered with nothing. `empty_results` is not terminal, so the chain still falls through to the
+  // next engine and one blind adapter is recovered; two would be a wrong answer. Nothing structural
+  // separates the two — the recorded `serp-no-results.txt` *is* chrome-with-urls and zero organics.
+  const blocks = linkBlocks(text);
+  const results = organicResults(blocks, engine);
+  if (results.length > 0) return { kind: "results", results };
+
+  if (blocks.length === 0 && text.length > PARSEABLE_MIN_CHARS) {
+    return {
+      kind: "error",
+      code: "parse_error",
+      message: `${engine} served a page we could not read as a results list`,
+      // The excerpt is the only way to tell a tree change from a strange-but-readable page.
+      details: { url, engine, excerpt: excerpt(snapshot) },
+    };
+  }
+
+  return {
+    kind: "error",
+    code: "empty_results",
+    message: `${engine} returned no organic results for that query`,
+    details: { url, engine },
+  };
 }
 
 export interface ExtractTextOptions {
