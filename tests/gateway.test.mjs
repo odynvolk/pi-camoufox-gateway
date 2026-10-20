@@ -480,8 +480,12 @@ test("an ambiguous openTab timeout sweeps the tab the gateway created", async (t
   assert.equal(client.openTabCount(), 0);
 });
 
-test("times out against a gateway that never answers", async (t) => {
-  withFakeGateway(t);
+test("times out against a gateway that never answers", async () => {
+  // No `withFakeGateway` here, deliberately. Every request this client makes is answered by
+  // `fetchImpl`, so a global fake would carry no traffic, track no tabs, and observe nothing — while
+  // quietly replacing `fetch_guard.mjs`'s blocked global fetch with a healthy gateway. That guard is
+  // the one thing that catches a request escaping to the real network, and installing an unused stub
+  // is exactly how it gets defeated.
   const client = createGatewayClient({
     baseUrl: BASE,
     timeoutMs: 20,
