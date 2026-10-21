@@ -99,7 +99,8 @@ test("parameter descriptions quote structural values and name the key for anythi
 
   // Structural: one engine page is this wide whatever anyone configures, so quoting the number is
   // quoting a fact. Same for the engine names.
-  assert.match(search.n.description, new RegExp(String(MAX_SEARCH_RESULTS), "u"), `"${search.n.description}" does not quote MAX_SEARCH_RESULTS`);
+  const nDescription = search.n.description;
+  assert.match(nDescription, new RegExp(String(MAX_SEARCH_RESULTS), "u"), `"${nDescription}" does not quote MAX_SEARCH_RESULTS`);
   for (const engine of ENGINE_NAMES) {
     assert.match(search.engine.description, new RegExp(engine, "u"), `"${search.engine.description}" is missing engine "${engine}"`);
   }
@@ -132,7 +133,8 @@ test("the configured timeoutMs is the deadline a call actually obeys", async (t)
   const configPath = join(dir, "camoufox.json");
   // `read.waitForTimeoutMs` has to stay under `timeoutMs` for the config to be coherent at all — the
   // rule that already refuses the contradictory pair, so this fixture has to satisfy it.
-  writeFileSync(configPath, JSON.stringify({ gatewayUrl: "http://gateway.test:9377", timeoutMs: 250, read: { waitForTimeoutMs: 120 } }), "utf8");
+  const fixture = { gatewayUrl: "http://gateway.test:9377", timeoutMs: 250, read: { waitForTimeoutMs: 120 } };
+  writeFileSync(configPath, JSON.stringify(fixture), "utf8");
   const ambient = Object.fromEntries(
     Object.keys(process.env).filter((key) => key.startsWith("CAMOUFOX_")).map((key) => [key, process.env[key]]),
   );
