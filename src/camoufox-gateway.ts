@@ -8,7 +8,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type, type Static } from "typebox";
 
-import { DEFAULT_CONFIG, ENGINE_NAMES, MAX_SEARCH_RESULTS } from "./config.ts";
+import { ENGINE_NAMES, MAX_SEARCH_RESULTS } from "./config.ts";
 import { urlPolicyFromConfig } from "./net-policy.ts";
 import { createExtension, formatError, resolveConfig, READ_DESCRIPTION, SEARCH_DESCRIPTION, type Extension } from "./extension.ts";
 import { createCache } from "./cache.ts";
