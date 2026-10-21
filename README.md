@@ -17,7 +17,8 @@ Searches through the browser and returns ranked titles, urls and snippets.
 - Bing is not offered: through this gateway it returns a `Network Protocol Error` before results
   render, so it would only ever waste a page load.
 - `n` is clamped to 10. The macro takes only a query, so a longer list is not reachable — which is why
-  `search.maxResults` is refused above it rather than silently rounded down on every call.
+  `search.maxResults` is refused above it rather than silently rounded down on every call. It has to be a
+  whole number too: `n: 2.5` used to slice to 2 rows and report nothing, because `slice` floors silently.
 - `resolve: true` turns Google's `google.com/goto?url=…` wrappers into final urls. It costs one
   extra page load per result and runs at most three tabs at a time, so it is off by default.
 

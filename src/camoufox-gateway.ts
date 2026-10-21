@@ -17,7 +17,9 @@ import { gatewaySessionId } from "./session.ts";
 
 const SearchSchema = Type.Object({
   query: Type.String({ description: "Keywords to search for" }),
-  n: Type.Optional(Type.Number({ description: `Maximum results (engine returns a page of ${MAX_SEARCH_RESULTS})` })),
+  // `Integer`, not `Number`: the tool refuses a fractional count, and a schema offering one would be a
+  // promise the code breaks. The guard is still in `tools/search.ts` because that is what actually holds.
+  n: Type.Optional(Type.Integer({ description: `Maximum results (engine returns a page of ${MAX_SEARCH_RESULTS})` })),
   engine: Type.Optional(Type.String({ description: `Force one engine: ${ENGINE_NAMES.join(" | ")}` })),
   resolve: Type.Optional(Type.Boolean({ description: "Resolve google redirect urls to final urls" })),
 });

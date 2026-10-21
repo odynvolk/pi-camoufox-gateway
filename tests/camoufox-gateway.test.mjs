@@ -318,3 +318,9 @@ test("the fresh parameter points at the setting rather than a copy of its value"
   assert.match(description, /cache\.pageMs/u);
   assert.doesNotMatch(description, /\d+\s*(minute|second|hour)/u);
 });
+
+test("the n schema offers only whole numbers, because the tool refuses anything else", () => {
+  // `tools/search.ts` rejects a fractional count, so a `Type.Number` here would advertise a value the
+  // code then refuses — the schema half of the mismatch E.4 removed from the descriptions.
+  assert.equal(registered().byName.camoufox_search.parameters.properties.n.type, "integer");
+});

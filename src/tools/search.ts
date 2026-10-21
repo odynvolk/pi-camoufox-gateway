@@ -89,6 +89,18 @@ export function searchTool(deps: SearchToolDeps) {
     }
 
     const requested = params.n ?? config.search.maxResults;
+    // A fractional result count is not expressible. `slice` floors it, so `n: 2.5` showed 2 rows while
+    // disclosing nothing, and on a page of 2 it claimed "0.5 fewer result(s)". Same reason `config.ts`
+    // refuses a fractional `search.maxResults` — and checked on the effective value, because a hand-built
+    // config reaches here without passing through the validator.
+    if (!Number.isInteger(requested)) {
+      throw new GatewayError(
+        "unsupported",
+        params.n === undefined
+          ? `"search.maxResults" must be a whole number of results, got ${requested}`
+          : `"n" must be a whole number of results, got ${requested}`,
+      );
+    }
     const clamped = Math.max(1, Math.min(requested, MAX_SEARCH_RESULTS));
     const resolve = params.resolve === true;
 
