@@ -61,8 +61,10 @@ export interface CamoufoxConfig {
  *
  * Declared here rather than in `tools/search.ts`, which is where it is enforced, because the validator
  * has to refuse a `search.maxResults` above it and `config.ts` imports nothing but node builtins —
- * importing the tool would be a cycle. The number lives in one file so a config bound and a runtime
- * clamp cannot drift; `tools/search.ts` and the tool schema both read this.
+ * importing the tool would be a cycle. Single-sourced as far as it goes: the config bound, the clamp and
+ * the parameter description are this one value. It does not cover `GOOGLE_PAGE_SIZE` in
+ * `engines/google.ts`, which is what one adapter asks the macro for and cannot be derived from here —
+ * duckduckgo pins no width at all, so a tool-level ceiling has no engine-side value to take. See G.1.
  */
 export const MAX_SEARCH_RESULTS = 10;
 
@@ -366,9 +368,13 @@ function assertCoherent(config: CamoufoxConfig, path: string): void {
     );
   }
   if (config.read.defaultMaxChars > config.read.maxCharsCeiling) {
+    // Both keys are named because a single-key edit trips this — set the ceiling below the shipped
+    // default and the complaint is about a key nobody wrote. So the remedy has to be in the message,
+    // naming both, or the only way out is reading this function.
     fail(
       `${path}: "read.defaultMaxChars" (${config.read.defaultMaxChars}) cannot exceed "read.maxCharsCeiling` +
-        `" (${config.read.maxCharsCeiling}): the default would be capped on every read that omits maxChars`,
+        `" (${config.read.maxCharsCeiling}): the default would be capped on every read that omits maxChars. ` +
+        `Lower "read.defaultMaxChars" or raise "read.maxCharsCeiling".`,
     );
   }
   if (config.read.waitForTimeoutMs >= config.timeoutMs) {

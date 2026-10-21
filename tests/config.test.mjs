@@ -243,8 +243,10 @@ test("search.maxResults above what one engine page holds is refused at load", (t
     },
   );
 
-  // The bound is the tool's own constant, not a copy that can drift from it.
-  assert.equal(loadConfig({ configPath: withConfigFile(JSON.stringify({ search: { maxResults: MAX_SEARCH_RESULTS } }), t), env: {} }).search.maxResults, MAX_SEARCH_RESULTS);
+  // The bound is the tool's own constant rather than a copy that can drift from it: the value the
+  // loader accepts is the one `tools/search.ts` clamps against.
+  const atTheLimit = withConfigFile(JSON.stringify({ search: { maxResults: MAX_SEARCH_RESULTS } }), t);
+  assert.equal(loadConfig({ configPath: atTheLimit, env: {} }).search.maxResults, MAX_SEARCH_RESULTS);
 });
 
 test("a fractional search.maxResults is refused rather than silently returned as fewer", (t) => {
@@ -265,6 +267,23 @@ test("a default text budget above its own ceiling is refused, naming both keys",
       return true;
     },
   );
+
+  // The recoverable form of the same fault: one key edited, the other supplied by defaults, so the
+  // message names a key nobody wrote. It has to say which way to fix it, or the only way out is
+  // reading `assertCoherent`.
+  const shrunkCeiling = withConfigFile(JSON.stringify({ read: { maxCharsCeiling: 8_000 } }), t);
+  assert.throws(
+    () => loadConfig({ configPath: shrunkCeiling, env: {} }),
+    (err) => {
+      assert.match(err.message, /Lower "read\.defaultMaxChars"/u, "a remedy, not just a contradiction");
+      assert.match(err.message, /raise "read\.maxCharsCeiling"/u, "and the other lever, since either fixes it");
+      return true;
+    },
+  );
+
+  // Refusing the contradiction must not mean refusing a coherent pair.
+  const lowered = withConfigFile(JSON.stringify({ read: { defaultMaxChars: 5_000, maxCharsCeiling: 8_000 } }), t);
+  assert.equal(loadConfig({ configPath: lowered, env: {} }).read.maxCharsCeiling, 8_000);
 });
 
 test("a disabled settle loop imposes no bound on the poll interval", (t) => {
