@@ -243,10 +243,24 @@ test("search.maxResults above what one engine page holds is refused at load", (t
     },
   );
 
-  // The bound is the tool's own constant rather than a copy that can drift from it: the value the
-  // loader accepts is the one `tools/search.ts` clamps against.
+  // The bound has to be the tool's own constant, not a copy that can drift from it — and not the
+  // default, which is the same number. Asserting only "10 loads as 10" is true even when the loader
+  // throws the file value away, because `DEFAULT_CONFIG.search.maxResults` is this same constant. So:
+  // a distinct value survives the merge, the boundary is accepted, and one past it is not.
+  const belowBound = withConfigFile(JSON.stringify({ search: { maxResults: 3 } }), t);
+  assert.equal(
+    loadConfig({ configPath: belowBound, env: {} }).search.maxResults,
+    3,
+    "a configured value below the bound has to survive the merge, not sit shadowed by the default",
+  );
+
   const atTheLimit = withConfigFile(JSON.stringify({ search: { maxResults: MAX_SEARCH_RESULTS } }), t);
   assert.equal(loadConfig({ configPath: atTheLimit, env: {} }).search.maxResults, MAX_SEARCH_RESULTS);
+
+  // Not the same case as the 25 above: 25 proves "too big is refused", this proves the refusal boundary
+  // sits exactly on the constant rather than somewhere below it.
+  const justOver = withConfigFile(JSON.stringify({ search: { maxResults: MAX_SEARCH_RESULTS + 1 } }), t);
+  assert.throws(() => loadConfig({ configPath: justOver, env: {} }), /search\.maxResults/u);
 });
 
 test("a fractional search.maxResults is refused rather than silently returned as fewer", (t) => {
