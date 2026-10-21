@@ -156,8 +156,17 @@ test("the configured timeoutMs is the deadline a call actually obeys", async (t)
   const started = Date.now();
   const result = await byName.camoufox_read.execute("id", { url: "https://slow.test/" }, undefined, () => undefined, ctx);
 
-  assert.match(result.content[0].text, /^timeout:/u, `"${result.content[0].text}" is not a deadline`);
-  assert.match(result.content[0].text, /within 250ms/u, "the message names the configured number, not a default it invented");
+  // The message is only half of it: pi branches on `isError`, and a deadline that renders but never
+  // flags is a different bug. Assert the shape, then the prose.
+  assert.equal(result.isError, true, "an aborted call has to reach pi as a tool failure");
+  // Both result shapes are 1-tuples by type (`ToolFailure`, and the two success returns), so pin the
+  // tuple rather than defaulting it away: `content[0]?.text ?? ""` would make an empty array and an
+  // empty message indistinguishable, which is less diagnostic than the crash it avoids.
+  assert.equal(result.content.length, 1, "a tool result carries exactly one text block");
+  const text = result.content[0].text;
+
+  assert.match(text, /^timeout:/u, `"${text}" is not a deadline`);
+  assert.match(text, /within 250ms/u, "the message names the configured number, not a default it invented");
   assert.ok(Date.now() - started < 5_000, "the call outlived its deadline instead of being aborted at 250ms");
 });
 
