@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { DEFAULT_CONFIG, loadConfig } from "../src/config.ts";
+import { DEFAULT_CONFIG, loadConfig, MAX_SEARCH_RESULTS } from "../src/config.ts";
 import { resolveConfig } from "../src/extension.ts";
 import { testConfig } from "./helpers/config.mjs";
 
@@ -226,6 +226,78 @@ test("settings that cannot both be true are refused, naming both keys", (t) => {
       return true;
     },
   );
+});
+
+test("search.maxResults above what one engine page holds is refused at load", (t) => {
+  // The runtime clamped it silently, so a config saying 25 meant every call came back with 10 and a
+  // line blaming the engine page. The limit is structural — the macro takes a query and has no
+  // pagination — so a larger number is not a setting, and refusing it beats honouring it differently.
+  const over = withConfigFile(JSON.stringify({ search: { maxResults: 25 } }), t);
+  assert.throws(
+    () => loadConfig({ configPath: over, env: {} }),
+    (err) => {
+      assert.match(err.message, /search\.maxResults/u);
+      assert.match(err.message, new RegExp(String(MAX_SEARCH_RESULTS), "u"), "the message has to name the ceiling it refused");
+      assert.match(err.message, /pagination|page/u, "and say why the number cannot be honoured");
+      return true;
+    },
+  );
+
+  // The bound has to be the tool's own constant, not a copy that can drift from it — and not the
+  // default, which is the same number. Asserting only "10 loads as 10" is true even when the loader
+  // throws the file value away, because `DEFAULT_CONFIG.search.maxResults` is this same constant. So:
+  // a distinct value survives the merge, the boundary is accepted, and one past it is not.
+  const belowBound = withConfigFile(JSON.stringify({ search: { maxResults: 3 } }), t);
+  assert.equal(
+    loadConfig({ configPath: belowBound, env: {} }).search.maxResults,
+    3,
+    "a configured value below the bound has to survive the merge, not sit shadowed by the default",
+  );
+
+  const atTheLimit = withConfigFile(JSON.stringify({ search: { maxResults: MAX_SEARCH_RESULTS } }), t);
+  assert.equal(loadConfig({ configPath: atTheLimit, env: {} }).search.maxResults, MAX_SEARCH_RESULTS);
+
+  // Not the same case as the 25 above: 25 proves "too big is refused", this proves the refusal boundary
+  // sits exactly on the constant rather than somewhere below it.
+  const justOver = withConfigFile(JSON.stringify({ search: { maxResults: MAX_SEARCH_RESULTS + 1 } }), t);
+  assert.throws(() => loadConfig({ configPath: justOver, env: {} }), /search\.maxResults/u);
+});
+
+test("a fractional search.maxResults is refused rather than silently returned as fewer", (t) => {
+  // `Math.min(2.5, 10)` survives to an `Array.prototype.slice`, which floors it: the config said 2.5,
+  // the call got 2, and the disclosure line read "clamped to 2.5".
+  const fractional = withConfigFile(JSON.stringify({ search: { maxResults: 2.5 } }), t);
+  assert.throws(() => loadConfig({ configPath: fractional, env: {} }), /whole number/u);
+});
+
+test("a default text budget above its own ceiling is refused, naming both keys", (t) => {
+  // One would silently cap every read that omits `maxChars`, which is most of them.
+  const contradictory = withConfigFile(JSON.stringify({ read: { defaultMaxChars: 50_000, maxCharsCeiling: 40_000 } }), t);
+  assert.throws(
+    () => loadConfig({ configPath: contradictory, env: {} }),
+    (err) => {
+      assert.match(err.message, /read\.defaultMaxChars/u);
+      assert.match(err.message, /read\.maxCharsCeiling/u, "naming one key is not enough to fix it");
+      return true;
+    },
+  );
+
+  // The recoverable form of the same fault: one key edited, the other supplied by defaults, so the
+  // message names a key nobody wrote. It has to say which way to fix it, or the only way out is
+  // reading `assertCoherent`.
+  const shrunkCeiling = withConfigFile(JSON.stringify({ read: { maxCharsCeiling: 8_000 } }), t);
+  assert.throws(
+    () => loadConfig({ configPath: shrunkCeiling, env: {} }),
+    (err) => {
+      assert.match(err.message, /Lower "read\.defaultMaxChars"/u, "a remedy, not just a contradiction");
+      assert.match(err.message, /raise "read\.maxCharsCeiling"/u, "and the other lever, since either fixes it");
+      return true;
+    },
+  );
+
+  // Refusing the contradiction must not mean refusing a coherent pair.
+  const lowered = withConfigFile(JSON.stringify({ read: { defaultMaxChars: 5_000, maxCharsCeiling: 8_000 } }), t);
+  assert.equal(loadConfig({ configPath: lowered, env: {} }).read.maxCharsCeiling, 8_000);
 });
 
 test("a disabled settle loop imposes no bound on the poll interval", (t) => {

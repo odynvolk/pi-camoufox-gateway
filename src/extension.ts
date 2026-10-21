@@ -161,6 +161,14 @@ function renderRead(outcome: ReadOutcome): string {
   if (outcome.fromCache) {
     notes.push("[served from the page cache — the page was not re-fetched; read again with fresh:true to force a navigation]");
   }
+  // A capped budget is a different situation from a short page. The header already says how much came
+  // back; what the model cannot infer from it is that the ceiling — not the page, and not its own
+  // `maxChars` — did the cutting, so re-asking with a bigger number returns the same text. Sent only
+  // when there is more to get: a cap that cost nothing would point at an offset past the end.
+  if (outcome.cappedAt !== undefined && (outcome.truncated || outcome.hasMore)) {
+    const why = `maxChars capped at ${outcome.cappedAt} by read.maxCharsCeiling`;
+    notes.push(`[${why} — a larger maxChars returns no more; continue with offset]`);
+  }
   if (outcome.thinAfterWait) {
     const waited = outcome.settledInMs ? ` after waiting ${outcome.settledInMs}ms` : "";
     const knobs: string[] = [];

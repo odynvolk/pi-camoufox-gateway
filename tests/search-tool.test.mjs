@@ -131,6 +131,30 @@ test("n below one is disclosed, not silently turned into a single result", async
   assert.equal(out.clampedTo, 1);
 });
 
+test("a fractional n is refused, not floored into silence", async (t) => {
+  const { tool } = setup(t);
+
+  // 2.5 used to reach `slice`, which floors it: 2 rows came back, `clampedTo` stayed undefined (2.5 is
+  // its own minimum against the page bound), and on a page of 2 the output said "0.5 fewer result(s)".
+  await assert.rejects(
+    () => tool.search({ query: "camoufox", n: 2.5 }),
+    /"n" must be a whole number.*2\.5/us,
+    "names the parameter and the value it rejected",
+  );
+});
+
+test("a fractional search.maxResults is refused at the tool, not only by the validator", async (t) => {
+  // `testConfig` merges without running `assertCoherent`, so this is the path a hand-built config takes
+  // — and the one the validator's integer rule cannot cover.
+  const { tool } = setup(t, { config: { search: { maxResults: 2.5 } } });
+
+  await assert.rejects(
+    () => tool.search({ query: "camoufox" }),
+    /"search\.maxResults" must be a whole number/u,
+    "the message names the key that is wrong, not a parameter nobody passed",
+  );
+});
+
 test("resolve fills in final urls and reports ones that stayed wrapped", async (t) => {
   const { client, config, engines } = setup(t);
   const tool = searchTool({ client, engines, config, cache: createCache(), userId: "u1" });

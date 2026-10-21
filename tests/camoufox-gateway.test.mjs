@@ -14,8 +14,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import registerExtension from "../src/camoufox-gateway.ts";
-import { DEFAULT_CONFIG, ENGINE_NAMES } from "../src/config.ts";
-import { MAX_RESULTS_HARD_LIMIT } from "../src/tools/search.ts";
+import { DEFAULT_CONFIG, ENGINE_NAMES, MAX_SEARCH_RESULTS } from "../src/config.ts";
 import { READ_DESCRIPTION, SEARCH_DESCRIPTION } from "../src/extension.ts";
 import { withFakeGateway } from "./helpers/fake_gateway.mjs";
 
@@ -92,28 +91,85 @@ test("descriptions come from the core, not a second copy that can rot", () => {
   assert.match(byName.camoufox_read.description, /waitFor/u);
 });
 
-test("parameter descriptions quote the code, so they cannot drift from it", () => {
+test("parameter descriptions quote structural values and name the key for anything overridable", () => {
   const { byName } = registered();
 
   const search = byName.camoufox_search.parameters.properties;
   const read = byName.camoufox_read.parameters.properties;
 
-  // Quoted values, not literals: a default that moves in config must not leave the schema
-  // promising the old number.
-  assert.match(search.n.description, new RegExp(String(MAX_RESULTS_HARD_LIMIT), "u"), `"${search.n.description}" does not quote MAX_RESULTS_HARD_LIMIT`);
+  // Structural: one engine page is this wide whatever anyone configures, so quoting the number is
+  // quoting a fact. Same for the engine names.
+  const nDescription = search.n.description;
+  assert.match(nDescription, new RegExp(String(MAX_SEARCH_RESULTS), "u"), `"${nDescription}" does not quote MAX_SEARCH_RESULTS`);
   for (const engine of ENGINE_NAMES) {
     assert.match(search.engine.description, new RegExp(engine, "u"), `"${search.engine.description}" is missing engine "${engine}"`);
   }
-  assert.match(
-    read.maxChars.description,
-    new RegExp(String(DEFAULT_CONFIG.read.defaultMaxChars), "u"),
-    `"${read.maxChars.description}" does not quote read.defaultMaxChars`,
+
+  // Overridable: these numbers belong to the user's config, which is read after this module is
+  // imported. Interpolating `DEFAULT_CONFIG` here — which is what this test used to require — states a
+  // resolved default as a promise, and is false for anyone who set the key. So the description names
+  // the key and quotes no number a config file could contradict.
+  assert.match(read.maxChars.description, /read\.defaultMaxChars/u, `"${read.maxChars.description}" does not name read.defaultMaxChars`);
+  assert.match(read.maxChars.description, /read\.maxCharsCeiling/u, "the ceiling belongs in the same sentence as the budget it bounds");
+  assert.equal(
+    read.maxChars.description.includes(String(DEFAULT_CONFIG.read.defaultMaxChars)),
+    false,
+    `"${read.maxChars.description}" quotes a number a user's config can contradict`,
   );
-  assert.match(
-    read.waitFor.description,
-    new RegExp(String(DEFAULT_CONFIG.read.waitForTimeoutMs), "u"),
-    `"${read.waitFor.description}" does not quote read.waitForTimeoutMs`,
+  assert.match(read.waitFor.description, /read\.waitForTimeoutMs/u, `"${read.waitFor.description}" does not name read.waitForTimeoutMs`);
+  assert.equal(
+    read.waitFor.description.includes(String(DEFAULT_CONFIG.read.waitForTimeoutMs)),
+    false,
+    `"${read.waitFor.description}" quotes a number a user's config can contradict`,
   );
+});
+
+test("the configured timeoutMs is the deadline a call actually obeys", async (t) => {
+  // The client used to carry its own `?? 30_000`, so a hand-built one ran on a deadline no document
+  // mentioned and the number in the README could stop being the one that fires. It is required now, and
+  // this is the wiring that proves it: 250ms from a config file, through `pi.registerTool`, into the
+  // request the hung fake is still answering.
+  const dir = mkdtempSync(join(tmpdir(), "camoufox-timeout-"));
+  const configPath = join(dir, "camoufox.json");
+  // `read.waitForTimeoutMs` has to stay under `timeoutMs` for the config to be coherent at all — the
+  // rule that already refuses the contradictory pair, so this fixture has to satisfy it.
+  const fixture = { gatewayUrl: "http://gateway.test:9377", timeoutMs: 250, read: { waitForTimeoutMs: 120 } };
+  writeFileSync(configPath, JSON.stringify(fixture), "utf8");
+  const ambient = Object.fromEntries(
+    Object.keys(process.env).filter((key) => key.startsWith("CAMOUFOX_")).map((key) => [key, process.env[key]]),
+  );
+  const scrub = () => {
+    for (const key of Object.keys(process.env)) if (key.startsWith("CAMOUFOX_")) delete process.env[key];
+  };
+  scrub();
+  process.env.CAMOUFOX_CONFIG_PATH = configPath;
+  t.after(() => {
+    scrub();
+    Object.assign(process.env, ambient);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  // Long enough that answering at all would mean the client never cut it off; short enough that the
+  // uncancellable fake timer does not become the suite's wall clock.
+  withFakeGateway(t, { hangUrls: new Set(["https://slow.test/"]), hangForMs: 1_000 });
+  const { byName } = registered();
+  const ctx = { sessionManager: { getSessionId: () => "pi-configured-timeout" } };
+
+  const started = Date.now();
+  const result = await byName.camoufox_read.execute("id", { url: "https://slow.test/" }, undefined, () => undefined, ctx);
+
+  // The message is only half of it: pi branches on `isError`, and a deadline that renders but never
+  // flags is a different bug. Assert the shape, then the prose.
+  assert.equal(result.isError, true, "an aborted call has to reach pi as a tool failure");
+  // Both result shapes are 1-tuples by type (`ToolFailure`, and the two success returns), so pin the
+  // tuple rather than defaulting it away: `content[0]?.text ?? ""` would make an empty array and an
+  // empty message indistinguishable, which is less diagnostic than the crash it avoids.
+  assert.equal(result.content.length, 1, "a tool result carries exactly one text block");
+  const text = result.content[0].text;
+
+  assert.match(text, /^timeout:/u, `"${text}" is not a deadline`);
+  assert.match(text, /within 250ms/u, "the message names the configured number, not a default it invented");
+  assert.ok(Date.now() - started < 5_000, "the call outlived its deadline instead of being aborted at 250ms");
 });
 
 test("the registered tool enforces the configured address guard end to end", async (t) => {
@@ -261,4 +317,11 @@ test("the fresh parameter points at the setting rather than a copy of its value"
   // config that was not true, and this extension has no way to know it at schema-build time.
   assert.match(description, /cache\.pageMs/u);
   assert.doesNotMatch(description, /\d+\s*(minute|second|hour)/u);
+});
+
+test("the n schema offers only whole numbers, because the tool refuses anything else", () => {
+  // `tools/search.ts` rejects a fractional count, so a `Type.Number` here would advertise a value the
+  // code then refuses — a schema advertising an input the tool rejects is the same defect as a
+  // description quoting a number a user's config can contradict.
+  assert.equal(registered().byName.camoufox_search.parameters.properties.n.type, "integer");
 });

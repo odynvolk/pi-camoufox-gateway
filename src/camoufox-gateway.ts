@@ -8,28 +8,31 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type, type Static } from "typebox";
 
-import { DEFAULT_CONFIG, ENGINE_NAMES } from "./config.ts";
+import { ENGINE_NAMES, MAX_SEARCH_RESULTS } from "./config.ts";
 import { urlPolicyFromConfig } from "./net-policy.ts";
 import { createExtension, formatError, resolveConfig, READ_DESCRIPTION, SEARCH_DESCRIPTION, type Extension } from "./extension.ts";
-import { MAX_RESULTS_HARD_LIMIT } from "./tools/search.ts";
 import { createCache } from "./cache.ts";
 import { createGatewayClient } from "./gateway.ts";
 import { gatewaySessionId } from "./session.ts";
 
 const SearchSchema = Type.Object({
   query: Type.String({ description: "Keywords to search for" }),
-  n: Type.Optional(Type.Number({ description: `Maximum results (engine returns a page of ${MAX_RESULTS_HARD_LIMIT})` })),
+  // `Integer`, not `Number`: the tool refuses a fractional count, and a schema offering one would be a
+  // promise the code breaks. The guard is still in `tools/search.ts` because that is what actually holds.
+  n: Type.Optional(Type.Integer({ description: `Maximum results (engine returns a page of ${MAX_SEARCH_RESULTS})` })),
   engine: Type.Optional(Type.String({ description: `Force one engine: ${ENGINE_NAMES.join(" | ")}` })),
   resolve: Type.Optional(Type.Boolean({ description: "Resolve google redirect urls to final urls" })),
 });
 
 const ReadSchema = Type.Object({
   url: Type.String({ description: "http(s) url to read" }),
-  maxChars: Type.Optional(Type.Number({ description: `Text budget, defaults to ${DEFAULT_CONFIG.read.defaultMaxChars}` })),
+  maxChars: Type.Optional(
+    Type.Number({ description: "Text budget for this call, defaulting to your read.defaultMaxChars and capped at read.maxCharsCeiling" }),
+  ),
   offset: Type.Optional(Type.Number({ description: "Continue a previous read here" })),
   waitFor: Type.Optional(
     Type.String({
-      description: `CSS selector to hold for before reading, up to ${DEFAULT_CONFIG.read.waitForTimeoutMs}ms (for late-rendering content)`,
+      description: "CSS selector to hold for before reading, bounded by your read.waitForTimeoutMs (for late-rendering content)",
     }),
   ),
   schema: Type.Optional(Type.Record(Type.String(), Type.Any(), { description: "JSON Schema with x-ref hints" })),

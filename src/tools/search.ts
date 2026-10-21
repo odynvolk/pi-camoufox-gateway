@@ -3,7 +3,7 @@
  * text. It owns no HTTP of its own; that lives behind `GatewayClient`.
  */
 
-import type { CamoufoxConfig } from "../config.ts";
+import { MAX_SEARCH_RESULTS, type CamoufoxConfig } from "../config.ts";
 import { GatewayError } from "../errors.ts";
 import { searchWithFallback, type TriedStep } from "../engines/chain.ts";
 import type { Engine } from "../engines/types.ts";
@@ -41,9 +41,6 @@ export interface SearchOutcome {
   fromCache?: boolean;
   text: string;
 }
-
-/** Exported because the tool description quotes it and the tests must not re-hardcode it. */
-export const MAX_RESULTS_HARD_LIMIT = 10;
 
 function normalizeQuery(query: string): string {
   return query.trim().replace(/\s+/gu, " ").toLocaleLowerCase();
@@ -92,7 +89,19 @@ export function searchTool(deps: SearchToolDeps) {
     }
 
     const requested = params.n ?? config.search.maxResults;
-    const clamped = Math.max(1, Math.min(requested, MAX_RESULTS_HARD_LIMIT));
+    // A fractional result count is not expressible. `slice` floors it, so `n: 2.5` showed 2 rows while
+    // disclosing nothing, and on a page of 2 it claimed "0.5 fewer result(s)". Same reason `config.ts`
+    // refuses a fractional `search.maxResults` — and checked on the effective value, because a hand-built
+    // config reaches here without passing through the validator.
+    if (!Number.isInteger(requested)) {
+      throw new GatewayError(
+        "unsupported",
+        params.n === undefined
+          ? `"search.maxResults" must be a whole number of results, got ${requested}`
+          : `"n" must be a whole number of results, got ${requested}`,
+      );
+    }
+    const clamped = Math.max(1, Math.min(requested, MAX_SEARCH_RESULTS));
     const resolve = params.resolve === true;
 
     const activeEngines = params.engine
@@ -117,7 +126,7 @@ export function searchTool(deps: SearchToolDeps) {
         client,
         userId,
         signal: params.signal,
-        maxResults: MAX_RESULTS_HARD_LIMIT,
+        maxResults: MAX_SEARCH_RESULTS,
       });
       return { query, engine: chain.engine, results: chain.results, tried: chain.tried };
     }, config.cache.serpMs);

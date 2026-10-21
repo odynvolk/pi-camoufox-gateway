@@ -57,6 +57,12 @@ export interface ReadOutcome {
   waitNote?: string;
   /** Served from the page cache: no tab was opened, so nothing about this page was re-fetched. */
   fromCache?: boolean;
+  /**
+   * The wanted amount exceeded `read.maxCharsCeiling`, so this call returned that much and no more.
+   * Distinct from `truncated`, which says the page was longer than the budget: this says the budget
+   * itself was capped, so asking for a larger `maxChars` cannot move the outcome.
+   */
+  cappedAt?: number;
 }
 
 /**
@@ -256,7 +262,12 @@ export function readTool(deps: ReadToolDeps) {
       fromCache: boolean;
     },
   ): ReadOutcome {
-    const budget = params.maxChars ?? read.defaultMaxChars;
+    // One rule for both sources: whether the amount wanted — asked for, or defaulted — was more than a
+    // single call may take. A `defaultMaxChars` above the ceiling is refused at load, so in practice the
+    // `params.maxChars` branch is the one that fires.
+    const wanted = params.maxChars ?? read.defaultMaxChars;
+    const budget = Math.min(wanted, read.maxCharsCeiling);
+    const cappedAt = wanted > read.maxCharsCeiling ? read.maxCharsCeiling : undefined;
     const sliced: ExtractedText = extractText(snapshot, { maxChars: budget, offset: params.offset });
     const isThin = thin(snapshot);
 
@@ -275,6 +286,7 @@ export function readTool(deps: ReadToolDeps) {
       ...(params.waitFor ? { waitForRequested: true } : {}),
       ...(meta.waitNote ? { waitNote: meta.waitNote } : {}),
       ...(meta.fromCache ? { fromCache: true } : {}),
+      ...(cappedAt === undefined ? {} : { cappedAt }),
     };
   }
 
