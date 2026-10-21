@@ -321,6 +321,7 @@ test("the fresh parameter points at the setting rather than a copy of its value"
 
 test("the n schema offers only whole numbers, because the tool refuses anything else", () => {
   // `tools/search.ts` rejects a fractional count, so a `Type.Number` here would advertise a value the
-  // code then refuses — the schema half of the mismatch E.4 removed from the descriptions.
+  // code then refuses — a schema advertising an input the tool rejects is the same defect as a
+  // description quoting a number a user's config can contradict.
   assert.equal(registered().byName.camoufox_search.parameters.properties.n.type, "integer");
 });

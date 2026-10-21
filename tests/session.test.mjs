@@ -338,7 +338,8 @@ test("with no config resolved for the call, the error names no gateway", () => {
 
 test("a code the model acts on cannot be overwritten by error details", () => {
   // Details arrive from wherever an error carries them, including a gateway payload. One of them must
-  // not be able to relabel the fault after the fact — that is the same misattribution B.1 exists to stop.
+  // not be able to relabel the fault after the fact — the misattribution that narrowing the
+  // `gateway_error` catch-all exists to stop.
   const formatted = formatError(
     new GatewayError("timeout", "gateway did not respond", { details: { code: "gateway_error", url: "https://x.test/" } }),
     ERROR_CONTEXT,

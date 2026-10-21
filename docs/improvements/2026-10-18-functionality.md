@@ -247,17 +247,17 @@ profile from returning text.
 
 ### 2.4 Per-call cache bypass, and fix what `cache.pageMs` means
 
-> **Shipped, with a deviation.** `cache.pageMs` now caches read pages (code doc §A.2, removed), and
+> **Shipped, with a deviation.** `cache.pageMs` now caches read pages, and
 > `fresh: true` is the per-call bypass. What was *not* taken is the shape below: a boolean answers
 > "now or not" but not "how stale is acceptable", which is the more useful question for research.
 
 30 minutes of SERP staleness is right for research and wrong for "what's the latest", and nothing
 today lets the model say otherwise.
 
-Separately: **`cache.pageMs` does not cache pages.** Its only consumer is goto-wrapper resolution
-(`search.ts:133` → `resolve.ts:74-92`); `camoufox_read` has no cache dependency at all
-(`read.ts:16-20`). That name is model-facing in the README config table, so it is not just an
-internal misnomer. See the code doc, §A.2.
+Separately, and also since fixed: **`cache.pageMs` used to not cache pages.** Its only consumer was
+goto-wrapper resolution, and `camoufox_read` took no cache at all — so the name was wrong in a
+model-facing README row, not just internally. `camoufox_read` now holds the shared cache, serves a
+re-read url from it for `cache.pageMs`, and says so on a hit.
 
 Prior art: Jina expresses freshness as `x-cache-tolerance: <seconds>` — **staleness tolerance rather
 than a boolean**, which is the better shape, with `x-no-cache` for the hard override.
