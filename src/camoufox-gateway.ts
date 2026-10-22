@@ -331,10 +331,23 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  pi.on("session_shutdown", async () => {
-    for (const extension of extensions.values()) {
-      await extension.shutdown().catch(() => undefined);
-    }
-    extensions.clear();
+  /**
+   * Release the session that is shutting down, and only that one.
+   *
+   * `extensions` is module-level while pi gives each session its own extension runtime, so clearing it
+   * wholesale made one session's quit drop every other session's client, cache, and gateway-side tabs.
+   * pi emits this to the outgoing session's runner before replacing it, so `ctx` still names the session
+   * being torn down. Deleting the entry before the round trip keeps a call landing mid-teardown from
+   * reusing an extension that is on its way out — it builds a fresh one instead.
+   *
+   * Idempotent, because pi says cancellation, reload, session replacement, and process exit can converge
+   * on this path; a session that never registered anything has nothing to release.
+   */
+  pi.on("session_shutdown", async (_event, ctx) => {
+    const userId = sessionOf(ctx);
+    const extension = extensions.get(userId);
+    if (!extension) return;
+    extensions.delete(userId);
+    await extension.shutdown().catch(() => undefined);
   });
 }
