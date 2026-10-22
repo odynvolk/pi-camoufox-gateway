@@ -39,9 +39,6 @@ interface LinkBlock {
   texts: string[];
 }
 
-const CHROME_TITLES =
-  /^(all|images|videos|news|maps|webb|short videos|more|next|page \d+|sign in|privacy|terms|settings|search domain .+)$/iu;
-
 /**
  * Above this size a page is content rather than an interstitial, whatever it mentions — unless its host
  * already says otherwise, which is size-independent (`detectWall`'s first branch).
@@ -147,6 +144,23 @@ function isWrapper(url: string): boolean {
 /**
  * Organic-vs-chrome per engine. Chrome is what the engine's own UI links to — its tabs, its ad
  * proxy, its settings — so it is filtered by host rather than by title heuristics, which drift.
+ *
+ * The filter used to be host *and* a hardcoded title list, and the list is what this function argues
+ * against: it carried `webb` and `all` because a Swedish results page titled its tabs that, which is
+ * locale drift sitting in a regex rather than in the engine. It is gone, on measurement rather than on
+ * taste — measured over every recorded SERP, each parsed as the engine it was recorded from, it dropped
+ * nothing that was not already dropped: the 2 title matches in `serp-google.txt`'s 18 blocks carry no
+ * `/url` child, and all 15 of `serp-duckduckgo.txt`'s 78 carry a *relative* one (`/?q=…`, `/settings`),
+ * so `organicResults` refuses every one at its scheme guard, before `isChrome` is reached. Of the rest,
+ * `serp-duckduckgo-html.txt` matches no title at all, and the two that do — `serp-no-results.txt`,
+ * `wall-consent.txt` — match only google-host chrome, which the host rule already covered. The only
+ * recorded page whose title matches survive both guards is `page-github.txt` — its footer `Terms` and
+ * `Privacy`, both on docs.github.com — which is a *read*, never parsed by this code, and is content the
+ * list would have cut.
+ *
+ * What that costs is stated plainly: chrome on a host the engine does not own, under a title on the old
+ * list, is now a result. Pinned by a case in `tests/snapshot.test.mjs` so the trade stays a decision
+ * rather than a regression.
  */
 function isChrome(engine: string, url: string): boolean {
   let host: string;
@@ -189,7 +203,6 @@ function organicResults(blocks: LinkBlock[], engine: string): SearchResult[] {
     const url = block.url?.trim();
     if (!url || !/^https?:\/\//iu.test(url)) continue;
     if (isChrome(engine, url)) continue;
-    if (CHROME_TITLES.test(block.title)) continue;
     if (seen.has(url)) continue;
 
     seen.add(url);

@@ -5,10 +5,10 @@
  * tool *does* lives here.
  */
 
-import { DEFAULT_CONFIG, loadConfig, type CamoufoxConfig } from "./config.ts";
+import { DEFAULT_CONFIG, isRecord, loadConfig, type CamoufoxConfig } from "./config.ts";
 import { createCache, type Cache } from "./cache.ts";
 import { GatewayError } from "./errors.ts";
-import { enginesFromConfig } from "./engines/chain.ts";
+import { enginesFromConfig, type TriedStep } from "./engines/chain.ts";
 import { createGatewayClient, type GatewayClient } from "./gateway.ts";
 import { readTool, type ReadOutcome } from "./tools/read.ts";
 import { searchTool, type CachedSearch, type SearchOutcome } from "./tools/search.ts";
@@ -22,6 +22,14 @@ export interface ExtensionDeps {
 
 export interface ToolCallContext {
   signal?: AbortSignal;
+  /**
+   * A word about what the call is doing right now, for pi's tool UI.
+   *
+   * Optional because the core is driven directly from tests, and because the search path can be two
+   * engines deep with nothing between them reaching the caller. Deliberately a sentence rather than a
+   * fraction: nothing here can promise how far along a gateway request is.
+   */
+  onProgress?: (note: string) => void;
 }
 
 export interface ToolOutcome<T> {
@@ -29,6 +37,26 @@ export interface ToolOutcome<T> {
   text: string;
   /** Structured detail for rendering and state reconstruction. */
   details: T;
+}
+
+/**
+ * What each tool's `details` carries: its outcome, minus the prose.
+ *
+ * Named rather than inlined because the registration boundary has to spell out `structuredContent`
+ * field by field, and it can only do that against a type that says what is actually in there.
+ */
+export type SearchDetails = Omit<SearchOutcome, "text">;
+export type ReadDetails = Omit<ReadOutcome, "text">;
+
+/**
+ * What `read` hands the registration boundary: prose, metadata, and the page body itself.
+ *
+ * The body is in neither of the other two by design — `content` is the page wrapped in a header and the
+ * notes a model needs, and `details` leaves it out so a transcript does not hold a page twice. A
+ * structured caller wants the bare body, so it has to travel somewhere else.
+ */
+export interface ReadToolResult extends ToolOutcome<ReadDetails> {
+  pageText: string;
 }
 
 export interface SearchToolArgs {
@@ -50,8 +78,8 @@ export interface ReadToolArgs {
 }
 
 export interface Extension {
-  search(args: SearchToolArgs, context?: ToolCallContext): Promise<ToolOutcome<Record<string, unknown>>>;
-  read(args: ReadToolArgs, context?: ToolCallContext): Promise<ToolOutcome<Record<string, unknown>>>;
+  search(args: SearchToolArgs, context?: ToolCallContext): Promise<ToolOutcome<SearchDetails>>;
+  read(args: ReadToolArgs, context?: ToolCallContext): Promise<ReadToolResult>;
   /** Idempotent: pi may call shutdown while a reload or session replacement already did. */
   shutdown(): Promise<void>;
   gatewayUrl: string;
@@ -119,20 +147,29 @@ export function createExtension(deps: ExtensionDepsWithConfig): Extension {
     async search(args, context) {
       guard();
       await liveness(context?.signal);
-      const outcome: SearchOutcome = await search.search({ ...args, signal: context?.signal });
+      const outcome: SearchOutcome = await search.search({
+        ...args,
+        signal: context?.signal,
+        ...(context?.onProgress ? { onProgress: context.onProgress } : {}),
+      });
       return { text: outcome.text, details: outcomeToDetails(outcome) };
     },
 
     async read(args, context) {
       guard();
       await liveness(context?.signal);
-      const outcome: ReadOutcome = await read.read({ ...args, signal: context?.signal });
+      const outcome: ReadOutcome = await read.read({
+        ...args,
+        signal: context?.signal,
+        ...(context?.onProgress ? { onProgress: context.onProgress } : {}),
+      });
       const { text: _text, ...rest } = outcome;
       return {
         text: renderRead(outcome),
         // The body is already in `content`; details keeps the metadata the model needs to continue
         // reading, not a second copy of the page. Same rule as search's `outcomeToDetails`.
-        details: { ...rest },
+        details: rest,
+        pageText: outcome.text,
       };
     },
 
@@ -142,7 +179,7 @@ export function createExtension(deps: ExtensionDepsWithConfig): Extension {
   };
 }
 
-function outcomeToDetails(outcome: SearchOutcome): Record<string, unknown> {
+function outcomeToDetails(outcome: SearchOutcome): SearchDetails {
   const { text: _text, ...rest } = outcome;
   return rest;
 }
@@ -191,6 +228,20 @@ export interface ErrorContext {
 }
 
 /**
+ * The chain's per-engine record, as the model should see it.
+ *
+ * Read defensively rather than trusted: `details` is a `Record<string, unknown>` that travels through
+ * pi, and a `tried` that arrived malformed is not a reason to print `undefined=` next to a fault.
+ */
+function triedChain(details: Record<string, unknown> | undefined): string[] {
+  const steps = details?.tried;
+  if (!Array.isArray(steps)) return [];
+  return steps
+    .filter((step): step is TriedStep => isRecord(step) && typeof step.engine === "string" && typeof step.code === "string")
+    .map((step) => `${step.engine}=${step.code}`);
+}
+
+/**
  * Failure text the model can act on: the code first, then whatever the reader can do with.
  *
  * `context` carries only what was verified. A config that failed to load resolves to the shipped
@@ -218,8 +269,17 @@ export function formatError(error: unknown, context: ErrorContext): { text: stri
         : "No gateway url is known for this client.",
     );
   }
+  // Read here rather than where the chain is printed: the advice below has to know whether the fallback
+  // engine is a lever left or one that already moved.
+  const chain = triedChain(gatewayError.details);
   if (gatewayError.code === "consent_wall") {
-    lines.push("Google interstitial rather than results; a narrower query or the fallback engine usually clears this.");
+    // Recommending a fallback the next line reports as already run sends the reader to a lever that is
+    // not there — the same mistake the chain line exists to stop.
+    lines.push(
+      chain.length > 1
+        ? "Google interstitial rather than results; a narrower query usually clears this."
+        : "Google interstitial rather than results; a narrower query or the fallback engine usually clears this.",
+    );
   }
   if (gatewayError.code === "private_network") {
     lines.push(
@@ -241,6 +301,20 @@ export function formatError(error: unknown, context: ErrorContext): { text: stri
     lines.push(
       'This gateway will not say where a tab ended up, so every page would be returned unchecked. Upgrade it, or accept the risk with "network": { "allowPrivateHosts": true } and an empty blockedHosts.',
     );
+  }
+  if (gatewayError.code === "parse_error") {
+    // The one code whose advice has to say whose fault it is likely to be. `empty_results` means the
+    // engine answered and found nothing, which a narrower query can move; this means we could not read
+    // the answer, which it cannot.
+    lines.push("Nothing on the page had the shape of a link, so this is likelier our parser than your query — repeating it is unlikely to change the answer.");
+  }
+  // A chain that walked past a non-terminal code re-throws the *first* error, because that is the one
+  // that says something about the query. So the second engine's different failure was invisible: a
+  // `consent_wall` from google was the last word the model got even after duckduckgo went blind with
+  // `parse_error`. The success path has named its chain all along (`formatResults`); this is the same
+  // fact on the path that did not succeed, and the only place the fallback's outcome is stated at all.
+  if (chain.length > 1) {
+    lines.push(`Engines tried: ${chain.join(", ")}.`);
   }
   return {
     text: lines.join("\n"),

@@ -19,6 +19,9 @@ Searches through the browser and returns ranked titles, urls and snippets.
 - `n` is clamped to 10. The macro takes only a query, so a longer list is not reachable — which is why
   `search.maxResults` is refused above it rather than silently rounded down on every call. It has to be a
   whole number too: `n: 2.5` used to slice to 2 rows and report nothing, because `slice` floors silently.
+- **The output counts what it threw away.** A page that carried more than this call returned says so, and
+  says which limit did it — your `n`, or the ceiling. Asking for 10 off a page of 12 used to print "10
+  result(s)" and read as the whole page, which is the output claiming more than it returned.
 - `resolve: true` turns Google's `google.com/goto?url=…` wrappers into final urls. It costs one
   extra page load per result and runs at most three tabs at a time, so it is off by default.
 
@@ -150,6 +153,39 @@ aborts any request at `timeoutMs`, so a longer selector deadline could never be 
 `read.defaultMaxChars` at or below `read.maxCharsCeiling` (above it, the default is capped on every
 read that omits `maxChars` — which is most of them, and none of them mentions a ceiling).
 
+## Structured results
+
+Both tools declare an `outputSchema` and return a matching `structuredContent`. A model keeps getting
+`content` — the prose, with its header, its notes, and the `offset` to continue from — and a programmatic
+caller such as a codemode script gets the data instead of that prose to re-parse. A declared schema is
+also what lets pi treat the two as data rather than as text. pi does not validate the one against the
+other, so the shape below is the contract, and `tests/camoufox-gateway.test.mjs` checks both directions
+of it against the tools.
+
+The keys a caller can rely on:
+
+| key | shape in `structuredContent` |
+|---|---|
+| `url` / `text` | where the page ended up, and the page itself — unwrapped, so no `URL:` line and no notes around it |
+| `query` / `results` | the query as asked, and the ranked results |
+| `tried` | one entry per engine attempted — `{ engine, code, message }`, empty when nothing was attempted |
+| `truncated` / `hasMore` | our budget cut it / the gateway says more exists |
+| `totalChars` | the whole page, not what this call returned |
+| `nextOffset` | a number when more is coming, `null` when it is not |
+| `refsCount` | refs on the page, which is what a `schema`'s `x-ref` points at |
+| `error` | `{ code, message }`, present only on a failed call |
+
+A failure returns the same shape rather than a different one: `url` is the url you asked for, `text` is
+empty, `results` is empty, and `error` carries a code from the Error codes section below. `isError`
+still tells pi which it is, so nothing has to guess from a blank page.
+
+Everything else in `details` — `settledInMs`, `cappedAt`, `fromCache`, `pageCarried`, `extracted`, and
+the rest — is only filled in by a call that got that far: a failed one carries just the frame above and
+`error`, with a search's `tried` naming the engines it got through.
+
+A read also reports what it is doing while it does it: opening the tab, holding for a `waitFor` selector,
+and re-snapshotting a page that has not finished rendering. Those reach pi's tool updates, not the model.
+
 ## Error codes
 
 The tool output starts with the code so the model can react instead of guessing.
@@ -164,7 +200,7 @@ The tool output starts with the code so the model can react instead of guessing.
 | `consent_wall` | Google served consent/CAPTCHA, not results |
 | `empty_results` | clean page, zero organic results |
 | `empty_page` / `navigation_failed` | nothing rendered / browser error page |
-| `parse_error` | the accessibility tree changed shape |
+| `parse_error` | the accessibility tree changed shape, so it is likelier our parser than your query. The chain tries the other engine before reporting it, and the output names each engine it tried and with what |
 | `extraction_empty` | schema refs matched nothing on this page |
 | `host_blocked` | url matched `blockedHosts` |
 | `private_network` | url — or a redirect it landed on — is an internal address and `network.allowPrivateHosts` is off |

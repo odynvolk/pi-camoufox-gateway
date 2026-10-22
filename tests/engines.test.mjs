@@ -25,7 +25,7 @@ function callsFor(fake, suffix) {
 test("google goes open -> navigate(macro) -> snapshot and nothing else", async (t) => {
   const { fake, client } = setup(t);
 
-  const outcome = await googleEngine().search("camoufox", { client, userId: "u1", maxResults: 10 });
+  const outcome = await googleEngine().search("camoufox", { client, userId: "u1" });
 
   assert.ok(outcome.results.length > 0);
   // No engine label here: identity is credited by the chain from Engine.name, so the adapter has
@@ -48,7 +48,7 @@ test("google goes open -> navigate(macro) -> snapshot and nothing else", async (
 
 test("google leaves no tab open when it finishes", async (t) => {
   const { client } = setup(t);
-  await googleEngine().search("camoufox", { client, userId: "u1", maxResults: 10 });
+  await googleEngine().search("camoufox", { client, userId: "u1" });
   assert.equal(client.openTabCount(), 0);
 });
 
@@ -56,7 +56,7 @@ test("google closes its tab even when the snapshot fails", async (t) => {
   const { client } = setup(t, { failSnapshot: true });
 
   const error = await googleEngine()
-    .search("camoufox", { client, userId: "u1", maxResults: 10 })
+    .search("camoufox", { client, userId: "u1" })
     .catch((e) => e);
 
   assert.ok(error.code, `expected a typed error, got ${error}`);
@@ -66,7 +66,7 @@ test("google closes its tab even when the snapshot fails", async (t) => {
 test("duckduckgo navigates straight to its query url", async (t) => {
   const { fake, client } = setup(t);
 
-  const outcome = await duckduckgoEngine().search("camoufox anti-detect", { client, userId: "u1", maxResults: 10 });
+  const outcome = await duckduckgoEngine().search("camoufox anti-detect", { client, userId: "u1" });
 
   assert.ok(outcome.results.length > 0);
   const opened = fake.state.calls.find((c) => c.path === "/tabs/open");
@@ -74,10 +74,9 @@ test("duckduckgo navigates straight to its query url", async (t) => {
   assert.equal(callsFor(fake, "/navigate").length, 0, "no macro or extra navigation for ddg");
 });
 
-test("clamps the result count to what the engine can actually return", async (t) => {
+test("an adapter hands back the whole page, unsliced", async (t) => {
   // The default fake SERP carries three links, so `results.length <= 10` would pass against any
-  // implementation. `wanted` only reaches GOOGLE_PAGE_SIZE when the page overflows one, so this is
-  // the input that decides whether the clamp exists at all.
+  // implementation. Twelve is the input that decides whether a slice happened here or at the tool.
   const overflow = Array.from({ length: 12 }, (_, i) => `- link "R${i}" [e${i}]:
   - /url: https://example.com/r${i}
   - cite: https://example.com
@@ -86,10 +85,10 @@ test("clamps the result count to what the engine can actually return", async (t)
   const { fake, client } = setup(t, {
     pageContents: new Map([["https://www.google.com/search?q=camoufox", overflow]]),
   });
-  const outcome = await googleEngine().search("camoufox", { client, userId: "u1", maxResults: 99 });
+  const outcome = await googleEngine().search("camoufox", { client, userId: "u1" });
 
-  assert.equal(outcome.results.length, 10, "twelve links on the page, one google page handed back");
-  assert.equal(callsFor(fake, "/navigate").length, 1, "clamping is a slice, not a second navigation");
+  assert.equal(outcome.results.length, 12, "twelve links on the page, twelve handed back — one width, and it is not here");
+  assert.equal(callsFor(fake, "/navigate").length, 1, "and still one navigation, whatever the count");
 });
 
 test("a page we cannot read as a results list is parse_error, not empty_results", async (t) => {
@@ -99,7 +98,7 @@ test("a page we cannot read as a results list is parse_error, not empty_results"
   assert.ok(prose.length > 2_000);
 
   const { client } = setup(t, { pageContents: new Map([["https://www.google.com/search?q=anything", prose]]) });
-  const error = await googleEngine().search("anything", { client, userId: "u1", maxResults: 10 }).catch((e) => e);
+  const error = await googleEngine().search("anything", { client, userId: "u1" }).catch((e) => e);
 
   assert.equal(error.code, "parse_error");
   assert.ok(error.details?.excerpt, "the failure carries an excerpt so the diagnosis is possible");
@@ -109,7 +108,7 @@ test("falls through to duckduckgo when google hits a consent wall", async (t) =>
   const google = googleEngine();
   const ddg = duckduckgoEngine();
 
-  const outcome = await searchWithFallback("camoufox", [google, ddg], { client, userId: "u1", maxResults: 5 });
+  const outcome = await searchWithFallback("camoufox", [google, ddg], { client, userId: "u1" });
 
   assert.equal(outcome.engine, "duckduckgo");
   assert.deepEqual(outcome.tried.map((step) => step.engine), ["google", "duckduckgo"]);
@@ -124,7 +123,7 @@ test("reports empty_results and keeps trying the chain", async (t) => {
   };
   const ddg = duckduckgoEngine();
 
-  const outcome = await searchWithFallback("camoufox", [empty, ddg], { client, userId: "u1", maxResults: 5 });
+  const outcome = await searchWithFallback("camoufox", [empty, ddg], { client, userId: "u1" });
 
   assert.equal(outcome.engine, "duckduckgo");
   assert.equal(outcome.tried[0].code, "empty_results");
@@ -140,7 +139,7 @@ test("keeps the first meaningful error when the whole chain fails", async (t) =>
     },
   };
 
-  const error = await searchWithFallback("camoufox", [first, second], { client, userId: "u1", maxResults: 5 }).catch((e) => e);
+  const error = await searchWithFallback("camoufox", [first, second], { client, userId: "u1" }).catch((e) => e);
 
   assert.equal(error.code, "consent_wall");
   assert.deepEqual(error.details.tried.map((step) => step.engine), ["first", "second"]);
@@ -150,7 +149,7 @@ test("does not walk the chain when the gateway itself is down", async (t) => {
   const { client } = setup(t, { unreachable: true });
   const engines = [googleEngine(), duckduckgoEngine()];
 
-  const error = await searchWithFallback("camoufox", engines, { client, userId: "u1", maxResults: 5 }).catch((e) => e);
+  const error = await searchWithFallback("camoufox", engines, { client, userId: "u1" }).catch((e) => e);
 
   assert.equal(error.code, "gateway_unreachable");
   // The early exit is the whole point of the code list: without it every search burns a second
@@ -176,10 +175,10 @@ test("a link-less page inside the wall window is parse_error, empty_results is r
     ]),
   });
 
-  const bandError = await googleEngine().search("band", { client, userId: "u1", maxResults: 10 }).catch((e) => e);
+  const bandError = await googleEngine().search("band", { client, userId: "u1" }).catch((e) => e);
   assert.equal(bandError.code, "parse_error", "long enough to have been a real page, so blame the parser");
 
-  const shortError = await googleEngine().search("thin", { client, userId: "u1", maxResults: 10 }).catch((e) => e);
+  const shortError = await googleEngine().search("thin", { client, userId: "u1" }).catch((e) => e);
   assert.equal(shortError.code, "empty_results", "a page this thin says something about the query, not us");
 });
 
@@ -202,7 +201,7 @@ test("every terminal code stops the chain before the next engine is tried", asyn
       },
     };
 
-    const error = await searchWithFallback("camoufox", [first, second], { client, userId: "u1", maxResults: 5 }).catch((e) => e);
+    const error = await searchWithFallback("camoufox", [first, second], { client, userId: "u1" }).catch((e) => e);
 
     assert.equal(error.code, code, `${code} must surface unchanged`);
     assert.equal(secondRan, false, `${code} must not reach the next engine`);
@@ -221,7 +220,7 @@ test("an engine that throws something bare is our fault, not the gateway's", asy
     },
   };
 
-  const error = await searchWithFallback("camoufox", [broken], { client, userId: "u1", maxResults: 5 }).catch((e) => e);
+  const error = await searchWithFallback("camoufox", [broken], { client, userId: "u1" }).catch((e) => e);
 
   assert.equal(error.code, "internal_error");
   assert.match(error.message, /cannot read properties of undefined/u, "the real fault, still named");

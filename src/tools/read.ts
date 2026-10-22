@@ -34,6 +34,8 @@ export interface ReadParams {
   /** Ignore the page cache and navigate. Otherwise a page is served from it for `cache.pageMs`. */
   fresh?: boolean;
   signal?: AbortSignal;
+  /** What this read is doing right now, for the tool UI. */
+  onProgress?: (note: string) => void;
 }
 
 export interface ReadOutcome {
@@ -210,6 +212,7 @@ export function readTool(deps: ReadToolDeps) {
     tabId: string,
     offset: number | undefined,
     signal?: AbortSignal,
+    onProgress?: (note: string) => void,
   ): Promise<{ snapshot: SnapshotResult; settledInMs: number; polled: boolean; stalledAtDeadline: boolean }> {
     const first = await client.snapshot({ userId, tabId, offset, signal });
     if (!worthPollingAgain(first)) return { snapshot: first, settledInMs: 0, polled: false, stalledAtDeadline: false };
@@ -227,6 +230,9 @@ export function readTool(deps: ReadToolDeps) {
     // knowing the app's selectors. The deadline bounds how long it can take, and each poll is its own
     // gateway request, so the worst case is the deadline plus one request.
     while (Date.now() < deadline) {
+      // This is the wait the note exists for: a thin page, and up to `read.waitForSettleMs` of
+      // re-snapshotting it. Without it the call looks hung exactly where it is knowingly slow.
+      onProgress?.(`page still rendering (${pageChars(latest)} chars), re-snapshotting`);
       // Never sleep past the budget. Sleep the interval instead and a poll configured near the deadline
       // sleeps through it and still issues its request, which is a longer read and a slower refusal than
       // the comment above promises. Config validation keeps the configured pair sane, so the clamp is
@@ -300,10 +306,12 @@ export function readTool(deps: ReadToolDeps) {
   async function navigate(
     params: ReadParams,
   ): Promise<{ snapshot: SnapshotResult; fallbackUrl: string; extracted?: Record<string, unknown>; meta: FetchMeta }> {
+    params.onProgress?.(`opening ${params.url}`);
     const tab = await client.openTab({ userId, url: params.url, signal: params.signal });
     let waitNote: string | undefined;
     try {
       if (params.waitFor) {
+        params.onProgress?.(`waiting for "${params.waitFor}"`);
         const wait = await client.waitFor({
           userId,
           tabId: tab.tabId,
@@ -318,7 +326,12 @@ export function readTool(deps: ReadToolDeps) {
             : `waitFor "${params.waitFor}" did not appear within ${read.waitForTimeoutMs}ms`;
       }
 
-      const { snapshot, settledInMs, polled, stalledAtDeadline } = await snapshotSettled(tab.tabId, params.offset, params.signal);
+      const { snapshot, settledInMs, polled, stalledAtDeadline } = await snapshotSettled(
+        tab.tabId,
+        params.offset,
+        params.signal,
+        params.onProgress,
+      );
 
       // One classifier, and its phrase evidence is size-bounded: past `INTERSTITIAL_MAX_CHARS` nothing a
       // page says can make it a wall. `blockedHosts` is the branch that isn't — an internal error page is
