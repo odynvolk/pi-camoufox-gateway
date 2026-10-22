@@ -156,6 +156,18 @@ test("the extension's read details carry metadata, not a second copy of the page
   );
 });
 
+test("the extension's search details are its outcome, prose aside", async (t) => {
+  // `SearchDetails` is the type the registration boundary spells `structuredContent` against, so a key the
+  // runtime carries and the type omits is a contract that under-reports. `requested` is that key: it
+  // enters the outcome through a literal that spreads a non-literal, which is where `tsc` stops checking
+  // for keys the type does not have.
+  const { extension } = extensionFor(t);
+  const outcome = await extension.search({ query: "camoufox" });
+
+  assert.equal("text" in outcome.details, false);
+  assert.equal(outcome.details.requested, CONFIG.search.maxResults, "what was asked for is part of the outcome");
+});
+
 test("a config override reaches the client policy and the read budgets", async (t) => {
   // `extensionFor` used to hand `config` to the fake gateway and build everything else from the module
   // defaults, so an override here silently did nothing. Both halves are asserted structurally, not by
@@ -376,6 +388,58 @@ test("a refusal after the browser moved does not claim nothing was sent", () => 
     ERROR_CONTEXT,
   );
   assert.match(unsupportedUpFront.text, /Nothing was fetched from the gateway\./u);
+});
+
+test("an exhausted chain names every engine it tried, and with what", async (t) => {
+  // Two engines fail differently: google answers with the interstitial, duckduckgo serves a page wide
+  // enough to have been results and with nothing link-shaped in it. The chain re-throws the *first* of
+  // those, so before this the model read `consent_wall`, was told "the fallback engine usually clears
+  // this", and had no way to know that fallback had already run and gone blind for a different reason.
+  const linkless = `- heading "DuckDuckGo" [level=1]\n${"- paragraph:\n  - text: nothing here is shaped like a link.\n".repeat(60)}`;
+  assert.ok(linkless.length > 2_000, `needs to be past PARSEABLE_MIN_CHARS to be parse_error, got ${linkless.length}`);
+
+  const { extension } = extensionFor(t, "u1", {
+    consentWallOn: new Set(["u1"]),
+    pageContents: new Map([["https://duckduckgo.com/?q=camoufox", linkless]]),
+  });
+
+  const error = await extension.search({ query: "camoufox" }).catch((e) => e);
+  const formatted = formatError(error, ERROR_CONTEXT);
+
+  assert.equal(error.code, "consent_wall", "the first engine still leads, because it is the one about the query");
+  assert.match(formatted.text, /Engines tried: google=consent_wall, duckduckgo=parse_error\./u);
+  // The advice is printed one line above that one and reads as one block with it, so it may not send the
+  // reader to an engine the next line reports as already run.
+  assert.equal(/fallback engine/u.test(formatted.text), false, "the fallback is not a lever left here");
+  assert.match(formatted.text, /a narrower query/u, "the one lever still standing is named");
+});
+
+test("a chain of one is not dressed up as a chain, and a malformed one prints nothing", () => {
+  // The line is only worth its width when there is more than one engine in it, and `details` travels
+  // through pi as whatever it is — so the shape that would print `engine=undefined` prints nothing.
+  const one = formatError(
+    new GatewayError("consent_wall", "google did not serve results", { details: { tried: [{ engine: "google", code: "consent_wall" }] } }),
+    ERROR_CONTEXT,
+  );
+  assert.equal(/Engines tried/u.test(one.text), false, "one step is the same fact the message already gives");
+  // The other half of the pair above: with only google attempted, the fallback really is the advice.
+  assert.match(one.text, /a narrower query or the fallback engine usually clears this/u, "with only google tried, the fallback is still the honest advice");
+
+  const malformed = formatError(
+    new GatewayError("consent_wall", "google did not serve results", { details: { tried: ["google", null, { code: "x" }] } }),
+    ERROR_CONTEXT,
+  );
+  assert.equal(/Engines tried/u.test(malformed.text), false);
+  assert.equal(/undefined/u.test(malformed.text), false, "a half-shaped step must not print as one");
+});
+
+test("parse_error says whose fault it probably is", () => {
+  // `empty_results` is a fact about the query and a narrower one can move it; this is a fact about our
+  // parser, and the model needs to not read the two as the same dead end.
+  const formatted = formatError(new GatewayError("parse_error", "google served a page we could not read"), ERROR_CONTEXT);
+
+  assert.match(formatted.text, /likelier our parser than your query/u);
+  assert.match(formatted.text, /repeating it is unlikely to change the answer/u);
 });
 
 test("a dead gateway costs one liveness probe per window, not one timeout per call", async (t) => {

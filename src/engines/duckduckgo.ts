@@ -24,9 +24,11 @@ export function duckduckgoEngine(): Engine {
         if (verdict.kind === "error") {
           throw new GatewayError(verdict.code, verdict.message, { details: verdict.details });
         }
-        const results = verdict.results;
 
-        return { results: results.slice(0, Math.min(context.maxResults, results.length)) };
+        // Whole page, unsliced — same reason as `google.ts`, and the reason no engine here declares a
+        // page width of its own: a duckduckgo page carries whatever it carried, and saying so in a type
+        // would be a second width to keep honest.
+        return { results: verdict.results };
       } finally {
         await client.closeTabQuietly({ userId, tabId: tab.tabId });
       }

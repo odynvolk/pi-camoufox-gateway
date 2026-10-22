@@ -12,15 +12,6 @@ import type { Engine, EngineContext, EngineOutcome } from "./types.ts";
 
 const SEED_URL = "https://example.com/";
 const MACRO = "@google_search";
-/**
- * The macro takes only a query and Google's page is ten wide; more needs pagination we don't have.
- *
- * The tool-level ceiling is a separate number — `MAX_SEARCH_RESULTS` in `config.ts`, which the config
- * bound, the clamp and the parameter description all read. Nothing links the two: this is one adapter's
- * page, that is the tool's, and duckduckgo pins no width at all (G.1 in
- * `docs/improvements/2026-10-18-code.md`).
- */
-export const GOOGLE_PAGE_SIZE = 10;
 
 export function googleEngine(): Engine {
   return {
@@ -36,10 +27,11 @@ export function googleEngine(): Engine {
         if (verdict.kind === "error") {
           throw new GatewayError(verdict.code, verdict.message, { details: verdict.details });
         }
-        const results = verdict.results;
 
-        const wanted = Math.max(1, Math.min(context.maxResults, GOOGLE_PAGE_SIZE));
-        return { results: results.slice(0, wanted) };
+        // The whole page, unsliced. One fact is worth keeping out of a constant: the macro takes only a
+        // query, and Google's page is ten wide — more needs pagination we do not have. So asking for 20
+        // buys a page of ~10 whatever `n` says, and `tools/search.ts` is where any further slice happens.
+        return { results: verdict.results };
       } finally {
         await client.closeTabQuietly({ userId, tabId: tab.tabId });
       }

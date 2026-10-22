@@ -27,6 +27,17 @@ function setup(t, options = {}) {
   return { fake, client, config, engines, tool };
 }
 
+/** A google page wider than one call may return: 12 links, where the tool's ceiling is 10. */
+function widePageContents() {
+  const page = Array.from(
+    { length: 12 },
+    (_unused, i) => `- link "Wide ${i + 1}" [e${i + 1}]:\n  - /url: https://example.test/w${i + 1}\n  - text: snippet ${i + 1}`,
+  ).join("\n");
+  // Built per call, because the fake gateway reads the map it is handed and a shared one is one test's
+  // mutation away from changing another's page.
+  return new Map([["https://www.google.com/search?q=camoufox", page]]);
+}
+
 test("returns parsed results for a plain query", async (t) => {
   const { tool } = setup(t);
 
@@ -103,6 +114,53 @@ test("clamps n and says so", async (t) => {
   assert.match(out.text, /10 of 50|clamped/iu);
 });
 
+test("a page wider than what came back is counted, not quietly dropped", async (t) => {
+  // Nobody asked for more than the tool can give, so `clampedTo` stays undefined and `shortBy` stays
+  // undefined: on `main` this call printed "10 result(s)" for a page that carried 12, which is the
+  // output claiming more than it returned.
+  const { tool } = setup(t, { pageContents: widePageContents() });
+
+  const out = await tool.search({ query: "camoufox" });
+
+  assert.equal(out.results.length, 10, "one call returns the tool's ceiling, no more");
+  assert.equal(out.pageCarried, 12, "the two results it threw away are named");
+  assert.equal(out.clampedTo, undefined, "nothing was asked for that had to be clamped");
+  assert.equal(out.shortBy, undefined, "and nothing came up short");
+  assert.match(out.text, /carried 12 result\(s\), 10 returned: one call returns at most 10/u);
+});
+
+test("a page wider than `n` names the ask as the reason, not the ceiling", async (t) => {
+  // Same page, different request. The one disclosure has to say which limit fired, because the two
+  // levers pull differently: `n` is this call's, and no larger `n` moves the other.
+  const { tool } = setup(t, { pageContents: widePageContents() });
+
+  const out = await tool.search({ query: "camoufox", n: 4 });
+
+  assert.equal(out.results.length, 4);
+  assert.match(out.text, /carried 12 result\(s\), 4 returned: 4 asked for/u);
+});
+
+test("both width lines print, and each blames the limit that actually fired", async (t) => {
+  // A wide page and an ask past the ceiling fire the two disclosures in one response. The commit that
+  // added `pageCarried` left `clampedTo` claiming the *engine* capped the call one line above the line
+  // naming this tool's own ceiling — one fact, two causes, and false outright for an engine whose page
+  // "carries whatever it carried".
+  const { tool } = setup(t, { pageContents: widePageContents() });
+
+  const out = await tool.search({ query: "camoufox", n: 50 });
+
+  assert.equal(out.clampedTo, 10, "the ask was clamped");
+  assert.equal(out.pageCarried, 12, "and the page was wider than what returned");
+
+  const notes = out.text.split("\n").filter((line) => line.startsWith("("));
+  assert.equal(notes.length, 2, `expected the two width lines, got ${JSON.stringify(notes)}`);
+  const [clamped, carried] = notes;
+
+  assert.match(clamped, /50/u, "the line about the ask names the ask");
+  assert.match(carried, /carried 12/u, "the line about the page names the page");
+  assert.equal(/\bengine\b|\bpage of\b/iu.test(clamped), false, `"${clamped}" blames an engine for a cap this tool set`);
+});
+
 test("a cheap first call does not cap what a later call can ask for", async (t) => {
   // Regression: the cache key used to omit `n` and the cached value was already sliced, so asking
   // for 10 after asking for 2 within the TTL window returned 2 and labelled them "from cache".
@@ -167,6 +225,31 @@ test("resolve fills in final urls and reports ones that stayed wrapped", async (
     assert.ok(!result.url.includes("goto"), `still wrapped: ${result.url}`);
   }
   assert.equal(client.openTabCount(), 0, "resolver tabs are closed");
+});
+
+test("resolution is narrated, and only when something is being resolved", async (t) => {
+  // The engine notes stop once a page is parsed, but resolution is the part the description warns the
+  // model about — one navigation per wrapper url — and it came after the last note in silence.
+  const direct = Array.from(
+    { length: 3 },
+    (_unused, i) => `- link "Direct ${i + 1}" [e${i + 1}]:\n  - /url: https://example.test/d${i + 1}\n  - text: snippet ${i + 1}`,
+  ).join("\n");
+  const { tool } = setup(t, { pageContents: new Map([["https://www.google.com/search?q=direct", direct]]) });
+
+  const resolving = [];
+  const out = await tool.search({ query: "camoufox", resolve: true, onProgress: (note) => resolving.push(note) });
+  const wrapped = out.results.filter((r) => r.resolvable).length;
+  assert.ok(wrapped > 0, "the default fake SERP has to carry wrapper urls, or this proves nothing");
+  assert.ok(resolving.includes(`resolving ${wrapped} urls`), `no count note in ${JSON.stringify(resolving)}`);
+
+  const plain = [];
+  await tool.search({ query: "camoufox daijro", onProgress: (note) => plain.push(note) });
+  assert.equal(plain.some((note) => /resolving/u.test(note)), false, "nothing was navigated, so nothing was claimed");
+
+  const unwrapped = [];
+  const directOut = await tool.search({ query: "direct", resolve: true, onProgress: (note) => unwrapped.push(note) });
+  assert.equal(directOut.results.some((r) => r.resolvable), false, "this page has no wrapper, so resolve has nothing to do");
+  assert.equal(unwrapped.some((note) => /resolving/u.test(note)), false, "a count of nothing would be a promise of work not coming");
 });
 
 test("reports the engine chain it tried", async (t) => {

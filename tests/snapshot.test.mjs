@@ -76,6 +76,28 @@ test("deduplicates repeated urls across a page", () => {
   assert.equal(new Set(urls).size, urls.length, `duplicate urls: ${urls.filter((u, i) => urls.indexOf(u) !== i)}`);
 });
 
+test("chrome is decided by host alone, so a chrome-shaped title off-engine survives", () => {
+  // The retired title list is pinned from the wrong side on purpose. Two links, same title, one host
+  // the engine owns and one it does not: the first is a result, the second is chrome. Titles no longer
+  // get a vote, which is the point — they are where a Swedish `webb` used to reach the code.
+  const page = [
+    '- link "Videos" [e1]:',
+    "  - /url: https://cdn.videos.test/clip",
+    "  - text: a clip",
+    '- link "Videos" [e2]:',
+    "  - /url: https://www.google.com/vid",
+    "  - text: the tab",
+  ].join("\n");
+
+  const { results } = parseSerp({ url: "https://www.google.com/search?q=x", text: page }, "google");
+
+  assert.deepEqual(
+    results.map((result) => result.url),
+    ["https://cdn.videos.test/clip"],
+    "the off-engine link is a result and the engine's own tab is not",
+  );
+});
+
 test("detects the google consent wall instead of reporting zero results", () => {
   const snapshot = fixture(
     "wall-consent.txt",

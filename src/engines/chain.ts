@@ -70,6 +70,9 @@ export async function searchWithFallback(
   let firstError: GatewayError | undefined;
 
   for (const engine of engines) {
+    // Before the attempt, not after it: an engine costs a tab, a navigation, and a snapshot, and the
+    // second one only runs because the first failed. Saying which is running is the whole point.
+    context.onProgress?.(`searching "${query}" with ${engine.name}`);
     try {
       const outcome = await engine.search(query, context);
       if (outcome.results.length === 0) {

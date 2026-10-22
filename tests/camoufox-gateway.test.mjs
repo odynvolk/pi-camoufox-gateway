@@ -9,7 +9,7 @@
 import "./helpers/fetch_guard.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -37,6 +37,51 @@ function registered() {
   const pi = stubPi();
   registerExtension(pi);
   return { pi, byName: Object.fromEntries(pi.tools.map((tool) => [tool.name, tool])) };
+}
+
+/**
+ * Point the extension at a config file, with every ambient knob cleared.
+ *
+ * `loadConfig` applies the environment after the file, so a shell with `CAMOUFOX_GATEWAY_URL` set turns
+ * any of these tests into a run against a gateway nobody configured.
+ */
+function withConfigFile(t, contents) {
+  const dir = mkdtempSync(join(tmpdir(), "camoufox-config-"));
+  const configPath = join(dir, "camoufox.json");
+  writeFileSync(configPath, typeof contents === "string" ? contents : JSON.stringify(contents), "utf8");
+  const ambient = Object.fromEntries(
+    Object.keys(process.env).filter((key) => key.startsWith("CAMOUFOX_")).map((key) => [key, process.env[key]]),
+  );
+  const scrub = () => {
+    for (const key of Object.keys(process.env)) if (key.startsWith("CAMOUFOX_")) delete process.env[key];
+  };
+  scrub();
+  process.env.CAMOUFOX_CONFIG_PATH = configPath;
+  t.after(() => {
+    scrub();
+    Object.assign(process.env, ambient);
+    rmSync(dir, { recursive: true, force: true });
+  });
+  return configPath;
+}
+
+/**
+ * One session per test, as production has one per pi session: a fresh id builds a fresh client.
+ *
+ * A function rather than one shared object because the fake gateway keys some of its own behaviour
+ * (`consentWallOn`) on the *gateway* user id, which is this id prefixed by `session.ts`.
+ */
+function session(name) {
+  return { ctx: { sessionManager: { getSessionId: () => name } }, userId: `pi-${name}` };
+}
+
+/** Nothing a tool returns may carry a key its own `outputSchema` does not declare. */
+function assertDeclaredBy(schema, value, label) {
+  const declared = Object.keys(schema.properties);
+  const extra = Object.keys(value).filter((key) => !declared.includes(key));
+  assert.deepEqual(extra, [], `${label} returns keys its outputSchema does not declare`);
+  const missing = (schema.required ?? []).filter((key) => !(key in value));
+  assert.deepEqual(missing, [], `${label} is missing keys its outputSchema requires`);
 }
 
 test("registers exactly the two documented tools and a shutdown hook", () => {
@@ -324,4 +369,182 @@ test("the n schema offers only whole numbers, because the tool refuses anything 
   // code then refuses — a schema advertising an input the tool rejects is the same defect as a
   // description quoting a number a user's config can contradict.
   assert.equal(registered().byName.camoufox_search.parameters.properties.n.type, "integer");
+});
+
+test("both tools declare an outputSchema, and return nothing it does not declare", async (t) => {
+  // pi never validates `structuredContent` against `outputSchema` — the two agree only because someone
+  // keeps them agreeing. Checked both directions: an undeclared key is a field a script is told to
+  // ignore, and a missing required one is a contract the tool breaks on its own happy path.
+  withConfigFile(t, { gatewayUrl: "http://gateway.test:9377" });
+  withFakeGateway(t);
+  const { byName } = registered();
+
+  const { ctx } = session("pi-schema-drift");
+
+  const search = await byName.camoufox_search.execute("id", { query: "camoufox" }, undefined, undefined, ctx);
+  const read = await byName.camoufox_read.execute("id", { url: "https://example.test/" }, undefined, undefined, ctx);
+
+  assert.equal(search.isError, undefined, "a gateway that works must not be reported as one that did not");
+  assert.equal(read.isError, undefined);
+  assertDeclaredBy(byName.camoufox_search.outputSchema, search.structuredContent, "camoufox_search");
+  assertDeclaredBy(byName.camoufox_read.outputSchema, read.structuredContent, "camoufox_read");
+});
+
+test("structured read hands back the page itself, not the prose wrapped around it", async (t) => {
+  // The whole reason to declare an output schema: a programmatic caller otherwise receives the header,
+  // the notes, and the continuation footer written for a model, and has to strip them to get the page.
+  withConfigFile(t, { gatewayUrl: "http://gateway.test:9377" });
+  withFakeGateway(t);
+  const { byName } = registered();
+  const { ctx } = session("pi-unwrapped-page");
+
+  const read = await byName.camoufox_read.execute("id", { url: "https://example.test/" }, undefined, undefined, ctx);
+
+  assert.match(read.content[0].text, /^URL: https:\/\/example\.test\//u, "the model keeps its header");
+  assert.equal(
+    read.structuredContent.text.startsWith("URL:"),
+    false,
+    "the script does not get it",
+  );
+  assert.equal(read.structuredContent.url, "https://example.test/");
+});
+
+test("the README section an error code points a model at is still there", () => {
+  // This repo's prose drifts as easily as its schemas: the commit that added "Structured results" deleted
+  // the `## Error codes` heading, orphaning the table under it while the schema still sent a model there.
+  const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
+  const described = registered().byName.camoufox_search.outputSchema.properties.error.properties.code.description;
+
+  assert.match(described, /Error codes/u, "the description names the section a model is sent to");
+  assert.ok(readme.includes("\n## Error codes\n"), "and README still carries that heading");
+});
+
+test("a failed call answers with the same shape, plus the reason", async (t) => {
+  // A refusal that changes shape is a second contract. The frame is empty-but-typed and `error` says why,
+  // so a caller reads one object either way.
+  withConfigFile(t, { gatewayUrl: "http://gateway.test:9377" });
+  withFakeGateway(t, { unreachable: true });
+  const { byName } = registered();
+
+  const { ctx } = session("pi-failed-shape");
+
+  const search = await byName.camoufox_search.execute("id", { query: "camoufox" }, undefined, undefined, ctx);
+  const read = await byName.camoufox_read.execute("id", { url: "https://example.test/" }, undefined, undefined, ctx);
+
+  assert.equal(search.isError, true);
+  assert.equal(search.structuredContent.error.code, "gateway_unreachable");
+  assert.deepEqual(search.structuredContent.results, []);
+  assert.equal(search.structuredContent.query, "camoufox", "the query a script asked for survives the failure");
+  assertDeclaredBy(byName.camoufox_search.outputSchema, search.structuredContent, "a failed camoufox_search");
+
+  assert.equal(read.isError, true);
+  assert.equal(read.structuredContent.error.code, "gateway_unreachable");
+  assert.equal(read.structuredContent.url, "https://example.test/", "the url asked for, since nothing was fetched");
+  assert.equal(read.structuredContent.text, "");
+  assert.equal(read.structuredContent.nextOffset, null, "null, not absent: there is nowhere to resume");
+  assertDeclaredBy(byName.camoufox_read.outputSchema, read.structuredContent, "a failed camoufox_read");
+});
+
+test("an engine that fell through is reported to a script as well as to the model", async (t) => {
+  // The chain's per-engine record used to exist only inside a sentence in the model's text. It is the
+  // difference between "retry" and "file a bug", and a programmatic caller has an interest in it too.
+  withConfigFile(t, { gatewayUrl: "http://gateway.test:9377" });
+  const { ctx, userId } = session("pi-fell-through");
+  withFakeGateway(t, { consentWallOn: new Set([userId]) });
+  const { byName } = registered();
+
+  const search = await byName.camoufox_search.execute("id", { query: "camoufox" }, undefined, undefined, ctx);
+
+  assert.equal(search.structuredContent.engine, "duckduckgo");
+  assert.deepEqual(
+    search.structuredContent.tried.map((step) => `${step.engine}:${step.code}`),
+    ["google:consent_wall", "duckduckgo:ok"],
+  );
+});
+
+test("a chain that ran out hands a script the steps, not only the code", async (t) => {
+  // The other half of that record: a call that never succeeded. The failure test above points at an
+  // unreachable gateway, where nothing was attempted and `tried` is the frame's empty list — so the
+  // passthrough that carries a real chain through `failure()` had never run.
+  withConfigFile(t, { gatewayUrl: "http://gateway.test:9377" });
+  const { ctx, userId } = session("pi-ran-out");
+  const linkless = `- heading "DuckDuckGo" [level=1]\n${"- paragraph:\n  - text: nothing here is shaped like a link.\n".repeat(60)}`;
+  assert.ok(linkless.length > 2_000, `needs to be past PARSEABLE_MIN_CHARS to be parse_error, got ${linkless.length}`);
+  withFakeGateway(t, {
+    consentWallOn: new Set([userId]),
+    pageContents: new Map([["https://duckduckgo.com/?q=camoufox", linkless]]),
+  });
+  const { byName } = registered();
+
+  const search = await byName.camoufox_search.execute("id", { query: "camoufox" }, undefined, undefined, ctx);
+
+  assert.equal(search.isError, true);
+  assert.equal(search.structuredContent.error.code, "consent_wall", "the first engine still leads");
+  assert.deepEqual(
+    search.structuredContent.tried.map((step) => `${step.engine}:${step.code}`),
+    ["google:consent_wall", "duckduckgo:parse_error"],
+  );
+  assertDeclaredBy(byName.camoufox_search.outputSchema, search.structuredContent, "an exhausted camoufox_search");
+});
+
+test("the two width counts reach structuredContent, not just the prose", async (t) => {
+  // `assertDeclaredBy` only checks declared-ness, so an optional key nobody ever produces is invisible to
+  // it — and the schema-drift guard's own call, the default SERP with no `n`, can only produce `shortBy`.
+  // These two are the keys the output contract declares and the registration boundary maps field by
+  // field, so that boundary is where they have to be seen being produced.
+  withConfigFile(t, { gatewayUrl: "http://gateway.test:9377" });
+  const page = Array.from(
+    { length: 12 },
+    (_unused, i) => `- link "Wide ${i + 1}" [e${i + 1}]:\n  - /url: https://example.test/w${i + 1}\n  - text: snippet ${i + 1}`,
+  ).join("\n");
+  withFakeGateway(t, { pageContents: new Map([["https://www.google.com/search?q=camoufox", page]]) });
+  const { byName } = registered();
+  const { ctx } = session("pi-wide-page");
+
+  const search = await byName.camoufox_search.execute("id", { query: "camoufox", n: 50 }, undefined, undefined, ctx);
+
+  assert.equal(search.isError, undefined, "a search that worked must not be reported as one that did not");
+  assert.equal(search.structuredContent.clampedTo, 10, "the ask past the ceiling");
+  assert.equal(search.structuredContent.pageCarried, 12, "the page wider than what returned");
+  assertDeclaredBy(byName.camoufox_search.outputSchema, search.structuredContent, "a capped camoufox_search");
+});
+
+test("a read says what it is doing while it does it", async (t) => {
+  // A read can spend seconds waiting for a page to render, with nothing reaching pi's UI in between.
+  // `onUpdate` was received and dropped; this is the plumbing, not the wording.
+  withConfigFile(t, { gatewayUrl: "http://gateway.test:9377" });
+  withFakeGateway(t);
+  const { byName } = registered();
+  const { ctx } = session("pi-read-notes");
+  const notes = [];
+
+  const read = await byName.camoufox_read.execute(
+    "id",
+    { url: "https://example.test/", waitFor: "#main" },
+    undefined,
+    (update) => notes.push(update.content[0].text),
+    ctx,
+  );
+
+  assert.equal(read.isError, undefined);
+  assert.ok(notes.includes('opening https://example.test/'), `no open note in ${JSON.stringify(notes)}`);
+  assert.ok(notes.includes('waiting for "#main"'), `no wait note in ${JSON.stringify(notes)}`);
+});
+
+test("a search names the engine it is trying, before it tries it", async (t) => {
+  withConfigFile(t, { gatewayUrl: "http://gateway.test:9377" });
+  const { ctx, userId } = session("pi-search-notes");
+  withFakeGateway(t, { consentWallOn: new Set([userId]) });
+  const { byName } = registered();
+  const notes = [];
+
+  await byName.camoufox_search.execute(
+    "id",
+    { query: "camoufox" },
+    undefined,
+    (update) => notes.push(update.content[0].text),
+    ctx,
+  );
+
+  assert.deepEqual(notes, ['searching "camoufox" with google', 'searching "camoufox" with duckduckgo']);
 });
