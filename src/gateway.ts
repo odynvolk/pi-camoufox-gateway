@@ -47,6 +47,14 @@ export interface GatewayClientOptions {
    * clamped to `timeoutMs` rather than allowed to raise it.
    */
   preflightTimeoutMs?: number;
+  /**
+   * How long a *successful* probe is worth answering with. Defaults to `PREFLIGHT_TTL_MS`.
+   *
+   * A bound on how stale an answer may be, not on how often we dial: past it the next call is served the
+   * last known good status and the refresh happens behind it. Injectable so a window is reachable in a
+   * test without waiting a minute for one.
+   */
+  preflightTtlMs?: number;
 }
 
 export interface OpenTabResult {
@@ -125,8 +133,7 @@ interface RequestOptions {
 }
 
 const PREFLIGHT_TTL_MS = 60_000;
-/** A failure earns a far shorter window than a success. See `GatewayClientOptions.preflightRetryAfterMs`. */
-const PREFLIGHT_RETRY_AFTER_MS = 5_000;
+/** A failure earns a far shorter window than a success. See `GatewayClientOptions.preflightRetryAfterMs`. */const PREFLIGHT_RETRY_AFTER_MS = 5_000;
 /**
  * How long the status probe may take. Well under the shipped `timeoutMs` (30s) on purpose: the point of
  * a probe is that it is the cheap thing, and its result has to arrive inside the window a failure of it
@@ -225,6 +232,7 @@ export class GatewayClient {
   private readonly preflightTimeoutMs: number;
   private preflightCache: GatewayStatus | undefined;
   private preflightAt = 0;
+  private readonly preflightTtlMs: number;
   /**
    * The last failure, honoured for `preflightRetryAfterMs`. Without it a dead gateway is dialled — and
    * times out — on every tool call, which is the guarantee `preflight` advertises in the README.
@@ -233,6 +241,12 @@ export class GatewayClient {
   private preflightFailureAt = 0;
   /** One in-flight probe, so concurrent callers of a dead gateway share it instead of each dialling. */
   private preflightInflight: Promise<GatewayStatus> | undefined;
+  /**
+   * A refresh running behind a caller it is no longer answering.
+   *
+   * Its own field, not another shape of `preflightInflight`: nothing awaits it and it never rejects.
+   */
+  private revalidating: Promise<void> | undefined;
   /** tabId -> userId for every tab this client opened and has not yet closed. */
   private readonly liveTabs = new Map<string, string>();
   /** In-flight /tabs/open calls; an ambiguous failure may only sweep when this is empty. */
@@ -249,6 +263,7 @@ export class GatewayClient {
     // later. Refusing an over-long value would have to reject the shipped default against any caller
     // that lowered `timeoutMs` below it, which is a legal thing to do.
     this.preflightTimeoutMs = Math.min(options.preflightTimeoutMs ?? PREFLIGHT_TIMEOUT_MS, this.timeoutMs);
+    this.preflightTtlMs = options.preflightTtlMs ?? PREFLIGHT_TTL_MS;
   }
 
   /** Tabs the client believes are still open, for leak assertions. */
@@ -257,16 +272,34 @@ export class GatewayClient {
   }
 
   /**
-   * Cheap liveness check. A success is cached for `PREFLIGHT_TTL_MS`; a failure for
-   * `preflightRetryAfterMs`, a much shorter window. So a dead gateway is dialled once per window
-   * instead of once per tool call — while a gateway that blips once is not written off for the whole
-   * success window. See `liveness` in `extension.ts` for what the shorter window cannot bound.
+   * Cheap liveness check.
+   *
+   * A success is answered with for `preflightTtlMs` and refreshed behind the call once it has passed, so
+   * the first call of a window pays nothing for a gateway that is simply up. A failure is honoured for
+   * `preflightRetryAfterMs` and re-thrown without dialling, so a burst of calls behind one dead gateway
+   * pays one probe rather than one timeout each — and a gateway that blips once is not written off for
+   * the whole success window.
+   *
+   * The trade is named rather than buried: a gateway that dies inside a success window is discovered by
+   * the call that straddles the window, from its own request rather than from a probe, because the stale
+   * status answered first. Refusals resume from the call after the refresh lands. `liveness` in
+   * `extension.ts` re-throws only `gateway_unreachable` and lets everything else reach the real request,
+   * so a status we answered with is never the authority on a call that went out.
    */
   async preflight(signal?: AbortSignal): Promise<GatewayStatus> {
     const now = Date.now();
-    if (this.preflightCache && now - this.preflightAt < PREFLIGHT_TTL_MS) return this.preflightCache;
+    const known = this.preflightCache;
+    if (known && now - this.preflightAt < this.preflightTtlMs) return known;
     if (this.preflightFailure && now - this.preflightFailureAt < this.preflightRetryAfterMs) {
       throw this.preflightFailure;
+    }
+
+    // Past the window, an answer we have beats an answer we are about to be late with. The refresh takes
+    // no caller's signal on purpose: it is for the calls after this one, and cancelling it because one
+    // caller gave up would leave the next one re-dialling too.
+    if (known) {
+      this.revalidate();
+      return known;
     }
 
     // One probe serves the window *and* its concurrent callers: raced to a dead gateway, N tool calls
@@ -279,6 +312,24 @@ export class GatewayClient {
       this.preflightInflight = undefined;
     });
     return this.preflightInflight;
+  }
+
+  /**
+   * Re-dial without making a caller wait for it.
+   *
+   * One at a time: callers arriving at an expired window all see the same stale status, and they are all
+   * served by the single refresh the first of them started. A failure is recorded by `probe` exactly as a
+   * blocking one is, which is what makes the next call refuse cheaply. No caller can see this settle, so
+   * it must not be able to throw.
+   */
+  private revalidate(): void {
+    if (this.revalidating) return;
+    this.revalidating = this.probe()
+      .then(() => undefined)
+      .catch(() => undefined)
+      .finally(() => {
+        this.revalidating = undefined;
+      });
   }
 
   /**

@@ -292,6 +292,50 @@ test("concurrent preflights against a dead gateway share one probe", async (t) =
   );
 });
 
+test("a window that has expired answers from the last known status and refreshes behind the call", async (t) => {
+  // D.3: the first call of each window used to pay the probe's round trip even on a healthy gateway,
+  // which is latency a caller cannot see the reason for.
+  const { fake, client } = clientWith(t, { client: { preflightTtlMs: 20 } });
+
+  const first = await client.preflight();
+  await sleep(30);
+  const second = await client.preflight();
+
+  assert.equal(second.checkedAt, first.checkedAt, "served from what we already knew, not from a new probe");
+
+  await sleep(30);
+  const third = await client.preflight();
+
+  assert.notEqual(third.checkedAt, first.checkedAt, "and the window did get refreshed behind the call");
+  assert.equal(attempts(fake), 3, "one refresh per window, whatever number of calls arrived at it");
+});
+
+test("a gateway that dies mid-window is refused once the refresh learns, not before", async (t) => {
+  // The honest cost of answering from a stale status: the call that happens to straddle the window
+  // finds out the hard way, from its own request rather than from a probe.
+  const { fake, client } = clientWith(t, { client: { preflightTtlMs: 20, preflightRetryAfterMs: 5_000 } });
+
+  const first = await client.preflight();
+  fake.state.unreachable = true;
+  await sleep(30);
+
+  const straddling = await client.preflight();
+  assert.equal(straddling.checkedAt, first.checkedAt, "the straddling call is not the one that discovers it");
+
+  await sleep(30);
+  await expectError(await client.preflight().catch((error) => error), "gateway_unreachable");
+});
+
+test("the first probe ever is still waited for", async (t) => {
+  // Nothing is known yet, so there is no stale status to answer with — and a cold gateway that is down
+  // must cost one cheap refusal rather than one full request timeout per call.
+  const { fake, client } = clientWith(t, { unreachable: true, client: { preflightTtlMs: 20 } });
+
+  await expectError(await client.preflight().catch((error) => error), "gateway_unreachable");
+
+  assert.ok(attempts(fake) > 0, "a cold client cannot answer from a status it never got");
+});
+
 test("sends the bearer token when apiKey is configured", async (t) => {
   const { fake, client } = clientWith(t, { requireAuth: true, client: { apiKey: "sekret" } });
 

@@ -194,7 +194,7 @@ The tool output starts with the code so the model can react instead of guessing.
 |---|---|
 | `config_error` | the config file is unreadable or invalid, so nothing was attempted |
 | `internal_error` | our own plumbing failed — an invariant, or a throw with no code. Never "the gateway is down": every gateway outcome this client sees is coded, so an unclassified throw is ours |
-| `gateway_unreachable` | cannot reach `gatewayUrl`. Liveness is probed at most once per 60s while the gateway is up, once per 5s while it is down; a cached failure is re-thrown without dialling, so a burst of calls pays one probe rather than one timeout each |
+| `gateway_unreachable` | cannot reach `gatewayUrl`. Liveness is probed at most once per 60s while the gateway is up, once per 5s while it is down; a cached failure is re-thrown without dialling, so a burst of calls pays one probe rather than one timeout each. A probe runs to 2s of its own rather than to `timeoutMs`, and the refresh past a window runs behind the call — so a gateway that dies mid-window is discovered by the one call that straddles it, and refused from the next |
 | `gateway_unauthorized` | gateway rejected `apiKey` |
 | `gateway_error` | the gateway answered with a failure, or answered with something unreadable |
 | `consent_wall` | Google served consent/CAPTCHA, not results |
