@@ -283,10 +283,11 @@ export class GatewayClient {
    * pays one probe rather than one timeout each — and a gateway that blips once is not written off for
    * the whole success window.
    *
-   * The trade is named rather than buried: a gateway that dies inside a success window is discovered by
-   * the call that straddles the window, from its own request rather than from a probe, because the stale
-   * status answered first. Refusals resume from the call after the refresh lands, and stay resumed: a
-   * probe that fails discards the success it invalidated, so there is no older answer to fall back to.
+   * The trade is named rather than buried: a gateway that dies inside a success window is discovered
+   * late, and not by one call — every caller reaching an expired window while the refresh is still
+   * running is served the stale status, because that is the only answer there is until it lands.
+   * Refusals resume from the call after it lands, and stay resumed: a probe that fails discards the
+   * success it invalidated, so there is no older answer to fall back to.
    * `liveness` in `extension.ts` re-throws only `gateway_unreachable` and lets everything else reach the
    * real request, so a status we answered with is never the authority on a call that went out.
    */
