@@ -326,6 +326,35 @@ test("a gateway that dies mid-window is refused once the refresh learns, not bef
   await expectError(await client.preflight().catch((error) => error), "gateway_unreachable");
 });
 
+test("a gateway that stays dead stays refused once the failure window passes", async (t) => {
+  // The stale-success window and the failure window are measured separately, so a call can arrive past
+  // both. If a failed refresh left the success it invalidated in place, that call would be served the
+  // older answer and be told "up" — once per window, however many refreshes have failed since.
+  const { fake, client } = clientWith(t, { client: { preflightTtlMs: 40, preflightRetryAfterMs: 200 } });
+
+  await client.preflight();
+  fake.state.unreachable = true;
+
+  // The one stale answer this design accepts: the call that straddles the success window has nothing
+  // fresher, and it is the call that starts the refresh which learns the gateway went away.
+  await sleep(50);
+  await client.preflight();
+  await sleep(20); // the refresh is unjoined by design; bound the wait for its failure being recorded
+
+  for (let i = 0; i < 3; i += 1) {
+    await expectError(await client.preflight().catch((error) => error), "gateway_unreachable");
+    await sleep(10);
+  }
+
+  // Two windows, so a refusal that resumed and then lapsed would not pass this by being late.
+  for (let round = 0; round < 2; round += 1) {
+    await sleep(220);
+    const before = attempts(fake);
+    await expectError(await client.preflight().catch((error) => error), "gateway_unreachable");
+    assert.ok(attempts(fake) > before, "with nothing fresher to answer from, this call had to re-dial");
+  }
+});
+
 test("the first probe ever is still waited for", async (t) => {
   // Nothing is known yet, so there is no stale status to answer with — and a cold gateway that is down
   // must cost one cheap refusal rather than one full request timeout per call.

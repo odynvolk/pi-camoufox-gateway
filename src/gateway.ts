@@ -230,7 +230,9 @@ export class GatewayClient {
   private readonly preflightRetryAfterMs: number;
   /** The probe's own deadline, never longer than `timeoutMs`. */
   private readonly preflightTimeoutMs: number;
+  /** Only ever holds a success. A probe that fails discards it — see `probe`. */
   private preflightCache: GatewayStatus | undefined;
+  /** When the cached success was learned. Read only alongside it. */
   private preflightAt = 0;
   private readonly preflightTtlMs: number;
   /**
@@ -282,9 +284,10 @@ export class GatewayClient {
    *
    * The trade is named rather than buried: a gateway that dies inside a success window is discovered by
    * the call that straddles the window, from its own request rather than from a probe, because the stale
-   * status answered first. Refusals resume from the call after the refresh lands. `liveness` in
-   * `extension.ts` re-throws only `gateway_unreachable` and lets everything else reach the real request,
-   * so a status we answered with is never the authority on a call that went out.
+   * status answered first. Refusals resume from the call after the refresh lands, and stay resumed: a
+   * probe that fails discards the success it invalidated, so there is no older answer to fall back to.
+   * `liveness` in `extension.ts` re-throws only `gateway_unreachable` and lets everything else reach the
+   * real request, so a status we answered with is never the authority on a call that went out.
    */
   async preflight(signal?: AbortSignal): Promise<GatewayStatus> {
     const now = Date.now();
@@ -294,8 +297,9 @@ export class GatewayClient {
       throw this.preflightFailure;
     }
 
-    // Past the window, an answer we have beats an answer we are about to be late with. The refresh takes
-    // no caller's signal on purpose: it is for the calls after this one, and cancelling it because one
+    // Past the window, an answer we have beats an answer we are about to be late with — and the only one
+    // that can still be here is a success, since a probe that fails discards it. The refresh takes no
+    // caller's signal on purpose: it is for the calls after this one, and cancelling it because one
     // caller gave up would leave the next one re-dialling too.
     if (known) {
       this.revalidate();
@@ -373,6 +377,12 @@ export class GatewayClient {
       if (error instanceof GatewayError && error.code !== "aborted") {
         this.preflightFailure = error;
         this.preflightFailureAt = Date.now();
+        // A failure invalidates the success, being the fresher fact about the gateway. Leaving it would
+        // leave the stale-answer branch of `preflight` reachable for as long as the process lives: a
+        // gateway that stays dead would be told "up" once per failure window, indefinitely. So once this
+        // window passes the next call has nothing to lean on and blocks on a probe — the only way to
+        // learn the gateway recovered.
+        this.preflightCache = undefined;
       }
       throw error;
     }
