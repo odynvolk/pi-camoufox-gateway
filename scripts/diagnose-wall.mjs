@@ -6,6 +6,7 @@
  * asserted on. Its teardown is covered by `tests/diagnose-wall.test.mjs`.
  */
 
+import { realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { randomUUID } from "node:crypto";
 
@@ -104,6 +105,26 @@ function clientFromConfig() {
   });
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+/**
+ * Was this file the script that was run?
+ *
+ * Both sides are resolved before comparing. Node realpaths a module's own url and leaves `argv[1]` as it
+ * was typed, so running this through a symlinked path (`/tmp` is `/private/tmp` on macOS) compared two
+ * different paths and the diagnosis exited reporting nothing — the worst failure a diagnosis can have.
+ *
+ * A path that is not on disk answers "not me" rather than throwing: that is a caller importing this
+ * module with arguments of its own, and a broken import is the worse outcome. That is the only false
+ * negative left, and it is not how this script is run.
+ */
+export function isEntryScript(argvPath, moduleUrl) {
+  if (!argvPath) return false;
+  try {
+    return moduleUrl === pathToFileURL(realpathSync(argvPath)).href;
+  } catch {
+    return false;
+  }
+}
+
+if (isEntryScript(process.argv[1], import.meta.url)) {
   await diagnose({ client: clientFromConfig(), url: process.argv[2] ?? DEFAULT_URL });
 }

@@ -344,7 +344,15 @@ export default function (pi: ExtensionAPI) {
    * on this path; a session that never registered anything has nothing to release.
    */
   pi.on("session_shutdown", async (_event, ctx) => {
-    const userId = sessionOf(ctx);
+    // An id that cannot be derived cannot name a session on the gateway, so there is nothing of ours to
+    // release. Swallowed rather than thrown: pi surfaces a throw here as a shutdown failure, and an id
+    // we cannot name is not one.
+    let userId: string;
+    try {
+      userId = sessionOf(ctx);
+    } catch {
+      return;
+    }
     const extension = extensions.get(userId);
     if (!extension) return;
     extensions.delete(userId);

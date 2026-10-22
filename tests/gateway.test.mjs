@@ -295,19 +295,32 @@ test("concurrent preflights against a dead gateway share one probe", async (t) =
 test("a window that has expired answers from the last known status and refreshes behind the call", async (t) => {
   // Answering from the old status is what stops the first call of each window paying the probe's round
   // trip on a gateway that is simply up — latency a caller cannot see the reason for.
-  const { fake, client } = clientWith(t, { client: { preflightTtlMs: 20 } });
+  //
+  // The window is wide against the poll interval below on purpose: waiting for the refresh must not be
+  // able to re-expire it, or a poll would start a second one and the count would be measuring the test.
+  const { fake, client } = clientWith(t, { client: { preflightTtlMs: 250 } });
 
   const first = await client.preflight();
-  await sleep(30);
-  const second = await client.preflight();
+  const afterFirstProbe = attempts(fake);
 
+  await sleep(260);
+  const second = await client.preflight();
   assert.equal(second.checkedAt, first.checkedAt, "served from what we already knew, not from a new probe");
 
-  await sleep(30);
-  const third = await client.preflight();
+  // The refresh is deliberately unjoined, so the honest wait is for the fact, not for a fixed tick.
+  let refreshed = second;
+  const deadline = Date.now() + 1_000;
+  while (refreshed.checkedAt === first.checkedAt && Date.now() < deadline) {
+    await sleep(2);
+    refreshed = await client.preflight();
+  }
 
-  assert.notEqual(third.checkedAt, first.checkedAt, "and the window did get refreshed behind the call");
-  assert.equal(attempts(fake), 3, "one refresh per window, whatever number of calls arrived at it");
+  assert.notEqual(refreshed.checkedAt, first.checkedAt, "the window did get refreshed, behind the call");
+  assert.equal(
+    attempts(fake),
+    afterFirstProbe + 1,
+    "one refresh per window, whatever number of calls arrived at it",
+  );
 });
 
 test("a gateway that dies mid-window is refused once the refresh learns, not before", async (t) => {

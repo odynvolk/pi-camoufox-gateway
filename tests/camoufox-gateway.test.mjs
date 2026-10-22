@@ -125,6 +125,24 @@ test("one session's shutdown releases only its own gateway session", async (t) =
   assert.equal(deletionsFor(a.userId), 1, "a second shutdown for the same session is a no-op, not an error");
 });
 
+test("a shutdown whose session id cannot be derived releases nothing, and says nothing", async (t) => {
+  // Teardown stays total. An id the sanitizer empties cannot name a session on the gateway, so there is
+  // nothing of ours to release — and the same unusable id already stopped this session registering an
+  // entry, so the only thing a throw here could achieve is an error at shutdown over nothing.
+  withConfigFile(t, { gatewayUrl: "http://gateway.test:9377" });
+  const fake = withFakeGateway(t);
+  const handler = registered().pi.handlers.find((entry) => entry.event === "session_shutdown").handler;
+
+  // Not rejecting *is* one of the two assertions: node:test fails this test if the handler throws.
+  await handler({ type: "session_shutdown", reason: "quit" }, { sessionManager: { getSessionId: () => "///" } });
+
+  assert.equal(
+    fake.state.calls.filter((call) => call.method === "DELETE").length,
+    0,
+    "a session we cannot name is not a session we can release",
+  );
+});
+
 test("the parameter objects match what README documents", () => {
   const { byName } = registered();
 

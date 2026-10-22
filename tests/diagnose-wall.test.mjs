@@ -5,13 +5,20 @@
  * what it left behind — and it left a third, hand-named session namespace in the gateway's tab list,
  * plus a tab whenever the read failed. Both are asserted here: one against a stub client, one against
  * the fake gateway's authoritative tab set.
+ *
+ * So is `isEntryScript`, the guard that replaced running at import time. Wrongly answering "not me"
+ * leaves the script printing nothing and exiting 0, which no assertion on the importable parts can see.
  */
 
 import "./helpers/fetch_guard.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 
-import { diagnose } from "../scripts/diagnose-wall.mjs";
+import { diagnose, isEntryScript } from "../scripts/diagnose-wall.mjs";
 import { createGatewayClient } from "../src/gateway.ts";
 import { urlPolicyFromConfig } from "../src/net-policy.ts";
 import { testConfig } from "./helpers/config.mjs";
@@ -109,5 +116,26 @@ test("a diagnosis that works closes its tab and deletes its session", async (t) 
   assert.equal(
     fake.state.calls.filter((call) => call.method === "DELETE" && call.path === `/sessions/${report.userId}`).length,
     1,
+  );
+});
+
+test("the entry guard resolves the path it was run with", (t) => {
+  // Node hands a module a resolved url and leaves `argv[1]` as it was typed, so the two differ whenever
+  // the invocation path passes through a symlink — `/tmp` on macOS. Measured against the old check: a
+  // diagnosis run that way matched neither side, printed nothing, and exited 0.
+  const root = mkdtempSync(join(tmpdir(), "diagnose-entry-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const real = join(root, "real");
+  mkdirSync(real);
+  const script = join(real, "diagnose-wall.mjs");
+  writeFileSync(script, "", "utf8");
+  symlinkSync(real, join(root, "linked"));
+  const moduleUrl = pathToFileURL(realpathSync(script)).href;
+
+  assert.equal(isEntryScript(script, moduleUrl), true, "run directly, this is the script that was run");
+  assert.equal(
+    isEntryScript(join(root, "linked", "diagnose-wall.mjs"), moduleUrl),
+    true,
+    "run through a symlinked directory, it is still the same file",
   );
 });
