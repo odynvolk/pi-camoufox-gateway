@@ -124,9 +124,10 @@ export function createExtension(deps: ExtensionDepsWithConfig): Extension {
    * timeout per tool call, and concurrent callers share one probe however long a failure takes.
    *
    * The failure window is short deliberately: holding it for the whole success window would turn one
-   * transient blip into that entire window of refusals. It cannot bound a probe that itself runs to the
-   * client timeout — a gateway that hangs rather than refuses is re-dialled by each sequential caller.
-   * Recorded as D.4 in `docs/improvements/2026-10-18-code.md`.
+   * transient blip into that entire window of refusals. It can only promise that much because the probe
+   * it describes is bounded on its own — `preflightTimeoutMs`, well under `timeoutMs` — so a gateway that
+   * hangs rather than refuses reports back inside the window instead of after it had already passed.
+   * That was D.4.
    *
    * Anything else (an old gateway without `GET /`, a slow body) is not our business: let the real
    * request answer.

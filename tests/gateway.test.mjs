@@ -231,6 +231,53 @@ test("a probe that fails slowly still holds its window, so the next call does no
   assert.equal(connects, afterSlowProbe, "a failure that took longer than its window must still hold it");
 });
 
+test("the status probe runs to its own deadline, not the request timeout", async () => {
+  let connects = 0;
+  const client = createGatewayClient({
+    baseUrl: BASE,
+    timeoutMs: 40,
+    preflightTimeoutMs: 12,
+    fetchImpl: () => {
+      connects += 1;
+      return new Promise(() => {}); // never settles, so only a deadline ends this
+    },
+  });
+
+  const error = expectError(await client.preflight().catch((e) => e), "timeout");
+
+  // The number a reader can act on has to be the one that actually fired. It is also the proof of which
+  // deadline was applied: a probe still running to `timeoutMs` would report 40.
+  assert.match(error.message, /within 12ms/u, `reported the wrong deadline: ${error.message}`);
+  assert.equal(error.message.includes("40ms"), false, "the request timeout must not be quoted for a probe");
+  assert.equal(connects, 1, "a probe that timed out is not retried either");
+});
+
+test("an ordinary request keeps the deadline the probe does not take", async () => {
+  const client = createGatewayClient({
+    baseUrl: BASE,
+    timeoutMs: 40,
+    preflightTimeoutMs: 12,
+    fetchImpl: () => new Promise(() => {}),
+  });
+
+  const error = expectError(await client.openTab({ userId: "u1", url: "https://example.com" }).catch((e) => e), "timeout");
+
+  assert.match(error.message, /within 40ms/u, `a real request was cut short: ${error.message}`);
+});
+
+test("a probe deadline longer than the request timeout cannot extend it", async () => {
+  const client = createGatewayClient({
+    baseUrl: BASE,
+    timeoutMs: 12,
+    preflightTimeoutMs: 5_000,
+    fetchImpl: () => new Promise(() => {}),
+  });
+
+  const error = expectError(await client.preflight().catch((e) => e), "timeout");
+
+  assert.match(error.message, /within 12ms/u, "the client timeout is the ceiling a probe may not raise");
+});
+
 test("concurrent preflights against a dead gateway share one probe", async (t) => {
   const { fake, client } = clientWith(t, { unreachable: true });
 

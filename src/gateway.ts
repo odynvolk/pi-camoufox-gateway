@@ -30,11 +30,23 @@ export interface GatewayClientOptions {
   fetchImpl?: typeof globalThis.fetch;
   /**
    * How long a *failed* liveness probe is honoured, measured from when the failure was observed,
-   * before the gateway is dialled again. Defaults to `PREFLIGHT_RETRY_AFTER_MS`. Kept well below
-   * `PREFLIGHT_TTL_MS` on purpose: a gateway that is up barely changes, but holding a failure for the
-   * whole success window would turn one transient blip into that entire window of refusals.
+   * before the gateway is dialled again. Defaults to `PREFLIGHT_RETRY_AFTER_MS`. Kept well above
+   * `preflightTimeoutMs` on purpose: the window has to outlast the probe it is promising anything about,
+   * or a slow failure is written down already expired and every sequential caller re-dials. Holding it
+   * for the whole success window would still be wrong — one transient blip would become that entire
+   * window of refusals.
    */
   preflightRetryAfterMs?: number;
+  /**
+   * Deadline for the liveness probe alone, defaulting to `PREFLIGHT_TIMEOUT_MS`.
+   *
+   * A probe shares nothing with a real request but the transport, and it used to share their deadline
+   * too — so at shipped defaults a gateway that hangs rather than refuses made the probe burn the whole
+   * `timeoutMs`, and by the time it reported the shorter failure window had already passed. That is why
+   * the failure window could not be a promise. It is one now: a probe is bounded on its own, and
+   * clamped to `timeoutMs` rather than allowed to raise it.
+   */
+  preflightTimeoutMs?: number;
 }
 
 export interface OpenTabResult {
@@ -104,11 +116,23 @@ interface RequestOptions {
    * than acted on — retrying an optional wait only doubles the latency the caller paid for it.
    */
   retry?: "always" | "connect-only" | "never";
+  /**
+   * Deadline for this one request, for the caller whose operation is shorter-lived than the client.
+   *
+   * Only ever lowers `timeoutMs` — see `GatewayClientOptions.preflightTimeoutMs`.
+   */
+  timeoutMs?: number;
 }
 
 const PREFLIGHT_TTL_MS = 60_000;
 /** A failure earns a far shorter window than a success. See `GatewayClientOptions.preflightRetryAfterMs`. */
 const PREFLIGHT_RETRY_AFTER_MS = 5_000;
+/**
+ * How long the status probe may take. Well under the shipped `timeoutMs` (30s) on purpose: the point of
+ * a probe is that it is the cheap thing, and its result has to arrive inside the window a failure of it
+ * is honoured for (`PREFLIGHT_RETRY_AFTER_MS`).
+ */
+const PREFLIGHT_TIMEOUT_MS = 2_000;
 
 /**
  * Endpoints this extension depends on. Kept in one place so a gateway upgrade is caught by one
@@ -197,6 +221,8 @@ export class GatewayClient {
   private readonly urlPolicy: UrlPolicy;
   private readonly fetchImpl: typeof globalThis.fetch;
   private readonly preflightRetryAfterMs: number;
+  /** The probe's own deadline, never longer than `timeoutMs`. */
+  private readonly preflightTimeoutMs: number;
   private preflightCache: GatewayStatus | undefined;
   private preflightAt = 0;
   /**
@@ -219,6 +245,10 @@ export class GatewayClient {
     this.urlPolicy = options.urlPolicy ?? DEFAULT_URL_POLICY;
     this.fetchImpl = (options.fetchImpl ?? globalThis.fetch).bind(globalThis);
     this.preflightRetryAfterMs = options.preflightRetryAfterMs ?? PREFLIGHT_RETRY_AFTER_MS;
+    // Clamped, not validated: a probe may decide to give up sooner than a real request would, never
+    // later. Refusing an over-long value would have to reject the shipped default against any caller
+    // that lowered `timeoutMs` below it, which is a legal thing to do.
+    this.preflightTimeoutMs = Math.min(options.preflightTimeoutMs ?? PREFLIGHT_TIMEOUT_MS, this.timeoutMs);
   }
 
   /** Tabs the client believes are still open, for leak assertions. */
@@ -265,6 +295,8 @@ export class GatewayClient {
     try {
       const status = await this.requestJson<Record<string, unknown>>("GET", endpointPath("status"), {
         signal,
+        // The probe's own deadline, so a hung gateway costs this and not the full request timeout.
+        timeoutMs: this.preflightTimeoutMs,
         // Retry a connect failure that never landed — it costs nothing to try again — but never a
         // timeout, which has already spent the entire deadline. Retrying that doubles the latency
         // every caller pays, including the ones sharing this probe. Same reasoning `waitFor` records.
@@ -612,6 +644,9 @@ export class GatewayClient {
   }
 
   private async perform<T>(method: string, path: string, options: RequestOptions): Promise<T> {
+    // One number for this request, so the deadline that fires and the deadline that gets reported
+    // cannot be two different ones.
+    const deadlineMs = options.timeoutMs ?? this.timeoutMs;
     const controller = new AbortController();
     const callerSignal = options.signal;
     const onAbort = () => controller.abort(callerSignal?.aborted ? "caller" : "timeout");
@@ -621,11 +656,11 @@ export class GatewayClient {
     }
     const timer = setTimeout(() => {
       if (!controller.signal.aborted) controller.abort("timeout");
-    }, this.timeoutMs);
+    }, deadlineMs);
 
     try {
       if (controller.signal.aborted) {
-        throw this.abortError(callerSignal);
+        throw this.abortError(callerSignal, deadlineMs);
       }
       const response = await firstToSettle(
         this.fetchImpl(this.url(path, options.query), {
@@ -638,9 +673,9 @@ export class GatewayClient {
           signal: controller.signal,
         }),
         controller.signal,
-        () => this.abortError(callerSignal),
+        () => this.abortError(callerSignal, deadlineMs),
       );
-      if (controller.signal.aborted) throw this.abortError(callerSignal);
+      if (controller.signal.aborted) throw this.abortError(callerSignal, deadlineMs);
 
       const body = await this.readBody(response);
 
@@ -657,7 +692,7 @@ export class GatewayClient {
       return body as T;
     } catch (error) {
       if (error instanceof GatewayError) throw error;
-      if ((error as { name?: string })?.name === "AbortError") throw this.abortError(callerSignal);
+      if ((error as { name?: string })?.name === "AbortError") throw this.abortError(callerSignal, deadlineMs);
       if (isNetworkFailure(error)) {
         throw new GatewayError("gateway_unreachable", `cannot reach the gateway at ${this.baseUrl}: ${String(error)}. Check that camofox-browser is running and try \`GET ${this.baseUrl}/\`.`, {
           retryable: true,
@@ -672,14 +707,14 @@ export class GatewayClient {
     }
   }
 
-  private abortError(signal?: AbortSignal): GatewayError {
+  private abortError(signal?: AbortSignal, deadlineMs: number = this.timeoutMs): GatewayError {
     if (signal?.aborted) {
       // A deadline that aborts on its own behalf keeps its own code; a cancelled tool call gets the
       // plain `aborted`.
       if (signal.reason instanceof GatewayError) return signal.reason;
       return new GatewayError("aborted", "the tool call was cancelled before the gateway request completed");
     }
-    return new GatewayError("timeout", `gateway did not respond within ${this.timeoutMs}ms`, { retryable: true });
+    return new GatewayError("timeout", `gateway did not respond within ${deadlineMs}ms`, { retryable: true });
   }
 
   private async readBody(response: Response): Promise<unknown> {
