@@ -129,6 +129,7 @@ test("the entry guard resolves the path it was run with", (t) => {
   mkdirSync(real);
   const script = join(real, "diagnose-wall.mjs");
   writeFileSync(script, "", "utf8");
+  writeFileSync(join(real, "another.mjs"), "", "utf8");
   symlinkSync(real, join(root, "linked"));
   const moduleUrl = pathToFileURL(realpathSync(script)).href;
 
@@ -138,4 +139,10 @@ test("the entry guard resolves the path it was run with", (t) => {
     true,
     "run through a symlinked directory, it is still the same file",
   );
+  // The two answers that must stay "no", or resolving would be worth nothing: a different script, and
+  // a path that is not on disk — which answers no rather than throwing, so importing this module with
+  // someone else's `argv[1]` cannot break the import.
+  assert.equal(isEntryScript(join(real, "another.mjs"), moduleUrl), false, "another script is not this one");
+  assert.equal(isEntryScript(join(real, "absent.mjs"), moduleUrl), false, "a path with nothing behind it is not either");
+  assert.equal(isEntryScript(undefined, moduleUrl), false, "and no path at all is the weakest no");
 });
