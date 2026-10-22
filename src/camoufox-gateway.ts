@@ -9,6 +9,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { Type, type Static } from "typebox";
 
 import { ENGINE_NAMES, MAX_SEARCH_RESULTS } from "./config.ts";
+import { GatewayError } from "./errors.ts";
 import { urlPolicyFromConfig } from "./net-policy.ts";
 import { createExtension, formatError, resolveConfig, READ_DESCRIPTION, SEARCH_DESCRIPTION, type Extension, type ReadToolArgs, type ReadToolResult, type SearchDetails, type SearchToolArgs, type ToolOutcome } from "./extension.ts";
 import type { TriedStep } from "./engines/chain.ts";
@@ -345,13 +346,16 @@ export default function (pi: ExtensionAPI) {
    */
   pi.on("session_shutdown", async (_event, ctx) => {
     // An id that cannot be derived cannot name a session on the gateway, so there is nothing of ours to
-    // release. Swallowed rather than thrown: pi surfaces a throw here as a shutdown failure, and an id
-    // we cannot name is not one.
+    // release. Swallowed rather than thrown: pi surfaces a throw here as a shutdown failure, and an id we
+    // cannot name is not one. Narrowed to that fault deliberately — the read of `ctx` sits in the same
+    // try, and a context pi has already invalidated would otherwise be swallowed with it, leaving a
+    // session unreleased and nothing said about it.
     let userId: string;
     try {
       userId = sessionOf(ctx);
-    } catch {
-      return;
+    } catch (error) {
+      if (error instanceof GatewayError && error.code === "internal_error") return;
+      throw error;
     }
     const extension = extensions.get(userId);
     if (!extension) return;

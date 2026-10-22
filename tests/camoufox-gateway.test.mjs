@@ -143,6 +143,27 @@ test("a shutdown whose session id cannot be derived releases nothing, and says n
   );
 });
 
+test("a shutdown over a context that cannot answer still says so", async () => {
+  // Only the derivation's own fault is swallowed. A `ctx` that throws on being read is a pi-side fault,
+  // and swallowing it would leave a session unreleased with nothing reported — the class of bug this
+  // handler exists to close.
+  const handler = registered().pi.handlers.find((entry) => entry.event === "session_shutdown").handler;
+
+  await assert.rejects(
+    () =>
+      handler(
+        { type: "session_shutdown", reason: "quit" },
+        {
+          get sessionManager() {
+            throw new Error("extension context invalidated");
+          },
+        },
+      ),
+    /extension context invalidated/u,
+    "a fault that is not about the id must not be mistaken for one",
+  );
+});
+
 test("the parameter objects match what README documents", () => {
   const { byName } = registered();
 
