@@ -120,9 +120,10 @@ test("a diagnosis that works closes its tab and deletes its session", async (t) 
 });
 
 test("the entry guard resolves the path it was run with", (t) => {
-  // Node hands a module a resolved url and leaves `argv[1]` as it was typed, so the two differ whenever
-  // the invocation path passes through a symlink — `/tmp` on macOS. Measured against the old check: a
-  // diagnosis run that way matched neither side, printed nothing, and exited 0.
+  // Node hands a module a resolved url and leaves `argv[1]` as it was typed, so the two can disagree —
+  // which is why both sides resolve. Measured against the old check: a diagnosis run through a symlinked
+  // path matched neither side, printed nothing, and exited 0. The symlinked invocation is asserted on by
+  // its own case below, since it needs a filesystem that permits one.
   const root = mkdtempSync(join(tmpdir(), "diagnose-entry-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const real = join(root, "real");
@@ -130,19 +131,37 @@ test("the entry guard resolves the path it was run with", (t) => {
   const script = join(real, "diagnose-wall.mjs");
   writeFileSync(script, "", "utf8");
   writeFileSync(join(real, "another.mjs"), "", "utf8");
-  symlinkSync(real, join(root, "linked"));
   const moduleUrl = pathToFileURL(realpathSync(script)).href;
 
   assert.equal(isEntryScript(script, moduleUrl), true, "run directly, this is the script that was run");
-  assert.equal(
-    isEntryScript(join(root, "linked", "diagnose-wall.mjs"), moduleUrl),
-    true,
-    "run through a symlinked directory, it is still the same file",
-  );
   // The two answers that must stay "no", or resolving would be worth nothing: a different script, and
   // a path that is not on disk — which answers no rather than throwing, so importing this module with
   // someone else's `argv[1]` cannot break the import.
   assert.equal(isEntryScript(join(real, "another.mjs"), moduleUrl), false, "another script is not this one");
   assert.equal(isEntryScript(join(real, "absent.mjs"), moduleUrl), false, "a path with nothing behind it is not either");
   assert.equal(isEntryScript(undefined, moduleUrl), false, "and no path at all is the weakest no");
+});
+
+test("an entry path that runs through a symlink is still this script", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "diagnose-symlink-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const real = join(root, "real");
+  mkdirSync(real);
+  const script = join(real, "diagnose-wall.mjs");
+  writeFileSync(script, "", "utf8");
+
+  try {
+    symlinkSync(real, join(root, "linked"));
+  } catch {
+    // Windows refuses a directory symlink without Developer Mode. Skipped rather than failed: what this
+    // case guards is comparison after resolution, which needs a filesystem that permits one.
+    t.skip("this filesystem will not make a directory symlink");
+    return;
+  }
+
+  assert.equal(
+    isEntryScript(join(root, "linked", "diagnose-wall.mjs"), pathToFileURL(realpathSync(script)).href),
+    true,
+    "run through a symlinked directory, it is still the same file",
+  );
 });
