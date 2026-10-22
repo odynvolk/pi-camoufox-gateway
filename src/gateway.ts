@@ -133,7 +133,8 @@ interface RequestOptions {
 }
 
 const PREFLIGHT_TTL_MS = 60_000;
-/** A failure earns a far shorter window than a success. See `GatewayClientOptions.preflightRetryAfterMs`. */const PREFLIGHT_RETRY_AFTER_MS = 5_000;
+/** A failure earns a far shorter window than a success. See `GatewayClientOptions.preflightRetryAfterMs`. */
+const PREFLIGHT_RETRY_AFTER_MS = 5_000;
 /**
  * How long the status probe may take. Well under the shipped `timeoutMs` (30s) on purpose: the point of
  * a probe is that it is the cheap thing, and its result has to arrive inside the window a failure of it
@@ -768,7 +769,7 @@ export class GatewayClient {
     }
   }
 
-  private abortError(signal?: AbortSignal, deadlineMs: number = this.timeoutMs): GatewayError {
+  private abortError(signal: AbortSignal | undefined, deadlineMs: number): GatewayError {
     if (signal?.aborted) {
       // A deadline that aborts on its own behalf keeps its own code; a cancelled tool call gets the
       // plain `aborted`.

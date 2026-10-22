@@ -293,8 +293,8 @@ test("concurrent preflights against a dead gateway share one probe", async (t) =
 });
 
 test("a window that has expired answers from the last known status and refreshes behind the call", async (t) => {
-  // D.3: the first call of each window used to pay the probe's round trip even on a healthy gateway,
-  // which is latency a caller cannot see the reason for.
+  // Answering from the old status is what stops the first call of each window paying the probe's round
+  // trip on a gateway that is simply up — latency a caller cannot see the reason for.
   const { fake, client } = clientWith(t, { client: { preflightTtlMs: 20 } });
 
   const first = await client.preflight();

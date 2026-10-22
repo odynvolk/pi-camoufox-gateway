@@ -127,7 +127,6 @@ export function createExtension(deps: ExtensionDepsWithConfig): Extension {
    * transient blip into that entire window of refusals. It can only promise that much because the probe
    * it describes is bounded on its own — `preflightTimeoutMs`, well under `timeoutMs` — so a gateway that
    * hangs rather than refuses reports back inside the window instead of after it had already passed.
-   * That was D.4.
    *
    * Anything else (an old gateway without `GET /`, a slow body) is not our business: let the real
    * request answer.
