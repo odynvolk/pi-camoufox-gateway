@@ -172,6 +172,81 @@ test("a maxChars of Infinity is refused, because no special case gets to survive
   );
 });
 
+/**
+ * The guard measured the *asked* value and returned early when it was absent, so the default it silently
+ * fell back to was never measured — and a bad `read.defaultMaxChars` is the same fail-open this branch
+ * exists for, reached from the config instead of the call. `NaN` there meant 20 000 characters back with
+ * `truncated: false`; `0.5` meant one character with `truncated: true`.
+ *
+ * Refusing the *effective* budget is what `src/tools/search.ts` already does for `n`, for the same
+ * reason: a hand-built config reaches the tool without passing through the validator.
+ */
+test("a bad read.defaultMaxChars is refused too, because the guard measures what is actually spent", async (t) => {
+  const { tool } = setup(t, {
+    config: { read: { defaultMaxChars: NaN } },
+    pageContents: new Map([["https://huge.test/", "h".repeat(50_000)]]),
+    snapshotLimit: 50_000,
+  });
+
+  const error = await tool.read({ url: "https://huge.test/" }).catch((e) => e);
+
+  assert.equal(error.code, "unsupported", "a default the ceiling cannot order is not a budget");
+  assert.match(error.message, /^"read\.defaultMaxChars" must be/u, "and it names the key at fault, not a param nobody passed");
+});
+
+test("a fractional read.defaultMaxChars is refused, not spent as a single character", async (t) => {
+  const { tool } = setup(t, { config: { read: { defaultMaxChars: 0.5 } } });
+
+  const error = await tool.read({ url: "https://example.test/article" }).catch((e) => e);
+
+  assert.equal(error.code, "unsupported", "0.5 used to come back as one character and `truncated: true`");
+  assert.match(error.message, /^"read\.defaultMaxChars"/u);
+});
+
+test("an asked-for maxChars is blamed as the param, not as the config key that was fine", async (t) => {
+  const { tool } = setup(t);
+
+  const error = await tool.read({ url: "https://example.test/article", maxChars: "1,000" }).catch((e) => e);
+
+  assert.match(error.message, /^"maxChars" must be/u, `blamed the wrong thing: ${error.message}`);
+  assert.equal(/read\.defaultMaxChars" must be/u.test(error.message), false, "the default is not at fault here");
+});
+
+/**
+ * The refusal is not swallowed — it goes into `content[0].text`, which is the model's context window,
+ * the one thing this guard exists to bound. An unbounded echo printed all 5 002 characters of the value
+ * it was refusing, which is the defect with a `code: unsupported` on it.
+ */
+test("the refused value is printed bounded, because the refusal goes where the page was going", async (t) => {
+  const { tool } = setup(t);
+  const long = "x".repeat(5_000);
+
+  const error = await tool.read({ url: "https://example.test/article", maxChars: long }).catch((e) => e);
+
+  assert.equal(error.code, "unsupported");
+  assert.ok(error.message.length < 200, `the refusal itself was ${error.message.length} chars of context`);
+  assert.ok(error.message.includes(`"${"x".repeat(50)}`), "it still shows the start, so a caller recognises their own value");
+  assert.equal(error.message.includes("x".repeat(200)), false, "but it does not carry the value");
+  const withheld = error.message.match(/\((\d+) chars\)/u);
+  assert.ok(withheld, "and says how much it withheld");
+  assert.equal(Number(withheld[1]), JSON.stringify(long).length, "the length it clipped, so the value is still identifiable");
+});
+
+test("the schema refusal prints through the same bounded printer", async (t) => {
+  // Two printers for one job diverged once already: this one was bounded and `describeArgument` was
+  // not. Routed through the shared one, so the bound is one rule rather than two.
+  const { tool } = setup(t);
+
+  const error = await tool.read({
+    url: "https://example.test/article",
+    schema: { type: "s".repeat(5_000), properties: { title: { "x-ref": "e1" } } },
+  }).catch((e) => e);
+
+  assert.equal(error.code, "unsupported");
+  assert.ok(error.message.length < 250, `the schema refusal was ${error.message.length} chars`);
+  assert.match(error.message, /\(5002 chars\)/u, "and the type it refused is clipped, with its length named");
+});
+
 /** A value, printed the way a reader would want it in a failing assertion — `"1,000"` vs `1000`. */
 function label(value) {
   return typeof value === "string" ? JSON.stringify(value) : `${typeof value}:${String(value)}`;

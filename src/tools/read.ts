@@ -10,7 +10,7 @@
 import type { CamoufoxConfig } from "../config.ts";
 import { isRecord } from "../config.ts";
 import type { Cache } from "../cache.ts";
-import { GatewayError } from "../errors.ts";
+import { describeArgument, GatewayError } from "../errors.ts";
 import type { GatewayClient, SnapshotResult } from "../gateway.ts";
 import { assertTabUrlAllowed, urlPolicyFromConfig } from "../net-policy.ts";
 import { detectWall, extractText, type ExtractedText } from "../snapshot.ts";
@@ -104,7 +104,7 @@ function assertSchemaUsable(schema: Record<string, unknown>): void {
   if (schema.type !== "object") {
     throw new GatewayError(
       "unsupported",
-      `that schema is not extractable — "type" must be "object", got ${JSON.stringify(schema.type ?? null)?.slice(0, 60)}`,
+      `that schema is not extractable — "type" must be "object", got ${describeArgument(schema.type ?? null)}`,
     );
   }
 
@@ -147,32 +147,25 @@ function assertSchemaUsable(schema: Record<string, unknown>): void {
  * question nobody asked with 40 000 characters is this same defect pointed the other way. `Infinity` goes
  * too — `JSON.parse("1e999")` is `Infinity`, so it is reachable from a model that meant something else,
  * and every value carved out as "fine, actually" is another one to get wrong next time.
+ *
+ * Measured on the *effective* budget rather than the asked-for one, because the arithmetic spends the
+ * effective one: an absent `maxChars` falls back to `read.defaultMaxChars`, and a hand-built config
+ * reaches that value without passing through the loader's validator. A `defaultMaxChars` of `NaN` was
+ * therefore the same fail-open with the argument missing from the call — 20 000 characters back, nothing
+ * disclosed — and `0.5` was the second failure mode, one character served as ordinary paging. Which of
+ * the two is named, because only one of them is something the caller can change.
  */
-function assertMaxCharsUsable(maxChars: number | undefined): void {
-  if (maxChars === undefined) return;
-
+function assertMaxCharsUsable(budget: number, askedForParam: boolean): void {
   // One predicate, so there is no value left to special-case: `Number.isInteger` is false for `NaN`,
   // `Infinity`, floats, and — unlike a bare `typeof` — for every non-number reaching us unvalidated.
-  if (typeof maxChars !== "number" || !Number.isInteger(maxChars) || maxChars < 1) {
-    throw new GatewayError(
-      "unsupported",
-      `maxChars must be a positive integer of characters, got ${describeArgument(maxChars)} — omit it for your read.defaultMaxChars`,
-    );
-  }
-}
+  if (typeof budget === "number" && Number.isInteger(budget) && budget >= 1) return;
 
-/**
- * Print a rejected argument the way a caller needs to read it: `"1,000"` with its quotes, so the model
- * that sent it can see it sent a string.
- *
- * `JSON.stringify` alone would report `NaN` and `Infinity` as `null`, which is the one distinction a
- * reader tracing this must not lose.
- */
-function describeArgument(value: unknown): string {
-  const printed = typeof value === "number" && !Number.isFinite(value)
-    ? String(value)
-    : JSON.stringify(value) ?? String(value);
-  return `${printed} (${typeof value})`;
+  throw new GatewayError(
+    "unsupported",
+    askedForParam
+      ? `"maxChars" must be a positive integer of characters, got ${describeArgument(budget)} — omit it for your read.defaultMaxChars`
+      : `"read.defaultMaxChars" must be a positive integer of characters, got ${describeArgument(budget)} — fix it in your config, or pass "maxChars"`,
+  );
 }
 
 /**
@@ -437,7 +430,8 @@ export function readTool(deps: ReadToolDeps) {
     assertAllowed(params.url ?? "");
     // Also before anything is fetched: a budget we cannot size has no answer worth a round trip, and a
     // page we go and fetch in order to reject the ask is a page whose text has already crossed over.
-    assertMaxCharsUsable(params.maxChars);
+    const wanted = params.maxChars ?? read.defaultMaxChars;
+    assertMaxCharsUsable(wanted, params.maxChars !== undefined);
     // Before anything is fetched or cached: a schema with no refs to fill is not a question a page —
     // fresh or stored — could answer.
     if (params.schema) assertSchemaUsable(params.schema);

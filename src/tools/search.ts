@@ -4,7 +4,7 @@
  */
 
 import { MAX_SEARCH_RESULTS, type CamoufoxConfig } from "../config.ts";
-import { GatewayError } from "../errors.ts";
+import { describeArgument, GatewayError } from "../errors.ts";
 import { searchWithFallback, type TriedStep } from "../engines/chain.ts";
 import type { Engine } from "../engines/types.ts";
 import type { GatewayClient } from "../gateway.ts";
@@ -134,8 +134,8 @@ export function searchTool(deps: SearchToolDeps) {
       throw new GatewayError(
         "unsupported",
         params.n === undefined
-          ? `"search.maxResults" must be a whole number of results, got ${requested}`
-          : `"n" must be a whole number of results, got ${requested}`,
+          ? `"search.maxResults" must be a whole number of results, got ${describeArgument(requested)}`
+          : `"n" must be a whole number of results, got ${describeArgument(requested)}`,
       );
     }
     const clamped = Math.max(1, Math.min(requested, MAX_SEARCH_RESULTS));
