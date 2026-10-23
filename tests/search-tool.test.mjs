@@ -299,6 +299,56 @@ test("a first-try success still names the engine that answered", async (t) => {
   assert.doesNotMatch(header, /tried/u, "and with no fallback, there is no fallback to enumerate");
 });
 
+test("an engine we have no adapter for is refused as an unknown name", async (t) => {
+  // `engine?` is free-form at the boundary, so `bing` used to arrive and be answered with "is not
+  // available (enabled: google, duckduckgo)" — which reads as a capability the gateway lacks, not as a
+  // name nobody recognises. Those are different facts with different remedies: one is fixed by editing
+  // config, the other by fixing a typo, and a model that is told the first will go looking for a
+  // setting that has to do with `bing` and does not exist.
+  const { tool } = setup(t);
+
+  const error = await tool.search({ query: "camoufox", engine: "bing" }).catch((e) => e);
+
+  assert.equal(error.code, "unsupported");
+  // Wording lifted from `config.ts`, which refuses this same name at load with `unknown engine "x"
+  // (known: ...)`. Deliberately not `chain.ts`'s "no adapter for engine", which means something else:
+  // the name passed config validation and still has no factory — our bug, not the caller's.
+  assert.match(error.message, /unknown engine/u, `"${error.message}"`);
+  assert.match(error.message, /google, duckduckgo/u, "and it names what is actually selectable");
+  assert.doesNotMatch(error.message, /enabled: google, duckduckgo/u, "because 'enabled' is the wording for the other case");
+});
+
+test("an engine that exists but is switched off says so, rather than claiming it is not a thing", async (t) => {
+  // The same message covered both cases, and this is the one it got wrong: `duckduckgo` is a real
+  // adapter, present, and turned off in this user's config. Telling them it "is not available (enabled:
+  // google)" is true only about the active chain and reads as though the engine itself is missing — the
+  // one thing they could do is the one thing the message rules out.
+  const { tool, engines } = setup(t, {
+    config: { engines: [{ name: "google", enabled: true }, { name: "duckduckgo", enabled: false }] },
+  });
+
+  assert.deepEqual(engines.map((e) => e.name), ["google"], "the fixture really does switch it off");
+
+  const error = await tool.search({ query: "camoufox", engine: "duckduckgo" }).catch((e) => e);
+
+  assert.equal(error.code, "unsupported");
+  assert.match(error.message, /disabled/u, `"${error.message}"`);
+  assert.doesNotMatch(error.message, /unknown engine/u, "it is known — that is the whole distinction");
+});
+
+test("a non-string engine is refused by name rather than compared against the chain", async (t) => {
+  // Nothing validates tool arguments, so `engine: 5` reaches the filter as-is and matches nothing. It
+  // is the same unknown-name case, but the message has to print it the way it arrived or a model reads
+  // `5` as a disabled engine.
+  const { tool } = setup(t);
+
+  const error = await tool.search({ query: "camoufox", engine: 5 }).catch((e) => e);
+
+  assert.equal(error.code, "unsupported");
+  assert.match(error.message, /unknown engine/u, `"${error.message}"`);
+  assert.match(error.message, /\(number\)/u, "printed with its type, so the mistake is visible");
+});
+
 test("an empty query is rejected before touching the gateway", async (t) => {
   const { fake, tool } = setup(t);
 

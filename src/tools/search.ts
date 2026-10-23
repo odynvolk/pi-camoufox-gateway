@@ -3,7 +3,7 @@
  * text. It owns no HTTP of its own; that lives behind `GatewayClient`.
  */
 
-import { MAX_SEARCH_RESULTS, type CamoufoxConfig } from "../config.ts";
+import { ENGINE_NAMES, isEngineName, MAX_SEARCH_RESULTS, type CamoufoxConfig } from "../config.ts";
 import { describeArgument, GatewayError } from "../errors.ts";
 import { searchWithFallback, type TriedStep } from "../engines/chain.ts";
 import type { Engine } from "../engines/types.ts";
@@ -152,8 +152,31 @@ export function searchTool(deps: SearchToolDeps) {
     const activeEngines = params.engine
       ? engines.filter((engine) => engine.name === params.engine)
       : engines;
-    if (activeEngines.length === 0) {
-      throw new GatewayError("unsupported", `engine "${params.engine}" is not available (enabled: ${engines.map((e) => e.name).join(", ")})`);
+    if (params.engine !== undefined && activeEngines.length === 0) {
+      // Two facts, one message each, because only one of them is a setting anyone can change.
+      //
+      // `engine "bing" is not available (enabled: google, duckduckgo)` covered both, which got the
+      // common one wrong: a name nobody recognises reads as a capability the gateway lacks, and the one
+      // thing a model can do with that — go look for a setting to do with `bing` — finds nothing, because
+      // the fix is to retype the name. So a stranger is refused with `config.ts`'s own wording for the
+      // same question (`chain.ts`'s "no adapter" is deliberately not reused: that one means the name
+      // *passed* config validation and still has no factory, which is our bug, not the caller's), and an
+      // engine that is real but switched off is told which of its two states it is in.
+      if (isEngineName(params.engine)) {
+        const enabled = engines.map((engine) => engine.name).join(", ");
+        throw new GatewayError(
+          "unsupported",
+          `"${params.engine}" is disabled in your config (enabled: ${enabled || "none"}) — enable it under`
+            + ` "engines", or drop "engine" from the call`,
+        );
+      }
+
+      // Printed through `describeArgument` because this is the branch where the type is the mistake —
+      // `5` and `"5"` need to look different here, and it is the branch a model is most likely to hit.
+      throw new GatewayError(
+        "unsupported",
+        `unknown engine ${describeArgument(params.engine)} — known: ${ENGINE_NAMES.join(", ")}`,
+      );
     }
 
     // `n` deliberately stays out of the key: the cached value is the whole engine page, sliced only

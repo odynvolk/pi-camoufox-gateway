@@ -236,11 +236,14 @@ test("parameter descriptions quote structural values and name the key for anythi
   const read = byName.camoufox_read.parameters.properties;
 
   // Structural: one engine page is this wide whatever anyone configures, so quoting the number is
-  // quoting a fact. Same for the engine names.
+  // quoting a fact. Same for the engine names — but these two moved out of the description and into the
+  // schema's own `enum`, which is where a name belongs: readable by the model, checkable by a caller, and
+  // not a sentence that can drift away from the set it describes. Asserted against `enum`, so the guard
+  // still holds the fact; the sentence no longer has to carry it.
   const nDescription = search.n.description;
   assert.match(nDescription, new RegExp(String(MAX_SEARCH_RESULTS), "u"), `"${nDescription}" does not quote MAX_SEARCH_RESULTS`);
   for (const engine of ENGINE_NAMES) {
-    assert.match(search.engine.description, new RegExp(engine, "u"), `"${search.engine.description}" is missing engine "${engine}"`);
+    assert.ok(search.engine.enum.includes(engine), `"${JSON.stringify(search.engine.enum)}" is missing engine "${engine}"`);
   }
 
   // Overridable: these numbers belong to the user's config, which is read after this module is
@@ -462,6 +465,16 @@ test("the n schema offers only whole numbers, because the tool refuses anything 
   // code then refuses — a schema advertising an input the tool rejects is the same defect as a
   // description quoting a number a user's config can contradict.
   assert.equal(registered().byName.camoufox_search.parameters.properties.n.type, "integer");
+});
+
+test("the engine param enumerates, because only two names can ever be answered", () => {
+  // `A.5`'s second half. This one was not a schema lying about the code — the tool does refuse anything
+  // else — but the allowed set lived in a `description` string, where a model reads it as prose and a
+  // caller cannot validate against it. `n` and `maxChars` were both fixed for the weaker reason.
+  const engine = registered().byName.camoufox_search.parameters.properties.engine;
+
+  assert.deepEqual(engine.enum, ["google", "duckduckgo"], "the choices are the schema, not the sentence");
+  assert.match(engine.description, /unsupported/u, "and a refusal names the code it comes back as");
 });
 
 test("both tools declare an outputSchema, and return nothing it does not declare", async (t) => {

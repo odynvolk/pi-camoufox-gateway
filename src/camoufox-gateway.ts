@@ -22,7 +22,11 @@ const SearchSchema = Type.Object({
   // `Integer`, not `Number`: the tool refuses a fractional count, and a schema offering one would be a
   // promise the code breaks. The guard is still in `tools/search.ts` because that is what actually holds.
   n: Type.Optional(Type.Integer({ description: `Maximum results (engine returns a page of ${MAX_SEARCH_RESULTS})` })),
-  engine: Type.Optional(Type.String({ description: `Force one engine: ${ENGINE_NAMES.join(" | ")}` })),
+  engine: Type.Optional(
+    Type.Enum(ENGINE_NAMES, {
+      description: `Force one engine. Anything else is refused with code unsupported — an unfamiliar name as "unknown engine", a real one you have switched off as "disabled in your config"`,
+    }),
+  ),
   resolve: Type.Optional(Type.Boolean({ description: "Resolve google redirect urls to final urls" })),
 });
 

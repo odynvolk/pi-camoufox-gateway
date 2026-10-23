@@ -89,7 +89,16 @@ export const DEFAULT_CONFIG: CamoufoxConfig = {
   timeoutMs: 30_000,
 };
 
-const KNOWN_ENGINES = new Set<string>(ENGINE_NAMES);
+/**
+ * Whether a value is one of the engines we ship an adapter for.
+ *
+ * Exported because "is this a real engine name?" is asked at config load *and* at call time, and the
+ * answer has to be one thing: a tool refusing a name the loader would have accepted, or accepting one it
+ * would have rejected, is a rule that means two different things depending on which door came in.
+ */
+export function isEngineName(value: unknown): value is EngineName {
+  return typeof value === "string" && (ENGINE_NAMES as readonly string[]).includes(value);
+}
 
 export class ConfigError extends Error {
   constructor(message: string) {
@@ -227,7 +236,7 @@ function parseEngines(raw: unknown, path: string): EngineConfig[] {
   const engines: EngineConfig[] = [];
   for (const entry of raw) {
     if (typeof entry === "string") {
-      if (!KNOWN_ENGINES.has(entry)) fail(`${path}: unknown engine "${entry}" (known: ${ENGINE_NAMES.join(", ")})`);
+      if (!isEngineName(entry)) fail(`${path}: unknown engine "${entry}" (known: ${ENGINE_NAMES.join(", ")})`);
       engines.push({ name: entry as EngineName, enabled: true });
       continue;
     }
@@ -236,9 +245,9 @@ function parseEngines(raw: unknown, path: string): EngineConfig[] {
     }
     const record = entry as Record<string, unknown>;
     const name = assertString(record.name, "name", `${path}.engines[]`);
-    if (!KNOWN_ENGINES.has(name)) fail(`${path}: unknown engine "${name}" (known: ${ENGINE_NAMES.join(", ")})`);
+    if (!isEngineName(name)) fail(`${path}: unknown engine "${name}" (known: ${ENGINE_NAMES.join(", ")})`);
     const enabled = record.enabled === undefined ? true : Boolean(record.enabled);
-    engines.push({ name: name as EngineName, enabled });
+    engines.push({ name, enabled });
   }
   if (engines.filter((engine) => engine.enabled).length === 0) {
     fail(`${path}: "engines" must keep at least one engine enabled`);
