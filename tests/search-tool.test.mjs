@@ -9,6 +9,7 @@ import { createGatewayClient } from "../src/gateway.ts";
 import { urlPolicyFromConfig } from "../src/net-policy.ts";
 import { createCache } from "../src/cache.ts";
 import { searchTool } from "../src/tools/search.ts";
+import { readTool } from "../src/tools/read.ts";
 import { enginesFromConfig } from "../src/engines/chain.ts";
 
 const BASE = "http://gateway.test:9377";
@@ -272,6 +273,183 @@ test("reports the engine chain it tried", async (t) => {
   assert.equal(out.engine, "duckduckgo");
   assert.deepEqual(out.tried.map((s) => s.engine), ["google", "duckduckgo"]);
   assert.match(out.text, /google:consent_wall/u);
+  assert.match(out.text.split("\n")[0], /via duckduckgo/u, "and the answer is attributed to the engine that served it, not the one that walled");
+});
+
+/**
+ * A model cannot calibrate trust in a result set it cannot attribute. "Google served this" and
+ * "DuckDuckGo served this after Google walled" are different claims, and only the second one used to
+ * be stated: the header named an engine only once the chain had walked, so the common case — first
+ * engine, no wall — said nothing in the text a model reads, and left the engine in `details.engine`
+ * alone.
+ *
+ * Asserted against the first line on purpose. Every result line already prints the result's own host,
+ * so a link to `google.com` in the body would satisfy a loose match without this being about it.
+ */
+test("a first-try success still names the engine that answered", async (t) => {
+  const { tool } = setup(t);
+
+  const out = await tool.search({ query: "camoufox" });
+
+  assert.equal(out.engine, "google");
+  assert.equal(out.tried.length, 1, "nothing fell back — this is the case that used to be silent");
+
+  const header = out.text.split("\n")[0];
+  assert.match(header, /\(via google\)/u, "attributed even when there was no chain to report");
+  assert.doesNotMatch(header, /tried/u, "and with no fallback, there is no fallback to enumerate");
+});
+
+test("an engine we have no adapter for is refused as an unknown name", async (t) => {
+  // `engine?` is free-form at the boundary, so `bing` used to arrive and be answered with "is not
+  // available (enabled: google, duckduckgo)" — which reads as a capability the gateway lacks, not as a
+  // name nobody recognises. Those are different facts with different remedies: one is fixed by editing
+  // config, the other by fixing a typo, and a model that is told the first will go looking for a
+  // setting that has to do with `bing` and does not exist.
+  const { tool } = setup(t);
+
+  const error = await tool.search({ query: "camoufox", engine: "bing" }).catch((e) => e);
+
+  assert.equal(error.code, "unsupported");
+  // Wording lifted from `config.ts`, which refuses this same name at load with `unknown engine "x"
+  // (known: ...)`. Deliberately not `chain.ts`'s "no adapter for engine", which means something else:
+  // the name passed config validation and still has no factory — our bug, not the caller's.
+  assert.match(error.message, /unknown engine/u, `"${error.message}"`);
+  assert.match(error.message, /google, duckduckgo/u, "and it names what is actually selectable");
+  assert.doesNotMatch(error.message, /enabled: google, duckduckgo/u, "because 'enabled' is the wording for the other case");
+});
+
+test("an engine that exists but is switched off says so, rather than claiming it is not a thing", async (t) => {
+  // The same message covered both cases, and this is the one it got wrong: `duckduckgo` is a real
+  // adapter, present, and turned off in this user's config. Telling them it "is not available (enabled:
+  // google)" is true only about the active chain and reads as though the engine itself is missing — the
+  // one thing they could do is the one thing the message rules out.
+  const { tool, engines } = setup(t, {
+    config: { engines: [{ name: "google", enabled: true }, { name: "duckduckgo", enabled: false }] },
+  });
+
+  assert.deepEqual(engines.map((e) => e.name), ["google"], "the fixture really does switch it off");
+
+  const error = await tool.search({ query: "camoufox", engine: "duckduckgo" }).catch((e) => e);
+
+  assert.equal(error.code, "unsupported");
+  assert.match(error.message, /disabled/u, `"${error.message}"`);
+  assert.doesNotMatch(error.message, /unknown engine/u, "it is known — that is the whole distinction");
+});
+
+test("a non-string engine is refused by name rather than compared against the chain", async (t) => {
+  // Nothing validates tool arguments, so `engine: 5` reaches the filter as-is and matches nothing. It
+  // is the same unknown-name case, but the message has to print it the way it arrived or a model reads
+  // `5` as a disabled engine.
+  const { tool } = setup(t);
+
+  const error = await tool.search({ query: "camoufox", engine: 5 }).catch((e) => e);
+
+  assert.equal(error.code, "unsupported");
+  assert.match(error.message, /unknown engine/u, `"${error.message}"`);
+  assert.match(error.message, /\(number\)/u, "printed with its type, so the mistake is visible");
+});
+
+/**
+ * The falsy `engine` values, one test each.
+ *
+ * Truthiness is what the filter tested, so each value below read as "nobody forced an engine": the whole
+ * two-engine chain ran, and the header attributed the answer to whichever engine served it. The schema
+ * description ("anything else is refused with code unsupported") and the README bullet both say these
+ * are refused.
+ *
+ * One test per value rather than a loop, because `bing` being the only case anyone wrote down is how this
+ * survived its own test file: a loop that skips a value looks identical to one that covers it.
+ */
+
+/** Refused, and refused before a page was fetched: a refusal that cost two navigations is not a refusal. */
+function assertRefusedBeforeFetching(error, fake, shown, label) {
+  assert.equal(error.code, "unsupported", `${label} was served results instead of being refused`);
+  assert.match(error.message, /unknown engine/u, `${label} → "${error.message}"`);
+  assert.match(error.message, new RegExp(shown, "u"), "printed the way it arrived, so the mistake is visible");
+  assert.equal(
+    fake.state.calls.filter((call) => call.path === "/tabs/open").length,
+    0,
+    `${label}: no tab was opened, not even to be refused`,
+  );
+}
+
+test('engine "" is refused, not read as an empty default nobody asked about', async (t) => {
+  // The realistic one: a caller forwarding an unset value as `config.engine ?? ""`, or a model emitting
+  // an empty string as its default for an optional field. Truthiness turned an explicit ask into a
+  // silent full-chain run — the defect `assertMaxCharsUsable` was written to prevent, in the sibling tool.
+  const { fake, tool } = setup(t);
+
+  const error = await tool.search({ query: "camoufox", engine: "" }).catch((e) => e);
+
+  assertRefusedBeforeFetching(error, fake, '"" \\(string\\)', '""');
+});
+
+test("engine 0 is refused, not read as an unindexed default", async (t) => {
+  // A caller mapping engines by position and reading the slot of an unset index sends this, and `0` is
+  // the value that made the old truthiness branch look harmless: it is falsy, so it was "no engine".
+  const { fake, tool } = setup(t);
+
+  const error = await tool.search({ query: "camoufox", engine: 0 }).catch((e) => e);
+
+  assertRefusedBeforeFetching(error, fake, '\\b0 \\(number\\)', "0");
+});
+
+test("engine false is refused, not read as an unanswered question", async (t) => {
+  // `engine: ready && "google"` from a caller wiring the argument conditionally produces exactly this
+  // before anything is awaited, and the answer it used to get names an engine nobody asked for.
+  const { fake, tool } = setup(t);
+
+  const error = await tool.search({ query: "camoufox", engine: false }).catch((e) => e);
+
+  assertRefusedBeforeFetching(error, fake, "false \\(boolean\\)", "false");
+});
+
+test("engine NaN is refused, like every other number this tool refuses", async (t) => {
+  // `Number("")` and `Number(undefined)` are both this value, so it arrives from the same string-parsing
+  // caller that produced the read tool's uncapped page. Here the type is the mistake, so it is printed
+  // as `NaN (number)` rather than compared against the chain, where it matches nothing quietly.
+  const { fake, tool } = setup(t);
+
+  const error = await tool.search({ query: "camoufox", engine: NaN }).catch((e) => e);
+
+  assertRefusedBeforeFetching(error, fake, "NaN \\(number\\)", "NaN");
+});
+
+test("engine null is the absence it looks like, and keys the same chain an omitted one does", async (t) => {
+  // The one falsy value that is not an ask. `null` is a nullish *nothing*, which is the same thing
+  // `params.maxChars ?? read.defaultMaxChars` treats as "not provided" — so `??` normalises it and this
+  // call takes the whole enabled chain. Asserted through the cache: a shared key is the proof that the
+  // filter saw no engine, where a message would only prove we did not throw.
+  const { fake, tool } = setup(t);
+
+  const out = await tool.search({ query: "camoufox", engine: null });
+  assert.equal(out.engine, "google", "the chain ran from the top, as it does with no engine named");
+
+  const before = fake.state.calls.length;
+  const plain = await tool.search({ query: "camoufox" });
+
+  assert.equal(plain.fromCache, true, "the omitted call hits the entry the null call stored");
+  assert.equal(fake.state.calls.length, before, "so the two asked for the same page, not two pages");
+});
+
+test("both tools read a nullish argument as absence, not as a value to refuse", async (t) => {
+  // The decision above, pinned as an assertion rather than a comment: search normalises `engine` with
+  // `??`, which is the exact expression `wantedChars` uses. Two tools giving two different answers to
+  // "is null an ask?" is the thing a caller cannot guess, so the pair is tested together.
+  const { tool, client, config } = setup(t, {
+    pageContents: new Map([["https://huge.test/", "h".repeat(20_000)]]),
+  });
+  const read = readTool({ client, config, cache: createCache(), userId: "u1" });
+
+  const search = await tool.search({ query: "camoufox", engine: null });
+  assert.equal(search.engine, "google", "search: null engine runs the chain rather than being refused");
+
+  // 20 000 characters on the page, 12 000 is the configured default: cut to the default, which is what
+  // an absent budget does. `0` and `false` are refused outright by this same tool, which is the
+  // distinction — null is not in that family.
+  const page = await read.read({ url: "https://huge.test/", maxChars: null });
+  assert.equal(page.text.length, config.read.defaultMaxChars, "read: null maxChars spent the default");
+  assert.equal(page.totalChars, 20_000);
 });
 
 test("an empty query is rejected before touching the gateway", async (t) => {

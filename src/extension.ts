@@ -311,8 +311,8 @@ export function formatError(error: unknown, context: ErrorContext): { text: stri
   // A chain that walked past a non-terminal code re-throws the *first* error, because that is the one
   // that says something about the query. So the second engine's different failure was invisible: a
   // `consent_wall` from google was the last word the model got even after duckduckgo went blind with
-  // `parse_error`. The success path has named its chain all along (`formatResults`); this is the same
-  // fact on the path that did not succeed, and the only place the fallback's outcome is stated at all.
+  // `parse_error`. The success path gets its chain named by `formatResults`, which cannot run here — so
+  // this line is the only place a chain that was actually walked is still stated.
   if (chain.length > 1) {
     lines.push(`Engines tried: ${chain.join(", ")}.`);
   }

@@ -13,9 +13,18 @@ talks to it over HTTP.
 Searches through the browser and returns ranked titles, urls and snippets.
 
 - Google goes through the gateway's `@google_search` macro, which is what survives Google's consent
-  interstitial. If Google walls us, DuckDuckGo answers and the output says which engines were tried.
+  interstitial. If Google walls us, DuckDuckGo answers, and the output lists which engines were tried.
+- **Every result set says which engine served it** — `(via google)` on the header, not only when
+  something failed. "Google served this" and "DuckDuckGo served this after Google walled" are different
+  claims about the same eight links, and the engine used to be named only in the second case, which left
+  the common one attributable to nothing. It was always in `details.engine`, but that is a field for a
+  script, not text a model reads.
 - Bing is not offered: through this gateway it returns a `Network Protocol Error` before results
   render, so it would only ever waste a page load.
+- **`engine` is one of the two we ship, and the refusal says which way you missed.** A name we have no
+  adapter for comes back as "unknown engine", naming the ones we do have; a real engine you switched off
+  under `engines` comes back as "disabled in your config". One of those is a typo and the other is a
+  setting, so they are not merged into a single "not available".
 - `n` is clamped to 10. The macro takes only a query, so a longer list is not reachable — which is why
   `search.maxResults` is refused above it rather than silently rounded down on every call. It has to be a
   whole number too: `n: 2.5` used to slice to 2 rows and report nothing, because `slice` floors silently.

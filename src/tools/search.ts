@@ -3,7 +3,7 @@
  * text. It owns no HTTP of its own; that lives behind `GatewayClient`.
  */
 
-import { MAX_SEARCH_RESULTS, type CamoufoxConfig } from "../config.ts";
+import { ENGINE_NAMES, isEngineName, MAX_SEARCH_RESULTS, type CamoufoxConfig } from "../config.ts";
 import { describeArgument, GatewayError } from "../errors.ts";
 import { searchWithFallback, type TriedStep } from "../engines/chain.ts";
 import type { Engine } from "../engines/types.ts";
@@ -81,9 +81,15 @@ export function formatResults(outcome: {
   fromCache?: boolean;
 }): string {
   const lines: string[] = [];
-  const fallback = outcome.tried.length > 1 ? ` (via ${outcome.engine}; tried ${outcome.tried.map((s) => `${s.engine}:${s.code}`).join(", ")})` : "";
+  // Name the engine that answered, on every success: "google served this" and "duckduckgo served this
+  // after google walled" are different claims about the same links, and a model cannot weigh a result
+  // set it cannot attribute. `details.engine` is not the answer — it is a field for a script, not text
+  // the model reads. The `tried` enumeration stays conditional: nothing fell back, nothing to enumerate.
+  const via = ` (via ${outcome.engine}${
+    outcome.tried.length > 1 ? `; tried ${outcome.tried.map((s) => `${s.engine}:${s.code}`).join(", ")}` : ""
+  })`;
   const asked = outcome.requested !== undefined && outcome.requested !== outcome.results.length ? ` (${outcome.results.length} of ${outcome.requested} asked for)` : "";
-  lines.push(`Search results for "${outcome.query}" — ${outcome.results.length} result(s)${asked}${fallback}:`);
+  lines.push(`Search results for "${outcome.query}" — ${outcome.results.length} result(s)${asked}${via}:`);
   outcome.results.forEach((result, index) => {
     const suffix = result.resolved === false ? " [url unresolved]" : "";
     lines.push(`${index + 1}. ${result.title}\n   ${result.url}${suffix}\n   ${engineLabel(result)}${result.snippet ? ` — ${result.snippet}` : ""}`);
@@ -141,11 +147,36 @@ export function searchTool(deps: SearchToolDeps) {
     const clamped = Math.max(1, Math.min(requested, MAX_SEARCH_RESULTS));
     const resolve = params.resolve === true;
 
-    const activeEngines = params.engine
-      ? engines.filter((engine) => engine.name === params.engine)
-      : engines;
-    if (activeEngines.length === 0) {
-      throw new GatewayError("unsupported", `engine "${params.engine}" is not available (enabled: ${engines.map((e) => e.name).join(", ")})`);
+    // One answer to "did the caller name an engine", in one expression, so the filter and the refusal
+    // below cannot disagree — same reason `wantedChars` is one expression in `read.ts`. `??` puts `null`
+    // with "absent", as the sibling tool does with a nullish budget; `""`, `0`, `false` and `NaN` were
+    // sent, so they are refused below rather than read as a chain nobody constrained.
+    const forced = params.engine ?? undefined;
+    const activeEngines = forced === undefined ? engines : engines.filter((engine) => engine.name === forced);
+    if (forced !== undefined && activeEngines.length === 0) {
+      // Two facts, one message each, because only one of them is a setting anyone can change. An
+      // unfamiliar name is a typo and the remedy is to retype it; a name that is real and switched off is
+      // a setting. Merged into "not available", the first reads as a capability the gateway lacks, and a
+      // model told that goes looking for a `bing` setting that does not exist.
+      //
+      // `config.ts`'s wording is reused for the stranger; `chain.ts`'s "no adapter" deliberately is not,
+      // because it means the name *passed* config validation and still has no factory — our bug, not
+      // theirs.
+      if (isEngineName(forced)) {
+        const enabled = engines.map((engine) => engine.name).join(", ");
+        throw new GatewayError(
+          "unsupported",
+          `"${forced}" is disabled in your config (enabled: ${enabled || "none"}) — enable it under`
+            + ` "engines", or drop "engine" from the call`,
+        );
+      }
+
+      // Printed through `describeArgument` because this is the branch where the type is the mistake —
+      // `5` and `"5"` need to look different here, and it is the branch a model is most likely to hit.
+      throw new GatewayError(
+        "unsupported",
+        `unknown engine ${describeArgument(forced)} — known: ${ENGINE_NAMES.join(", ")}`,
+      );
     }
 
     // `n` deliberately stays out of the key: the cached value is the whole engine page, sliced only
