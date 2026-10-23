@@ -249,6 +249,19 @@ export function readTool(deps: ReadToolDeps) {
   const read = config.read;
 
   /**
+   * The budget this call spends — what was asked for, or the configured default.
+   *
+   * One expression on purpose. `assertMaxCharsUsable` refuses a budget it cannot size, and that is only
+   * worth doing to the number the slicing then actually spends; written out at both ends, the two copies
+   * agree today and nothing would notice the day they stop to. Naming it is also what makes the guard's
+   * two messages honest — "you sent a bad maxChars" and "your config ships one" are the same value from
+   * two different sources, which is the distinction the caller needs.
+   */
+  function wantedChars(params: ReadParams): number {
+    return params.maxChars ?? read.defaultMaxChars;
+  }
+
+  /**
    * Same rules `GatewayClient.openTab` applies, called here on purpose: a client constructed without
    * a policy must not silently turn the read tool into the unguarded path.
    */
@@ -353,7 +366,7 @@ export function readTool(deps: ReadToolDeps) {
     // One rule for both sources: whether the amount wanted — asked for, or defaulted — was more than a
     // single call may take. A `defaultMaxChars` above the ceiling is refused at load, so in practice the
     // `params.maxChars` branch is the one that fires.
-    const wanted = params.maxChars ?? read.defaultMaxChars;
+    const wanted = wantedChars(params);
     const budget = Math.min(wanted, read.maxCharsCeiling);
     const cappedAt = wanted > read.maxCharsCeiling ? read.maxCharsCeiling : undefined;
     const sliced: ExtractedText = extractText(snapshot, { maxChars: budget, offset: params.offset });
@@ -470,7 +483,7 @@ export function readTool(deps: ReadToolDeps) {
     assertAllowed(params.url ?? "");
     // Also before anything is fetched: a budget we cannot size has no answer worth a round trip, and a
     // page we go and fetch in order to reject the ask is a page whose text has already crossed over.
-    const wanted = params.maxChars ?? read.defaultMaxChars;
+    const wanted = wantedChars(params);
     assertMaxCharsUsable(wanted, params.maxChars !== undefined);
     // The same rule for the other number, and the same place: after this, the cache key and the
     // arithmetic can both be trusted to hold a count. An absent `offset` *is* 0, which is legal, so
