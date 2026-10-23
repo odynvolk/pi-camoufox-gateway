@@ -151,9 +151,10 @@ function assertSchemaUsable(schema: Record<string, unknown>): void {
  * Measured on the *effective* budget rather than the asked-for one, because the arithmetic spends the
  * effective one: an absent `maxChars` falls back to `read.defaultMaxChars`, and a hand-built config
  * reaches that value without passing through the loader's validator. A `defaultMaxChars` of `NaN` was
- * therefore the same fail-open with the argument missing from the call — 20 000 characters back, nothing
- * disclosed — and `0.5` was the second failure mode, one character served as ordinary paging. Which of
- * the two is named, because only one of them is something the caller can change.
+ * therefore the same fail-open with the argument missing from the call — measured at 50 000 characters
+ * back with `truncated: false`, on the same page the guard test uses — and `0.5` was the second failure
+ * mode, one character (`-`) served as ordinary paging. Which of the two is named, because only one of
+ * them is something the caller can change.
  */
 function assertMaxCharsUsable(budget: number, askedForParam: boolean): void {
   if (isCountUsable(budget, 1)) return;

@@ -190,8 +190,9 @@ test("a maxChars of Infinity is refused, because no special case gets to survive
 /**
  * The guard measured the *asked* value and returned early when it was absent, so the default it silently
  * fell back to was never measured — and a bad `read.defaultMaxChars` is the same fail-open this branch
- * exists for, reached from the config instead of the call. `NaN` there meant 20 000 characters back with
- * `truncated: false`; `0.5` meant one character with `truncated: true`.
+ * exists for, reached from the config instead of the call. Measured against the 50 000-char page this
+ * file's other guards use: `NaN` there returned all 50 000 characters with `truncated: false`, and `0.5`
+ * returned the single character `-` with `truncated: true`.
  *
  * Refusing the *effective* budget is what `src/tools/search.ts` already does for `n`, for the same
  * reason: a hand-built config reaches the tool without passing through the validator.
