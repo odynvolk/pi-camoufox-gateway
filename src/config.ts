@@ -237,7 +237,7 @@ function parseEngines(raw: unknown, path: string): EngineConfig[] {
   for (const entry of raw) {
     if (typeof entry === "string") {
       if (!isEngineName(entry)) fail(`${path}: unknown engine "${entry}" (known: ${ENGINE_NAMES.join(", ")})`);
-      engines.push({ name: entry as EngineName, enabled: true });
+      engines.push({ name: entry, enabled: true });
       continue;
     }
     if (entry === null || typeof entry !== "object") {
