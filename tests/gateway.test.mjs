@@ -323,6 +323,36 @@ test("a window that has expired answers from the last known status and refreshes
   );
 });
 
+test("an aborted caller does not cancel the refresh it started", async (t) => {
+  // "The refresh takes no caller's signal" is a decision, not an oversight: cancelling it because one
+  // caller gave up would leave every later caller re-dialling a gateway that was about to be reported
+  // healthy. Threading the signal through — the natural-looking edit, since the blocking branch does
+  // exactly that — is the mutation this test exists to catch.
+  const { fake, client } = clientWith(t, { client: { preflightTtlMs: 250 } });
+
+  const first = await client.preflight();
+  const beforeRefresh = attempts(fake);
+  await sleep(260);
+
+  const cancelled = new AbortController();
+  cancelled.abort();
+  const served = await client.preflight(cancelled.signal);
+
+  assert.equal(served.checkedAt, first.checkedAt, "the cancelled caller is served the status we hold, not an abort");
+
+  // Counted at the transport, and deliberately without calling `preflight()` again: re-asking would
+  // start a *fresh* refresh and pass either way, which is exactly how a first draft of this test passed
+  // under that mutation while guarding nothing.
+  const deadline = Date.now() + 1_000;
+  while (attempts(fake) === beforeRefresh && Date.now() < deadline) await sleep(2);
+
+  assert.equal(
+    attempts(fake),
+    beforeRefresh + 1,
+    "the refresh the cancelled caller started still goes out",
+  );
+});
+
 test("a gateway that dies mid-window is refused once the refresh learns, not before", async (t) => {
   // The honest cost of answering from a stale status: the call that happens to straddle the window
   // finds out the hard way, from its own request rather than from a probe.
