@@ -558,6 +558,29 @@ test("a wall is classified without spending the settle budget on it", async (t) 
   assert.equal(fake.state.calls.filter((c) => c.path.includes("/snapshot")).length, 1);
 });
 
+/**
+ * The thin end of the structural rule, pinned as a decision rather than as a bug.
+ *
+ * `isBrowserRefusal` is not width-gated, so it is the branch that answers here — and a page still
+ * rendering is exactly what `worthPollingAgain` exists to wait out, so this verdict ends the wait. Weighed
+ * before it was accepted: sweeping every line-prefix of all 10 recorded pages for the three conditions,
+ * only `page-network-error.txt` ever satisfies them, and it reaches them at its own last line. No
+ * recorded content page passes through this shape on the way to being content — the first `/url` shows up
+ * within 12 lines on every page that has one, and no recorded content page has a retry-vocabulary button
+ * anywhere. Refusing stays the cheaper answer, because the alternatives are worse: a second structural
+ * condition measured on one fixture, or two extra polls on every genuine error page.
+ */
+test("a structural refusal is treated as settled, not as a page still rendering", async (t) => {
+  const { fake, tool } = setup(t, {
+    snapshotScripts: new Map([["https://shell.test/", ['- heading "Example Domain" [level=1]\n- button "Reload"']]]),
+  });
+
+  const error = await tool.read({ url: "https://shell.test/" }).catch((e) => e);
+
+  assert.equal(error.code, "navigation_failed");
+  assert.equal(fake.state.calls.filter((c) => c.path.includes("/snapshot")).length, 1);
+});
+
 test("waitFor asks the gateway to hold for the selector before snapshotting", async (t) => {
   // The client's own deadline is set above `read.waitForTimeoutMs` here so this reads as pure
   // forwarding; what happens when the two disagree is `gateway.test.mjs`'s "never outlast" case.

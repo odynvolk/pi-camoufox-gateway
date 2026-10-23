@@ -236,6 +236,13 @@ function organicResults(blocks: LinkBlock[], engine: string): SearchResult[] {
  * it is worth being explicit about what it excludes: a refusal that renders a help article would carry
  * one and go undetected. No such page is recorded here, and loosening the rule to cover a hypothetical
  * one would trade a measured budget for an unmeasured one.
+ *
+ * The thin end is the same trade, and it is louder: this rule is not width-gated, so it is what answers a
+ * page still rendering, and a verdict here ends the settle wait rather than continuing it. Accepted on
+ * measurement — every line-prefix of the 10 recorded pages checked against all three: only
+ * `page-network-error.txt` ever reaches them, and at its own last line. No recorded content page carries a
+ * retry-vocabulary button at all. Pinned in `tests/read-tool.test.mjs`, so reversing it is a decision and
+ * not a regression.
  */
 function isBrowserRefusal(text: string): boolean {
   const lines = text.split("\n");
