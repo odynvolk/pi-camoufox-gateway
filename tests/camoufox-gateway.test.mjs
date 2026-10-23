@@ -197,6 +197,26 @@ test("every parameter is described before anything dereferences it", () => {
   }
 });
 
+test("a numeric parameter declares the type the tool actually accepts", () => {
+  // Nothing in this repo validates tool arguments — pi checks none, and there is no `Value.Check` on
+  // ours — so the declared `type` and `description` are the only signal a model gets before it calls.
+  // A `Number` offering a fraction, a negative, or a string is a promise `tools/read.ts` breaks, which is
+  // the reason `n` is already an `Integer`; these two were left behind by that ruling.
+  const { byName } = registered();
+  const read = byName.camoufox_read.parameters.properties;
+
+  assert.equal(read.maxChars.type, "integer", "the guard refuses every other kind of number");
+  assert.equal(read.offset.type, "integer", "and refuses a string or a fraction for the offset too");
+
+  // The type name does not carry the floor, and `Integer` still admits values the guard refuses, so the
+  // sentence has to. Naming the code is what lets a model stop retrying the same call.
+  assert.match(read.maxChars.description, /1 or more/u, `"${read.maxChars.description}"`);
+  assert.match(read.offset.description, /0 or more/u, `"${read.offset.description}"`);
+  for (const key of ["maxChars", "offset"]) {
+    assert.match(read[key].description, /unsupported/u, "and says how a refusal is coded");
+  }
+});
+
 test("descriptions come from the core, not a second copy that can rot", () => {
   const { byName } = registered();
 

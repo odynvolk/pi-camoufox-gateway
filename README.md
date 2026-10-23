@@ -42,7 +42,12 @@ Loads a page in the browser and returns its text.
   numbers has one value it cannot order, and `NaN` — which is what `"1,000"` becomes — is not above it,
   so the old guard let a malformed ask through and returned the entire page, saying nothing. Refusing
   names the argument instead of guessing at it: a caller that meant 1000 and typed `"1,000"` was not
-  asking for the maximum.
+  asking for the maximum. Measured on the budget actually spent, so a hand-built `read.defaultMaxChars`
+  is refused on the same path and the message names which of the two is at fault.
+- **`offset` is checked the same way, with 0 as its floor** — that is where a page starts. It ends up in
+  `(offset ?? 0) + sliced.length`, and `+` concatenates: an `offset` of `"100"` used to come back as a
+  `nextOffset` of `"100100"`, rendered to the model as the way to continue and copied into a
+  `structuredContent.nextOffset` the output schema declares a number.
 - **Waits for the page to render.** `openTab` returning does not mean the content is there: a
   client-rendered site answers with its skeleton. A snapshot thinner than `read.settleMinChars` is
   re-taken until two consecutive snapshots come back identical — same text, same `totalChars` — up to

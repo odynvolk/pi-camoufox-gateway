@@ -28,10 +28,20 @@ const SearchSchema = Type.Object({
 
 const ReadSchema = Type.Object({
   url: Type.String({ description: "http(s) url to read" }),
+  // `Integer` for both, on `n`'s reasoning: the tool refuses a fraction, a negative, and any string, and
+  // a schema offering one would be a promise the code breaks. Nothing checks arguments, so the schema is
+  // also the only place the floor and the refusal code can be said before the call is made.
   maxChars: Type.Optional(
-    Type.Number({ description: "Text budget for this call, defaulting to your read.defaultMaxChars and capped at read.maxCharsCeiling" }),
+    Type.Integer({
+      description:
+        "Text budget for this call: a whole number of characters, 1 or more — anything else is refused with code unsupported. Defaults to your read.defaultMaxChars and capped at read.maxCharsCeiling",
+    }),
   ),
-  offset: Type.Optional(Type.Number({ description: "Continue a previous read here" })),
+  offset: Type.Optional(
+    Type.Integer({
+      description: "Continue a previous read here: a whole number of characters, 0 or more, taken from the nextOffset it reported — anything else is refused with code unsupported",
+    }),
+  ),
   waitFor: Type.Optional(
     Type.String({
       description: "CSS selector to hold for before reading, bounded by your read.waitForTimeoutMs (for late-rendering content)",
