@@ -38,7 +38,7 @@ const PATTERNS = [
  * A hand-named literal was a third session in the gateway's tab list with no derivation behind it, and
  * two diagnoses running it would have shared that namespace — and its tabs.
  */
-export function diagnosisUserId() {
+function diagnosisUserId() {
   return gatewaySessionId(`diag-${randomUUID()}`);
 }
 
