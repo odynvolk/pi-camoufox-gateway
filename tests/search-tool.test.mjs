@@ -201,6 +201,18 @@ test("a fractional n is refused, not floored into silence", async (t) => {
   );
 });
 
+test("a string n is refused as the string it is, not as the number it was mistaken for", async (t) => {
+  // The bare interpolation printed `"2"` as `2`, so the one thing a caller needed to see — that it sent
+  // a string — was missing from the message that exists to say it.
+  const { tool } = setup(t);
+
+  await assert.rejects(
+    () => tool.search({ query: "camoufox", n: "2" }),
+    /got "2" \(string\)/us,
+    "quoted, typed, and therefore readable as the mistake it was",
+  );
+});
+
 test("a fractional search.maxResults is refused at the tool, not only by the validator", async (t) => {
   // `testConfig` merges without running `assertCoherent`, so this is the path a hand-built config takes
   // — and the one the validator's integer rule cannot cover.

@@ -10,7 +10,7 @@
 import type { CamoufoxConfig } from "../config.ts";
 import { isRecord } from "../config.ts";
 import type { Cache } from "../cache.ts";
-import { GatewayError } from "../errors.ts";
+import { describeArgument, GatewayError } from "../errors.ts";
 import type { GatewayClient, SnapshotResult } from "../gateway.ts";
 import { assertTabUrlAllowed, urlPolicyFromConfig } from "../net-policy.ts";
 import { detectWall, extractText, type ExtractedText } from "../snapshot.ts";
@@ -104,7 +104,7 @@ function assertSchemaUsable(schema: Record<string, unknown>): void {
   if (schema.type !== "object") {
     throw new GatewayError(
       "unsupported",
-      `that schema is not extractable — "type" must be "object", got ${JSON.stringify(schema.type ?? null)?.slice(0, 60)}`,
+      `that schema is not extractable — "type" must be "object", got ${describeArgument(schema.type ?? null)}`,
     );
   }
 
@@ -124,6 +124,88 @@ function assertSchemaUsable(schema: Record<string, unknown>): void {
       );
     }
   }
+}
+
+/**
+ * `maxChars` has to be *checked*, not clamped — a ceiling that compares numbers has one value it cannot
+ * order, and the ordering is where the cap lives.
+ *
+ * The path a bad value used to take: `Math.min(NaN, 40_000)` is `NaN`, `NaN > 40_000` is false so the cap
+ * was skipped, and in `extractText` `available.length > NaN` is false so nothing was cut. An unusable ask
+ * returned the *whole page* — uncapped, with no `cappedAt` and `truncated: false`, because by the
+ * arithmetic's account nothing had intervened.
+ *
+ * Reachable, not academic. Nothing validates request arguments in this repo — the TypeBox schemas
+ * describe, they do not check — so `maxChars: "1,000"`, a model formatting a thousands separator, arrives
+ * as `Number("1,000")`, which is precisely that unordered value. Measured against a 50 000-char page with
+ * the 40 000 ceiling in place, and recorded in `tests/read-tool.test.mjs`: `"abc"`, `"1,000"`, `"10k"`
+ * and `{}` each returned all 50 000 characters into the context window. Which is the one caller this
+ * ceiling exists for.
+ *
+ * Refused rather than normalised to the default, and not for symmetry with `assertSchemaUsable` alone: a
+ * caller that meant 1000 and typed `"1,000"` is not asking for the maximum, and quietly answering a
+ * question nobody asked with 40 000 characters is this same defect pointed the other way. `Infinity` goes
+ * too — `JSON.parse("1e999")` is `Infinity`, so it is reachable from a model that meant something else,
+ * and every value carved out as "fine, actually" is another one to get wrong next time.
+ *
+ * Measured on the *effective* budget rather than the asked-for one, because the arithmetic spends the
+ * effective one: an absent `maxChars` falls back to `read.defaultMaxChars`, and a hand-built config
+ * reaches that value without passing through the loader's validator. A `defaultMaxChars` of `NaN` was
+ * therefore the same fail-open with the argument missing from the call — measured at 50 000 characters
+ * back with `truncated: false`, on the same page the guard test uses — and `0.5` was the second failure
+ * mode, one character (`-`) served as ordinary paging. Which of the two is named, because only one of
+ * them is something the caller can change.
+ */
+function assertMaxCharsUsable(budget: number, askedForParam: boolean): void {
+  if (isCountUsable(budget, 1)) return;
+
+  // Two names and two remedies, because a caller can only change one of them.
+  const name = askedForParam ? "maxChars" : "read.defaultMaxChars";
+  const remedy = askedForParam
+    ? "omit it for your read.defaultMaxChars"
+    : 'fix it in your config, or pass "maxChars"';
+
+  throw new GatewayError(
+    "unsupported",
+    `"${name}" must be a positive integer of characters, got ${describeArgument(budget)} — ${remedy}`,
+  );
+}
+
+/**
+ * Refuse an `offset` that would not survive the arithmetic it is used in.
+ *
+ * `extractText` ends `nextOffset` at `(options.offset ?? 0) + sliced.length` — `??`, so nothing is
+ * defaulted, and `+`, so a string is concatenated rather than added. Measured through the fake gateway
+ * before this guard existed: an `offset` of `"100"` produced a `nextOffset` of `"100100"`, which
+ * `extension.ts` renders to the model as `[continue with offset=100100]` and `camoufox-gateway.ts`
+ * copies into a `structuredContent.nextOffset` that its own output schema declares `number | null`. One
+ * call therefore told a model to resume 100 100 characters into a 30 000-char page — a navigation, for
+ * an empty page — and told a script, in the field that means "nothing left", that there was nothing
+ * left. `NaN` serialized out of JSON as that same `null`.
+ *
+ * `0` is legal, because that is where a page starts. The floor is the only difference between this and
+ * the budget above, and the reason the two keep their own message rather than one shared sentence.
+ */
+function assertOffsetUsable(offset: number): void {
+  if (isCountUsable(offset, 0)) return;
+
+  throw new GatewayError(
+    "unsupported",
+    `"offset" must be a whole number of characters counting from 0, got ${describeArgument(offset)} — ` +
+      "continue from the nextOffset a previous read returned",
+  );
+}
+
+/**
+ * Whether a value can be counted, which is the one question every numeric argument has to answer before
+ * it reaches any arithmetic: a number, whole, and at or above `minimum`.
+ *
+ * One predicate, deliberately. Every place that re-decides it is another value that can get through,
+ * and `maxChars` is the one that already did. `Number.isInteger` is false for `NaN`, `Infinity` and
+ * floats, and — unlike a bare `typeof` — for every non-number reaching an unvalidated call site.
+ */
+function isCountUsable(value: unknown, minimum: number): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= minimum;
 }
 
 /**
@@ -165,6 +247,19 @@ function delay(ms: number, signal?: AbortSignal): Promise<void> {
 export function readTool(deps: ReadToolDeps) {
   const { client, config, userId } = deps;
   const read = config.read;
+
+  /**
+   * The budget this call spends — what was asked for, or the configured default.
+   *
+   * One expression on purpose. `assertMaxCharsUsable` refuses a budget it cannot size, and that is only
+   * worth doing to the number the slicing then actually spends; written out at both ends, the two copies
+   * agree today and nothing would notice the day they stop to. Naming it is also what makes the guard's
+   * two messages honest — "you sent a bad maxChars" and "your config ships one" are the same value from
+   * two different sources, which is the distinction the caller needs.
+   */
+  function wantedChars(params: ReadParams): number {
+    return params.maxChars ?? read.defaultMaxChars;
+  }
 
   /**
    * Same rules `GatewayClient.openTab` applies, called here on purpose: a client constructed without
@@ -271,7 +366,7 @@ export function readTool(deps: ReadToolDeps) {
     // One rule for both sources: whether the amount wanted — asked for, or defaulted — was more than a
     // single call may take. A `defaultMaxChars` above the ceiling is refused at load, so in practice the
     // `params.maxChars` branch is the one that fires.
-    const wanted = params.maxChars ?? read.defaultMaxChars;
+    const wanted = wantedChars(params);
     const budget = Math.min(wanted, read.maxCharsCeiling);
     const cappedAt = wanted > read.maxCharsCeiling ? read.maxCharsCeiling : undefined;
     const sliced: ExtractedText = extractText(snapshot, { maxChars: budget, offset: params.offset });
@@ -386,6 +481,15 @@ export function readTool(deps: ReadToolDeps) {
 
   async function run(params: ReadParams): Promise<ReadOutcome> {
     assertAllowed(params.url ?? "");
+    // Also before anything is fetched: a budget we cannot size has no answer worth a round trip, and a
+    // page we go and fetch in order to reject the ask is a page whose text has already crossed over.
+    const wanted = wantedChars(params);
+    assertMaxCharsUsable(wanted, params.maxChars !== undefined);
+    // The same rule for the other number, and the same place: after this, the cache key and the
+    // arithmetic can both be trusted to hold a count. An absent `offset` *is* 0, which is legal, so
+    // measuring `?? 0` closes nothing that the guard above leaves open — the difference is that the
+    // budget falls back to a config value nothing validated.
+    assertOffsetUsable(params.offset ?? 0);
     // Before anything is fetched or cached: a schema with no refs to fill is not a question a page —
     // fresh or stored — could answer.
     if (params.schema) assertSchemaUsable(params.schema);

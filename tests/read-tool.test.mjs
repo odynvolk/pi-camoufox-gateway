@@ -95,6 +95,230 @@ test("a maxChars past read.maxCharsCeiling is capped, and the outcome names what
   assert.equal(under.text.length, 100, "and the requested budget still wins below the ceiling");
 });
 
+/**
+ * The ceiling compared numbers, and one value has no order: `NaN` is not above the ceiling, so the cap
+ * was skipped and the whole page came back — with `truncated: false` on it, because nothing had cut it.
+ *
+ * Not academic. There is no request validation anywhere in this repo (the TypeBox schemas describe, they
+ * do not check), so `maxChars: "1,000"` — a model formatting a thousands separator — reaches the
+ * arithmetic as `Number("1,000")`, which is that same unordered value. Measured against a 50 000-char
+ * page, with a 40 000 ceiling, before the guard existed: `"abc"`, `"1,000"`, `"10k"` and `{}` each
+ * returned all 50 000 characters.
+ *
+ * So this refuses anything the ceiling cannot size, rather than clamping harder. A caller that meant
+ * 1000 and wrote `"1,000"` is not asking for 40 000, and silently serving the maximum a caller never
+ * requested is the same failure this test exists to prevent, pointed the other way.
+ */
+test("a maxChars the ceiling cannot size is refused, not served uncapped", async (t) => {
+  const ceiling = testConfig().read.maxCharsCeiling;
+  const { fake, tool } = setup(t, {
+    pageContents: new Map([["https://huge.test/", "h".repeat(ceiling * 5)]]),
+    snapshotLimit: ceiling * 5,
+  });
+
+  // Each of these used to return the *entire* page, uncapped and undisclosed.
+  for (const maxChars of [NaN, "abc", "1,000", "10k", {}, []]) {
+    await assert.rejects(
+      () => tool.read({ url: "https://huge.test/", maxChars }),
+      (error) => {
+        assert.equal(error.code, "unsupported", `${label(maxChars)} was accepted as a budget`);
+        assert.match(error.message, /maxChars/u, "and it says which argument to fix, not just that one was wrong");
+        return true;
+      },
+      label(maxChars),
+    );
+  }
+
+  // The guard's placement is the claim, not its predicate: below `navigate()` every assertion above
+  // still passes, and the page has been fetched and put in front of the model by the time the refusal
+  // says it should not have been. Counted by route rather than "no calls at all", so the assertion is
+  // about the two calls that would be the defect, not about a total something else could satisfy.
+  assert.equal(
+    fake.state.calls.filter((c) => c.path === "/tabs/open").length,
+    0,
+    "neither tab was opened, not even to be refused",
+  );
+  assert.equal(
+    fake.state.calls.filter((c) => c.path.endsWith("/snapshot")).length,
+    0,
+    "and no page was read in order to say it would not be read",
+  );
+});
+
+/**
+ * The other direction, same cause: `Math.max(1, maxChars)` turned a nonsense ask into exactly one
+ * character, and `truncated: true` made it read as ordinary paging. A caller asked for nothing
+ * sensible and was told to continue with `offset`.
+ */
+test("a maxChars below one is refused rather than quietly served as a single character", async (t) => {
+  const { tool } = setup(t);
+
+  for (const maxChars of [0, -5, 0.5, true]) {
+    await assert.rejects(
+      () => tool.read({ url: "https://example.test/article", maxChars }),
+      (error) => {
+        assert.equal(error.code, "unsupported", `${label(maxChars)} slipped past the floor`);
+        return true;
+      },
+      label(maxChars),
+    );
+  }
+
+  // Refusing is only right because a real ask is cheap to see. One character has to stay legal.
+  const one = await tool.read({ url: "https://example.test/article", maxChars: 1 });
+  assert.equal(one.text.length > 0, true, "the smallest legal budget still reads");
+});
+
+test("a maxChars of Infinity is refused, because no special case gets to survive this", async (t) => {
+  // `JSON.parse("1e999")` is `Infinity`, so this one is reachable from a model that meant something
+  // else. It used to come back capped-and-disclosed, which is a correct answer to a question nobody
+  // asked — and every value carved out as "fine, actually" is another one to get wrong later.
+  const { tool } = setup(t, {
+    pageContents: new Map([["https://huge.test/", "h".repeat(50_000)]]),
+    snapshotLimit: 50_000,
+  });
+
+  await assert.rejects(
+    () => tool.read({ url: "https://huge.test/", maxChars: Infinity }),
+    (error) => {
+      assert.equal(error.code, "unsupported");
+      return true;
+    },
+  );
+});
+
+/**
+ * The guard measured the *asked* value and returned early when it was absent, so the default it silently
+ * fell back to was never measured — and a bad `read.defaultMaxChars` is the same fail-open this branch
+ * exists for, reached from the config instead of the call. Measured against the 50 000-char page this
+ * file's other guards use: `NaN` there returned all 50 000 characters with `truncated: false`, and `0.5`
+ * returned the single character `-` with `truncated: true`.
+ *
+ * Refusing the *effective* budget is what `src/tools/search.ts` already does for `n`, for the same
+ * reason: a hand-built config reaches the tool without passing through the validator.
+ */
+test("a bad read.defaultMaxChars is refused too, because the guard measures what is actually spent", async (t) => {
+  const { tool } = setup(t, {
+    config: { read: { defaultMaxChars: NaN } },
+    pageContents: new Map([["https://huge.test/", "h".repeat(50_000)]]),
+    snapshotLimit: 50_000,
+  });
+
+  const error = await tool.read({ url: "https://huge.test/" }).catch((e) => e);
+
+  assert.equal(error.code, "unsupported", "a default the ceiling cannot order is not a budget");
+  assert.match(error.message, /^"read\.defaultMaxChars" must be/u, "and it names the key at fault, not a param nobody passed");
+  // The remedy has to move with the blame. The param branch says "omit it", which is only safe advice
+  // once the default is checked too — and is nonsense here, where the caller already omitted it.
+  assert.equal(/omit it/u.test(error.message), false, `advice nobody can follow: ${error.message}`);
+});
+
+test("a fractional read.defaultMaxChars is refused, not spent as a single character", async (t) => {
+  const { tool } = setup(t, { config: { read: { defaultMaxChars: 0.5 } } });
+
+  const error = await tool.read({ url: "https://example.test/article" }).catch((e) => e);
+
+  assert.equal(error.code, "unsupported", "0.5 used to come back as one character and `truncated: true`");
+  assert.match(error.message, /^"read\.defaultMaxChars"/u);
+});
+
+test("an asked-for maxChars is blamed as the param, not as the config key that was fine", async (t) => {
+  const { tool } = setup(t);
+
+  const error = await tool.read({ url: "https://example.test/article", maxChars: "1,000" }).catch((e) => e);
+
+  assert.match(error.message, /^"maxChars" must be/u, `blamed the wrong thing: ${error.message}`);
+  assert.equal(/read\.defaultMaxChars" must be/u.test(error.message), false, "the default is not at fault here");
+  assert.match(error.message, /omit it for your read\.defaultMaxChars$/u, "and the advice is the followable kind");
+});
+
+/**
+ * The refusal is not swallowed — it goes into `content[0].text`, which is the model's context window,
+ * the one thing this guard exists to bound. An unbounded echo printed all 5 002 characters of the value
+ * it was refusing, which is the defect with a `code: unsupported` on it.
+ */
+test("the refused value is printed bounded, because the refusal goes where the page was going", async (t) => {
+  const { tool } = setup(t);
+  const long = "x".repeat(5_000);
+
+  const error = await tool.read({ url: "https://example.test/article", maxChars: long }).catch((e) => e);
+
+  assert.equal(error.code, "unsupported");
+  assert.ok(error.message.length < 200, `the refusal itself was ${error.message.length} chars of context`);
+  assert.ok(error.message.includes(`"${"x".repeat(50)}`), "it still shows the start, so a caller recognises their own value");
+  assert.equal(error.message.includes("x".repeat(200)), false, "but it does not carry the value");
+  const withheld = error.message.match(/\((\d+) chars\)/u);
+  assert.ok(withheld, "and says how much it withheld");
+  assert.equal(Number(withheld[1]), JSON.stringify(long).length, "the length it clipped, so the value is still identifiable");
+});
+
+test("the schema refusal prints through the same bounded printer", async (t) => {
+  // Two printers for one job diverged once already: this one was bounded and `describeArgument` was
+  // not. Routed through the shared one, so the bound is one rule rather than two.
+  const { tool } = setup(t);
+
+  const error = await tool.read({
+    url: "https://example.test/article",
+    schema: { type: "s".repeat(5_000), properties: { title: { "x-ref": "e1" } } },
+  }).catch((e) => e);
+
+  assert.equal(error.code, "unsupported");
+  assert.ok(error.message.length < 250, `the schema refusal was ${error.message.length} chars`);
+  assert.match(error.message, /\(5002 chars\)/u, "and the type it refused is clipped, with its length named");
+});
+
+/** A value, printed the way a reader would want it in a failing assertion — `"1,000"` vs `1000`. */
+function label(value) {
+  return typeof value === "string" ? JSON.stringify(value) : `${typeof value}:${String(value)}`;
+}
+
+/**
+ * The same mechanism, one line away: `params.offset` goes unguarded into `(options.offset ?? 0) +
+ * sliced.length`, and `??` defaults nothing while `+` concatenates anything. Measured through the repo's
+ * own fake gateway, on a page wide enough that we do the cutting:
+ *
+ * | `offset` as sent | `nextOffset` out | type     |
+ * | ---              | ---              | ---      |
+ * | `NaN`            | `NaN`            | number   |
+ * | `"100"`          | `"100100"`       | string   |
+ * | `"abc"`          | `"abc100"`       | string   |
+ * | `-5`             | `95`             | number   |
+ * | `12.5`           | `112.5`          | number   |
+ *
+ * Both consequences are reachable. `src/extension.ts` renders `[continue with offset=…]` straight to the
+ * model, so `"100"` becomes an instruction to resume 100 100 characters into a 30 000-char page — a
+ * navigation, for an empty page. And `src/camoufox-gateway.ts` copies the value into
+ * `structuredContent.nextOffset`, declared `Type.Union([Type.Number(), Type.Null()])`: a typed caller
+ * received a string, and `NaN` serialized out of JSON as `null` — "nothing left", from a call whose
+ * prose said there was.
+ */
+test("an offset that cannot be counted is refused, not concatenated into the answer", async (t) => {
+  const { tool } = setup(t, { pageContents: new Map([["https://big.test/", "z".repeat(30_000)]]) });
+
+  for (const offset of [NaN, "100", "abc", -5, 12.5]) {
+    await assert.rejects(
+      () => tool.read({ url: "https://big.test/", maxChars: 100, offset }),
+      (error) => {
+        assert.equal(error.code, "unsupported", `${label(offset)} was accepted as an offset`);
+        assert.match(error.message, /^"offset"/u, "and it names the argument at fault, not the budget");
+        return true;
+      },
+      label(offset),
+    );
+  }
+});
+
+test("offset 0 is legal, because that is where a page starts", async (t) => {
+  // The floor is the whole difference between this and `maxChars`, so it is the case a reused `< 1`
+  // would break — and the guard refusing it would be a read that cannot ask for the first screen.
+  const { tool } = setup(t, { pageContents: new Map([["https://big.test/", "z".repeat(30_000)]]) });
+
+  const out = await tool.read({ url: "https://big.test/", maxChars: 100, offset: 0 });
+
+  assert.equal(out.text.length, 100);
+  assert.equal(out.nextOffset, 100, "and the way on is still a number");
+});
+
 test("offset continues where the last read stopped", async (t) => {
   const { fake, tool } = setup(t, {
     pageContents: new Map([["https://big.test/", "z".repeat(30_000)]]),

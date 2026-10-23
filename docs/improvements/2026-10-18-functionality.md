@@ -91,17 +91,47 @@ expression template, **or** ask upstream for first-class region scoping.
 
 ### 1.3 Put a real ceiling on `maxChars`
 
+**Shipped** — `read.maxCharsCeiling` (40,000) as a config key, the clamp, the disclosure line naming which
+of the two cut the page short, and a load-time refusal of a `read.defaultMaxChars` above the ceiling.
+Kept here rather than deleted because the open question below cites "1.2-vs-1.3", and renumbering a
+roadmap breaks the references to its labels.
+
+One thing this item did *not* foresee, and the reason it stayed open a while: a ceiling enforced by
+comparing numbers has one value it cannot order. `NaN` is not above the ceiling, so a malformed ask —
+`"1,000"` from a model formatting a separator, since nothing validates these arguments — skipped the cap
+and returned the entire page, with `truncated: false` on it, because no comparison had intervened. Now
+checked rather than clamped: `maxChars` must be a positive integer or the call is refused. What that
+first pass missed is that the guard checked the value *asked for* and returned early when it was absent,
+so the default it fell back to was never measured — and the arithmetic spends the default.
+
 **Outcome:** a request beyond policy comes back capped-with-a-note, not 500 000 chars into the
 context window.
 
-Only `>= 1` is enforced (`src/snapshot.ts`); the config-level guard applies to the *default*, not the
-per-call param (`src/tools/read.ts`). The 12 000 default exists to protect the context window, and the
-caller it protects against is exactly the one this tool is designed for — a model that guesses "more
-is better".
+What used to sit here, in the present tense: only `>= 1` was enforced, in `src/snapshot.ts` →
+`Math.max(1, options.maxChars)`, and the config-level guard reached only the *default* — never the
+per-call param. That last clause was the dangerous half, because read as advice it says the number you
+pass is unpoliced — the one thing the paragraph above it had just stopped being true of.
 
-Prior art worth copying: Jina separates `x-max-tokens` (**trim**) from `x-token-budget` (**reject if
-over**) — both directions of the same guardrail, chosen per request. OWASP lists Unbounded
-Consumption as LLM10:2025 ([top-10](https://genai.owasp.org/llm-top-10/)).
+Neither half is the rule now. The budget is measured on the value the call actually spends — `maxChars`,
+or the `read.defaultMaxChars` it falls back to — and refused as `unsupported` unless it is a positive
+integer. `offset` is refused on the same rule with a floor of 0, because that is where a page starts. Both
+refusals run before anything is fetched, so a rejected ask costs no navigation.
+
+The offset guard is the sharper of the two, and was not part of this item at all: `nextOffset` ends at
+`(offset ?? 0) + sliced.length`, where `??` defaults nothing and `+` concatenates, so an `offset` of
+`"100"` used to return a `nextOffset` of `"100100"` — a string, in a field the read output schema declares
+`number | null`, and rendered to the model as the way to continue.
+
+What the old sentence was pointing at is still the reason for all of it: the 12 000 default protects the
+context window, and the caller it protects against is exactly the one this tool is designed for — a model
+that guesses "more is better".
+
+Prior art, and both halves are now in place rather than still worth copying: Jina separates
+`x-max-tokens` (**trim**) from `x-token-budget` (**reject if over**). The trim is `read.maxCharsCeiling`;
+the reject is the half this item turned out to need as well, and the half that had to be found rather
+than inferred — a ceiling that trims by comparison does nothing, silently, to the one value it cannot
+compare. OWASP lists Unbounded Consumption as LLM10:2025
+([top-10](https://genai.owasp.org/llm-top-10/)).
 
 **Scope:** tiny — one config key, one clamp, one disclosure line. Disclose it the way the `n` clamp
 already is. **Reachable:** purely client-side. **Risk:** none.
