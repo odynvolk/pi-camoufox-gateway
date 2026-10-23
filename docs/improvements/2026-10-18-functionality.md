@@ -91,6 +91,17 @@ expression template, **or** ask upstream for first-class region scoping.
 
 ### 1.3 Put a real ceiling on `maxChars`
 
+**Shipped** — `read.maxCharsCeiling` (40,000) as a config key, the clamp, the disclosure line naming which
+of the two cut the page short, and a load-time refusal of a `read.defaultMaxChars` above the ceiling.
+Kept here rather than deleted because the open question below cites "1.2-vs-1.3", and renumbering a
+roadmap breaks the references to its labels.
+
+One thing this item did *not* foresee, and the reason it stayed open a while: a ceiling enforced by
+comparing numbers has one value it cannot order. `NaN` is not above the ceiling, so a malformed ask —
+`"1,000"` from a model formatting a separator, since nothing validates these arguments — skipped the cap
+and returned the entire page, with `truncated: false` on it, because no comparison had intervened. Now
+checked rather than clamped: `maxChars` must be a positive integer or the call is refused.
+
 **Outcome:** a request beyond policy comes back capped-with-a-note, not 500 000 chars into the
 context window.
 

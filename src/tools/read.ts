@@ -127,6 +127,55 @@ function assertSchemaUsable(schema: Record<string, unknown>): void {
 }
 
 /**
+ * `maxChars` has to be *checked*, not clamped — a ceiling that compares numbers has one value it cannot
+ * order, and the ordering is where the cap lives.
+ *
+ * The path a bad value used to take: `Math.min(NaN, 40_000)` is `NaN`, `NaN > 40_000` is false so the cap
+ * was skipped, and in `extractText` `available.length > NaN` is false so nothing was cut. An unusable ask
+ * returned the *whole page* — uncapped, with no `cappedAt` and `truncated: false`, because by the
+ * arithmetic's account nothing had intervened.
+ *
+ * Reachable, not academic. Nothing validates request arguments in this repo — the TypeBox schemas
+ * describe, they do not check — so `maxChars: "1,000"`, a model formatting a thousands separator, arrives
+ * as `Number("1,000")`, which is precisely that unordered value. Measured against a 50 000-char page with
+ * the 40 000 ceiling in place, and recorded in `tests/read-tool.test.mjs`: `"abc"`, `"1,000"`, `"10k"`
+ * and `{}` each returned all 50 000 characters into the context window. Which is the one caller this
+ * ceiling exists for.
+ *
+ * Refused rather than normalised to the default, and not for symmetry with `assertSchemaUsable` alone: a
+ * caller that meant 1000 and typed `"1,000"` is not asking for the maximum, and quietly answering a
+ * question nobody asked with 40 000 characters is this same defect pointed the other way. `Infinity` goes
+ * too — `JSON.parse("1e999")` is `Infinity`, so it is reachable from a model that meant something else,
+ * and every value carved out as "fine, actually" is another one to get wrong next time.
+ */
+function assertMaxCharsUsable(maxChars: number | undefined): void {
+  if (maxChars === undefined) return;
+
+  // One predicate, so there is no value left to special-case: `Number.isInteger` is false for `NaN`,
+  // `Infinity`, floats, and — unlike a bare `typeof` — for every non-number reaching us unvalidated.
+  if (typeof maxChars !== "number" || !Number.isInteger(maxChars) || maxChars < 1) {
+    throw new GatewayError(
+      "unsupported",
+      `maxChars must be a positive integer of characters, got ${describeArgument(maxChars)} — omit it for your read.defaultMaxChars`,
+    );
+  }
+}
+
+/**
+ * Print a rejected argument the way a caller needs to read it: `"1,000"` with its quotes, so the model
+ * that sent it can see it sent a string.
+ *
+ * `JSON.stringify` alone would report `NaN` and `Infinity` as `null`, which is the one distinction a
+ * reader tracing this must not lose.
+ */
+function describeArgument(value: unknown): string {
+  const printed = typeof value === "number" && !Number.isFinite(value)
+    ? String(value)
+    : JSON.stringify(value) ?? String(value);
+  return `${printed} (${typeof value})`;
+}
+
+/**
  * Cache key for one window of one page.
  *
  * `maxChars` stays out of the key, exactly as search keeps `n` out of its own: it is our slice of a
@@ -386,6 +435,9 @@ export function readTool(deps: ReadToolDeps) {
 
   async function run(params: ReadParams): Promise<ReadOutcome> {
     assertAllowed(params.url ?? "");
+    // Also before anything is fetched: a budget we cannot size has no answer worth a round trip, and a
+    // page we go and fetch in order to reject the ask is a page whose text has already crossed over.
+    assertMaxCharsUsable(params.maxChars);
     // Before anything is fetched or cached: a schema with no refs to fill is not a question a page —
     // fresh or stored — could answer.
     if (params.schema) assertSchemaUsable(params.schema);

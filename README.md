@@ -38,6 +38,11 @@ Loads a page in the browser and returns its text.
   this tool is designed for — a model that guesses "more is better". The output says which of the two
   cut the page short, because `truncated` on its own cannot tell "the page is long" from "policy
   stopped me at the ceiling", and only the second one means a bigger request is pointless.
+- **Anything that is not a positive integer is refused, not capped.** A ceiling enforced by comparing
+  numbers has one value it cannot order, and `NaN` — which is what `"1,000"` becomes — is not above it,
+  so the old guard let a malformed ask through and returned the entire page, saying nothing. Refusing
+  names the argument instead of guessing at it: a caller that meant 1000 and typed `"1,000"` was not
+  asking for the maximum.
 - **Waits for the page to render.** `openTab` returning does not mean the content is there: a
   client-rendered site answers with its skeleton. A snapshot thinner than `read.settleMinChars` is
   re-taken until two consecutive snapshots come back identical — same text, same `totalChars` — up to

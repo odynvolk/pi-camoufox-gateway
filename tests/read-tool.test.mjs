@@ -95,6 +95,88 @@ test("a maxChars past read.maxCharsCeiling is capped, and the outcome names what
   assert.equal(under.text.length, 100, "and the requested budget still wins below the ceiling");
 });
 
+/**
+ * The ceiling compared numbers, and one value has no order: `NaN` is not above the ceiling, so the cap
+ * was skipped and the whole page came back — with `truncated: false` on it, because nothing had cut it.
+ *
+ * Not academic. There is no request validation anywhere in this repo (the TypeBox schemas describe, they
+ * do not check), so `maxChars: "1,000"` — a model formatting a thousands separator — reaches the
+ * arithmetic as `Number("1,000")`, which is that same unordered value. Measured against a 50 000-char
+ * page, with a 40 000 ceiling, before the guard existed: `"abc"`, `"1,000"`, `"10k"` and `{}` each
+ * returned all 50 000 characters.
+ *
+ * So this refuses anything the ceiling cannot size, rather than clamping harder. A caller that meant
+ * 1000 and wrote `"1,000"` is not asking for 40 000, and silently serving the maximum a caller never
+ * requested is the same failure this test exists to prevent, pointed the other way.
+ */
+test("a maxChars the ceiling cannot size is refused, not served uncapped", async (t) => {
+  const ceiling = testConfig().read.maxCharsCeiling;
+  const { tool } = setup(t, {
+    pageContents: new Map([["https://huge.test/", "h".repeat(ceiling * 5)]]),
+    snapshotLimit: ceiling * 5,
+  });
+
+  // Each of these used to return the *entire* page, uncapped and undisclosed.
+  for (const maxChars of [NaN, "abc", "1,000", "10k", {}, []]) {
+    await assert.rejects(
+      () => tool.read({ url: "https://huge.test/", maxChars }),
+      (error) => {
+        assert.equal(error.code, "unsupported", `${label(maxChars)} was accepted as a budget`);
+        assert.match(error.message, /maxChars/u, "and it says which argument to fix, not just that one was wrong");
+        return true;
+      },
+      label(maxChars),
+    );
+  }
+});
+
+/**
+ * The other direction, same cause: `Math.max(1, maxChars)` turned a nonsense ask into exactly one
+ * character, and `truncated: true` made it read as ordinary paging. A caller asked for nothing
+ * sensible and was told to continue with `offset`.
+ */
+test("a maxChars below one is refused rather than quietly served as a single character", async (t) => {
+  const { tool } = setup(t);
+
+  for (const maxChars of [0, -5, 0.5, true]) {
+    await assert.rejects(
+      () => tool.read({ url: "https://example.test/article", maxChars }),
+      (error) => {
+        assert.equal(error.code, "unsupported", `${label(maxChars)} slipped past the floor`);
+        return true;
+      },
+      label(maxChars),
+    );
+  }
+
+  // Refusing is only right because a real ask is cheap to see. One character has to stay legal.
+  const one = await tool.read({ url: "https://example.test/article", maxChars: 1 });
+  assert.equal(one.text.length > 0, true, "the smallest legal budget still reads");
+});
+
+test("a maxChars of Infinity is refused, because no special case gets to survive this", async (t) => {
+  // `JSON.parse("1e999")` is `Infinity`, so this one is reachable from a model that meant something
+  // else. It used to come back capped-and-disclosed, which is a correct answer to a question nobody
+  // asked — and every value carved out as "fine, actually" is another one to get wrong later.
+  const { tool } = setup(t, {
+    pageContents: new Map([["https://huge.test/", "h".repeat(50_000)]]),
+    snapshotLimit: 50_000,
+  });
+
+  await assert.rejects(
+    () => tool.read({ url: "https://huge.test/", maxChars: Infinity }),
+    (error) => {
+      assert.equal(error.code, "unsupported");
+      return true;
+    },
+  );
+});
+
+/** A value, printed the way a reader would want it in a failing assertion — `"1,000"` vs `1000`. */
+function label(value) {
+  return typeof value === "string" ? JSON.stringify(value) : `${typeof value}:${String(value)}`;
+}
+
 test("offset continues where the last read stopped", async (t) => {
   const { fake, tool } = setup(t, {
     pageContents: new Map([["https://big.test/", "z".repeat(30_000)]]),
