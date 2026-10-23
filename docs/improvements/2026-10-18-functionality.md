@@ -138,13 +138,21 @@ already is. **Reachable:** purely client-side. **Risk:** none.
 
 ### 1.4 Name the engine that answered, on the happy path
 
-The `(via <engine>; tried …)` suffix only appears when `tried.length > 1` (`src/tools/search.ts`), so a
-first-try Google success never names the engine in the text a model reads — only in `details.engine`.
+> **Shipped.** The header now names the answering engine on every success — `(via google)` — with the
+> `; tried …` enumeration staying conditional, because that part is the fallback's own fact. And
+> `engine?` enumerates instead of taking a free-form string, with two refusals where there was one: an
+> unfamiliar name as "unknown engine", a real one switched off as "disabled in your config".
+
+The `(via <engine>; tried …)` suffix used to appear only when `tried.length > 1` (`src/tools/search.ts`),
+so a first-try Google success named nothing in the text a model reads — only in `details.engine`, which
+is a field for a script. Since fixed.
 
 A model cannot calibrate trust in a result set it cannot attribute. "Google served this" and
-"DuckDuckGo served this after Google walled" are different claims. Same fix covers the free-form
-`engine?` param (`src/camoufox-gateway.ts`): requesting `bing` says *that* it isn't available, never
-*why* — that reasoning exists only in prose.
+"DuckDuckGo served this after Google walled" are different claims. The same fix covered the free-form
+`engine?` param (`src/camoufox-gateway.ts`): requesting `bing` used to say *that* it isn't available,
+never *why*. That reasoning is no longer only in prose — the two cases are named apart, and the schema
+carries the set. *(Note: the prose explaining **why bing specifically** is a gateway reality, not a
+missing adapter, and still lives only in the README.)*
 
 **Scope:** trivial — the string is already computed. **Risk:** none.
 *(Honest labelling: this one is internal-justification-strong, external-evidence-weak.)*
