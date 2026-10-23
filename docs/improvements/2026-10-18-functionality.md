@@ -25,8 +25,8 @@ Verified at `68d1e14`:
 
 | Claim | Evidence |
 | --- | --- |
-| 9 of 36 endpoints | `ENDPOINTS` — `src/gateway.ts:103-113` |
-| 1 of 14 macros | `const MACRO = "@google_search"` — `src/engines/google.ts:14` |
+| 9 of 36 endpoints | `ENDPOINTS` — `src/gateway.ts` |
+| 1 of 14 macros | `const MACRO = "@google_search"` — `src/engines/google.ts` |
 | `trace` / `sessionKey` / `listItemId` / `includeScreenshot` never sent | 0 occurrences anywhere in `src/` |
 | Gateway surface is 36 paths, v1.14.0 | `tests/fixtures/openapi.json` (recorded from the live gateway) |
 
@@ -46,7 +46,7 @@ model ask for *less, and the right thing*, per call.
 model must chase one at a time.
 
 Each result today costs a full extra tool call **and** a fresh navigation, because every continuation
-re-navigates (`read.ts:146`, `172-175`, `226-228`). Turn count is the dominant cost of a research
+re-navigates (`src/tools/read.ts`, `172-175`, `226-228`). Turn count is the dominant cost of a research
 question, and this is where it's paid.
 
 Jina's search endpoint exists precisely for this gap:
@@ -94,8 +94,8 @@ expression template, **or** ask upstream for first-class region scoping.
 **Outcome:** a request beyond policy comes back capped-with-a-note, not 500 000 chars into the
 context window.
 
-Only `>= 1` is enforced (`snapshot.ts:248`); the config-level guard applies to the *default*, not the
-per-call param (`read.ts:206`). The 12 000 default exists to protect the context window, and the
+Only `>= 1` is enforced (`src/snapshot.ts`); the config-level guard applies to the *default*, not the
+per-call param (`src/tools/read.ts`). The 12 000 default exists to protect the context window, and the
 caller it protects against is exactly the one this tool is designed for — a model that guesses "more
 is better".
 
@@ -108,12 +108,12 @@ already is. **Reachable:** purely client-side. **Risk:** none.
 
 ### 1.4 Name the engine that answered, on the happy path
 
-The `(via <engine>; tried …)` suffix only appears when `tried.length > 1` (`search.ts:60`), so a
+The `(via <engine>; tried …)` suffix only appears when `tried.length > 1` (`src/tools/search.ts`), so a
 first-try Google success never names the engine in the text a model reads — only in `details.engine`.
 
 A model cannot calibrate trust in a result set it cannot attribute. "Google served this" and
 "DuckDuckGo served this after Google walled" are different claims. Same fix covers the free-form
-`engine?` param (`camoufox-gateway.ts:23`): requesting `bing` says *that* it isn't available, never
+`engine?` param (`src/camoufox-gateway.ts`): requesting `bing` says *that* it isn't available, never
 *why* — that reasoning exists only in prose.
 
 **Scope:** trivial — the string is already computed. **Risk:** none.
@@ -134,10 +134,10 @@ This is worth more than it looks, for two independent reasons:
    deletes an entire failure class.
 2. **It breaks a ceiling we currently treat as structural.** `@google_search` takes only a `query`
    and Google's page is 10 wide, so `n > 10` is unreachable, not merely unimplemented
-   (`google.ts:15-16`, `search.ts:46`). 25 results, no pagination work.
+   (`src/engines/google.ts`, `src/tools/search.ts`). 25 results, no pagination work.
 
 Also gives the fallback chain a second engine actually worth falling back to — DuckDuckGo's stated
-reason for existing is Google-wall fallback (`duckduckgo.ts:1-4`), yet nothing verifies it as a
+reason for existing is Google-wall fallback (`src/engines/duckduckgo.ts`), yet nothing verifies it as a
 first choice.
 
 **Scope:** small — one adapter plus a JSON branch; needs a "macro returns JSON" convention.
@@ -148,7 +148,7 @@ with `ENGINE_NAMES`); and it needs the same seed-tab dance Google does.
 ### 1.6 Hydration tolerance on the search path
 
 Both engines call `client.snapshot` exactly once, immediately after open/navigate
-(`google.ts:25-26`, `duckduckgo.ts:21-22`). Only `camoufox_read` re-snapshots.
+(`src/engines/google.ts`, `src/engines/duckduckgo.ts`). Only `camoufox_read` re-snapshots.
 
 The consequence is a wrong statement about the world: a slow-rendering SERP is reported as **that
 engine has no results**, then costs an engine hop on top of being wrong. And since a clean
@@ -176,7 +176,7 @@ The gateway already does the hard part:
 > — https://github.com/jo-inc/camofox-browser, README §Session Persistence
 
 **The blocker is entirely ours.** `gatewaySessionId()` returns `"pi-" + <pi session id>`
-(`src/session.ts:11-16`), so the gateway's persistence namespace rotates on every pi session and is
+(`src/session.ts`), so the gateway's persistence namespace rotates on every pi session and is
 never reused. We are throwing away a feature the gateway is already providing.
 
 This matters because a large share of research surface sits behind a login — and because the escape
@@ -264,7 +264,7 @@ than a boolean**, which is the better shape, with `x-no-cache` for the hard over
 
 #### 2.4.1 `cache.pageMs` named a knob nothing turned — fixed
 
-Its only consumer was goto-wrapper resolution (`search.ts:133` → `resolve.ts:74-92`); `camoufox_read`
+Its only consumer was goto-wrapper resolution (the consumer was `src/tools/search.ts`, resolving into `src/resolve.ts`); `camoufox_read`
 had no cache dependency at all. The name is model-facing in the README config table, so this was not
 just an internal misnomer: someone who set it to 60 s and someone who left it alone got identical read
 behaviour, and `maxChars` looked like the cause. Removed from the code doc as fixed; the knob now
@@ -368,8 +368,8 @@ timid.
 - https://github.com/jina-ai/reader — `x-target-selector`, `x-max-tokens` / `x-token-budget`,
   `x-respond-timing`, `x-no-cache` / `x-cache-tolerance`, s.jina.ai search-then-read, PDF.js
 - https://github.com/microsoft/playwright-mcp — `--caps vision` opt-in, `--mobile` token savings
-- https://github.com/ChromeDevTools/chrome-devtools-mcp (+ `docs/design-principles.md`,
-  `docs/tool-reference.md`) — element-scoped snapshots, `fill_form` batch-per-call guidance
+- https://github.com/ChromeDevTools/chrome-devtools-mcp (+ [design-principles](https://github.com/ChromeDevTools/chrome-devtools-mcp/blob/main/docs/design-principles.md),
+  [tool-reference](https://github.com/ChromeDevTools/chrome-devtools-mcp/blob/main/docs/tool-reference.md)) — element-scoped snapshots, `fill_form` batch-per-call guidance
 - https://github.com/browserbase/stagehand — persistent-cookie authenticated-session demo
 - https://genai.owasp.org/llm-top-10/ — LLM01 prompt injection, LLM02, LLM06 excessive agency,
   LLM10:2025 unbounded consumption

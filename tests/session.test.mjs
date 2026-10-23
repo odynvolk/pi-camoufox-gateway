@@ -319,15 +319,30 @@ test("an unusable pi session id fails as our own invariant, at the source", () =
   }
 });
 
-test("an over-long pi session id truncates, deterministically and at a cost", () => {
+test("an over-long pi session id is capped without discarding what distinguishes it", () => {
   const long = "a".repeat(200);
   assert.equal(gatewaySessionId(long).length, 128, "the gateway namespace is capped");
-  assert.equal(gatewaySessionId(long), gatewaySessionId(long));
+  assert.equal(gatewaySessionId(long), gatewaySessionId(long), "and the cap is stable across calls");
 
-  // Pinned as a fact, not endorsed: the tail past 128 is discarded, so two ids agreeing on the first
-  // 125 characters land in one gateway namespace and share tabs — the thing the prefix exists to
-  // prevent. Recorded as D.5; this assertion is here so a fix is a decision, not a surprise.
-  assert.equal(gatewaySessionId(`${long}x`), gatewaySessionId(long), "the tail past 128 discriminates nothing");
+  // What truncation used to cost: the tail past 128 discriminated nothing, so two ids agreeing on the
+  // first 125 characters shared one gateway namespace and its tabs. The overflow now carries a digest
+  // of the whole id, so the tail still separates them.
+  assert.notEqual(gatewaySessionId(`${long}x`), gatewaySessionId(long), "the tail past 128 must still discriminate");
+  assert.notEqual(
+    gatewaySessionId(`${long}y`),
+    gatewaySessionId(`${long}x`),
+    "and two different tails must not meet each other either",
+  );
+  assert.match(gatewaySessionId(long), /^pi-[A-Za-z0-9._-]+$/u, "a capped id stays safe for a url path");
+});
+
+test("a pi session id that fits is passed through unhashed", () => {
+  // The digest exists only for the overflow. An id that already fits must keep its readable name,
+  // or every ordinary namespace becomes opaque and a gateway tab list stops being diagnosable.
+  const atTheLimit = "b".repeat(128 - "pi-".length);
+
+  assert.equal(gatewaySessionId(atTheLimit), `pi-${atTheLimit}`);
+  assert.equal(gatewaySessionId("b".repeat(128 - "pi-".length + 1)).length, 128, "one past it is still capped");
 });
 
 test("punctuation that survives sanitising is still a usable namespace", () => {

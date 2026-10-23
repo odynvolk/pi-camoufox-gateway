@@ -231,6 +231,53 @@ test("a probe that fails slowly still holds its window, so the next call does no
   assert.equal(connects, afterSlowProbe, "a failure that took longer than its window must still hold it");
 });
 
+test("the status probe runs to its own deadline, not the request timeout", async () => {
+  let connects = 0;
+  const client = createGatewayClient({
+    baseUrl: BASE,
+    timeoutMs: 40,
+    preflightTimeoutMs: 12,
+    fetchImpl: () => {
+      connects += 1;
+      return new Promise(() => {}); // never settles, so only a deadline ends this
+    },
+  });
+
+  const error = expectError(await client.preflight().catch((e) => e), "timeout");
+
+  // The number a reader can act on has to be the one that actually fired. It is also the proof of which
+  // deadline was applied: a probe still running to `timeoutMs` would report 40.
+  assert.match(error.message, /within 12ms/u, `reported the wrong deadline: ${error.message}`);
+  assert.equal(error.message.includes("40ms"), false, "the request timeout must not be quoted for a probe");
+  assert.equal(connects, 1, "a probe that timed out is not retried either");
+});
+
+test("an ordinary request keeps the deadline the probe does not take", async () => {
+  const client = createGatewayClient({
+    baseUrl: BASE,
+    timeoutMs: 40,
+    preflightTimeoutMs: 12,
+    fetchImpl: () => new Promise(() => {}),
+  });
+
+  const error = expectError(await client.openTab({ userId: "u1", url: "https://example.com" }).catch((e) => e), "timeout");
+
+  assert.match(error.message, /within 40ms/u, `a real request was cut short: ${error.message}`);
+});
+
+test("a probe deadline longer than the request timeout cannot extend it", async () => {
+  const client = createGatewayClient({
+    baseUrl: BASE,
+    timeoutMs: 12,
+    preflightTimeoutMs: 5_000,
+    fetchImpl: () => new Promise(() => {}),
+  });
+
+  const error = expectError(await client.preflight().catch((e) => e), "timeout");
+
+  assert.match(error.message, /within 12ms/u, "the client timeout is the ceiling a probe may not raise");
+});
+
 test("concurrent preflights against a dead gateway share one probe", async (t) => {
   const { fake, client } = clientWith(t, { unreachable: true });
 
@@ -243,6 +290,122 @@ test("concurrent preflights against a dead gateway share one probe", async (t) =
     5,
     "deduplicating the probe must not swallow anyone's failure",
   );
+});
+
+test("a window that has expired answers from the last known status and refreshes behind the call", async (t) => {
+  // Answering from the old status is what stops the first call of each window paying the probe's round
+  // trip on a gateway that is simply up — latency a caller cannot see the reason for.
+  //
+  // The window is wide against the poll interval below on purpose: waiting for the refresh must not be
+  // able to re-expire it, or a poll would start a second one and the count would be measuring the test.
+  const { fake, client } = clientWith(t, { client: { preflightTtlMs: 250 } });
+
+  const first = await client.preflight();
+  const afterFirstProbe = attempts(fake);
+
+  await sleep(260);
+  const second = await client.preflight();
+  assert.equal(second.checkedAt, first.checkedAt, "served from what we already knew, not from a new probe");
+
+  // The refresh is deliberately unjoined, so the honest wait is for the fact, not for a fixed tick.
+  let refreshed = second;
+  const deadline = Date.now() + 1_000;
+  while (refreshed.checkedAt === first.checkedAt && Date.now() < deadline) {
+    await sleep(2);
+    refreshed = await client.preflight();
+  }
+
+  assert.notEqual(refreshed.checkedAt, first.checkedAt, "the window did get refreshed, behind the call");
+  assert.equal(
+    attempts(fake),
+    afterFirstProbe + 1,
+    "one refresh per window, whatever number of calls arrived at it",
+  );
+});
+
+test("an aborted caller does not cancel the refresh it started", async (t) => {
+  // "The refresh takes no caller's signal" is a decision, not an oversight: cancelling it because one
+  // caller gave up would leave every later caller re-dialling a gateway that was about to be reported
+  // healthy. Threading the signal through — the natural-looking edit, since the blocking branch does
+  // exactly that — is the mutation this test exists to catch.
+  const { fake, client } = clientWith(t, { client: { preflightTtlMs: 250 } });
+
+  const first = await client.preflight();
+  const beforeRefresh = attempts(fake);
+  await sleep(260);
+
+  const cancelled = new AbortController();
+  cancelled.abort();
+  const served = await client.preflight(cancelled.signal);
+
+  assert.equal(served.checkedAt, first.checkedAt, "the cancelled caller is served the status we hold, not an abort");
+
+  // Counted at the transport, and deliberately without calling `preflight()` again: re-asking would
+  // start a *fresh* refresh and pass either way, which is exactly how a first draft of this test passed
+  // under that mutation while guarding nothing.
+  const deadline = Date.now() + 1_000;
+  while (attempts(fake) === beforeRefresh && Date.now() < deadline) await sleep(2);
+
+  assert.equal(
+    attempts(fake),
+    beforeRefresh + 1,
+    "the refresh the cancelled caller started still goes out",
+  );
+});
+
+test("a gateway that dies mid-window is refused once the refresh learns, not before", async (t) => {
+  // The honest cost of answering from a stale status: the call that happens to straddle the window
+  // finds out the hard way, from its own request rather than from a probe.
+  const { fake, client } = clientWith(t, { client: { preflightTtlMs: 20, preflightRetryAfterMs: 5_000 } });
+
+  const first = await client.preflight();
+  fake.state.unreachable = true;
+  await sleep(30);
+
+  const straddling = await client.preflight();
+  assert.equal(straddling.checkedAt, first.checkedAt, "the straddling call is not the one that discovers it");
+
+  await sleep(30);
+  await expectError(await client.preflight().catch((error) => error), "gateway_unreachable");
+});
+
+test("a gateway that stays dead stays refused once the failure window passes", async (t) => {
+  // The stale-success window and the failure window are measured separately, so a call can arrive past
+  // both. If a failed refresh left the success it invalidated in place, that call would be served the
+  // older answer and be told "up" — once per window, however many refreshes have failed since.
+  const { fake, client } = clientWith(t, { client: { preflightTtlMs: 40, preflightRetryAfterMs: 200 } });
+
+  await client.preflight();
+  fake.state.unreachable = true;
+
+  // The one stale answer this design accepts: the call that straddles the success window has nothing
+  // fresher, and it is the call that starts the refresh which learns the gateway went away.
+  await sleep(50);
+  await client.preflight();
+  await sleep(20); // the refresh is unjoined by design; bound the wait for its failure being recorded
+
+  for (let i = 0; i < 3; i += 1) {
+    await expectError(await client.preflight().catch((error) => error), "gateway_unreachable");
+    await sleep(10);
+  }
+
+  // Two windows, so a refusal that resumed and then lapsed would not pass this by being late.
+  for (let round = 0; round < 2; round += 1) {
+    await sleep(220);
+    const before = attempts(fake);
+    await expectError(await client.preflight().catch((error) => error), "gateway_unreachable");
+    assert.ok(attempts(fake) > before, "with nothing fresher to answer from, this call had to re-dial");
+  }
+});
+
+test("the first probe ever is still waited for", async (t) => {
+  // Nothing is known yet, so there is no stale status to answer with — and a cold gateway that is down
+  // must cost one cheap refusal rather than one full request timeout per call.
+  const { fake, client } = clientWith(t, { unreachable: true, client: { preflightTtlMs: 20 } });
+
+  await expectError(await client.preflight().catch((error) => error), "gateway_unreachable");
+
+  assert.ok(attempts(fake) > 0, "a cold client cannot answer from a status it never got");
 });
 
 test("sends the bearer token when apiKey is configured", async (t) => {

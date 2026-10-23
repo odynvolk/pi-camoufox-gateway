@@ -91,6 +91,79 @@ test("registers exactly the two documented tools and a shutdown hook", () => {
   assert.deepEqual(pi.handlers.map((h) => h.event), ["session_shutdown"]);
 });
 
+test("one session's shutdown releases only its own gateway session", async (t) => {
+  // Two runtimes, one module-level map — production's shape. pi gives each session its own extension
+  // runtime, so each registers its own handler, while `extensions` is shared by the whole process.
+  // Tearing down everything in it meant one session's quit deleted every other session's client, cache,
+  // and gateway-side tabs.
+  withConfigFile(t, { gatewayUrl: "http://gateway.test:9377" });
+  const fake = withFakeGateway(t);
+  const quitting = registered();
+  const surviving = registered();
+  const a = session("pi-shutdown-a");
+  const b = session("pi-shutdown-b");
+
+  for (const [tools, s] of [[quitting.byName, a], [surviving.byName, b]]) {
+    const built = await tools.camoufox_search.execute("id", { query: "camoufox" }, undefined, undefined, s.ctx);
+    assert.equal(built.isError, undefined, `session ${s.userId} could not start`);
+  }
+
+  const deletionsFor = (userId) =>
+    fake.state.calls.filter((call) => call.method === "DELETE" && call.path === `/sessions/${userId}`).length;
+  const handler = quitting.pi.handlers.find((entry) => entry.event === "session_shutdown").handler;
+
+  await handler({ type: "session_shutdown", reason: "quit" }, a.ctx);
+
+  assert.equal(deletionsFor(a.userId), 1, "the session that shut down is the one released");
+  assert.equal(deletionsFor(b.userId), 0, "a session still running keeps its tabs, client, and cache");
+
+  const after = await surviving.byName.camoufox_search.execute("id", { query: "camoufox again" }, undefined, undefined, b.ctx);
+  assert.equal(after.isError, undefined, "and it keeps answering afterwards");
+
+  // Reload, session replacement, and process exit can converge on the same handler.
+  await handler({ type: "session_shutdown", reason: "reload" }, a.ctx);
+  assert.equal(deletionsFor(a.userId), 1, "a second shutdown for the same session is a no-op, not an error");
+});
+
+test("a shutdown whose session id cannot be derived releases nothing, and says nothing", async (t) => {
+  // Teardown stays total. An id the sanitizer empties cannot name a session on the gateway, so there is
+  // nothing of ours to release — and the same unusable id already stopped this session registering an
+  // entry, so the only thing a throw here could achieve is an error at shutdown over nothing.
+  withConfigFile(t, { gatewayUrl: "http://gateway.test:9377" });
+  const fake = withFakeGateway(t);
+  const handler = registered().pi.handlers.find((entry) => entry.event === "session_shutdown").handler;
+
+  // Not rejecting *is* one of the two assertions: node:test fails this test if the handler throws.
+  await handler({ type: "session_shutdown", reason: "quit" }, { sessionManager: { getSessionId: () => "///" } });
+
+  assert.equal(
+    fake.state.calls.filter((call) => call.method === "DELETE").length,
+    0,
+    "a session we cannot name is not a session we can release",
+  );
+});
+
+test("a shutdown over a context that cannot answer still says so", async () => {
+  // Only the derivation's own fault is swallowed. A `ctx` that throws on being read is a pi-side fault,
+  // and swallowing it would leave a session unreleased with nothing reported — the class of bug this
+  // handler exists to close.
+  const handler = registered().pi.handlers.find((entry) => entry.event === "session_shutdown").handler;
+
+  await assert.rejects(
+    () =>
+      handler(
+        { type: "session_shutdown", reason: "quit" },
+        {
+          get sessionManager() {
+            throw new Error("extension context invalidated");
+          },
+        },
+      ),
+    /extension context invalidated/u,
+    "a fault that is not about the id must not be mistaken for one",
+  );
+});
+
 test("the parameter objects match what README documents", () => {
   const { byName } = registered();
 

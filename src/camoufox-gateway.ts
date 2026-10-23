@@ -9,6 +9,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { Type, type Static } from "typebox";
 
 import { ENGINE_NAMES, MAX_SEARCH_RESULTS } from "./config.ts";
+import { GatewayError } from "./errors.ts";
 import { urlPolicyFromConfig } from "./net-policy.ts";
 import { createExtension, formatError, resolveConfig, READ_DESCRIPTION, SEARCH_DESCRIPTION, type Extension, type ReadToolArgs, type ReadToolResult, type SearchDetails, type SearchToolArgs, type ToolOutcome } from "./extension.ts";
 import type { TriedStep } from "./engines/chain.ts";
@@ -331,10 +332,34 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  pi.on("session_shutdown", async () => {
-    for (const extension of extensions.values()) {
-      await extension.shutdown().catch(() => undefined);
+  /**
+   * Release the session that is shutting down, and only that one.
+   *
+   * `extensions` is module-level while pi gives each session its own extension runtime, so clearing it
+   * wholesale made one session's quit drop every other session's client, cache, and gateway-side tabs.
+   * pi emits this to the outgoing session's runner before replacing it, so `ctx` still names the session
+   * being torn down. Deleting the entry before the round trip keeps a call landing mid-teardown from
+   * reusing an extension that is on its way out — it builds a fresh one instead.
+   *
+   * Idempotent, because pi says cancellation, reload, session replacement, and process exit can converge
+   * on this path; a session that never registered anything has nothing to release.
+   */
+  pi.on("session_shutdown", async (_event, ctx) => {
+    // An id that cannot be derived cannot name a session on the gateway, so there is nothing of ours to
+    // release. Swallowed rather than thrown: pi surfaces a throw here as a shutdown failure, and an id we
+    // cannot name is not one. Narrowed to that fault deliberately — the read of `ctx` sits in the same
+    // try, and a context pi has already invalidated would otherwise be swallowed with it, leaving a
+    // session unreleased and nothing said about it.
+    let userId: string;
+    try {
+      userId = sessionOf(ctx);
+    } catch (error) {
+      if (error instanceof GatewayError && error.code === "internal_error") return;
+      throw error;
     }
-    extensions.clear();
+    const extension = extensions.get(userId);
+    if (!extension) return;
+    extensions.delete(userId);
+    await extension.shutdown().catch(() => undefined);
   });
 }
