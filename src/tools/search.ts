@@ -81,12 +81,10 @@ export function formatResults(outcome: {
   fromCache?: boolean;
 }): string {
   const lines: string[] = [];
-  // The engine that answered is named on every success, not only on one that fell back. "Google served
-  // this" and "DuckDuckGo served this after Google walled" are different claims about the same eight
-  // links, and a model cannot weigh a result set it cannot attribute — which is the whole reason
-  // `details.engine` was not enough: it is a field for a script, not text the model reads. The `tried`
-  // enumeration stays conditional, because it is the fallback's own fact: nothing fell back, nothing to
-  // enumerate.
+  // Name the engine that answered, on every success: "google served this" and "duckduckgo served this
+  // after google walled" are different claims about the same links, and a model cannot weigh a result
+  // set it cannot attribute. `details.engine` is not the answer — it is a field for a script, not text
+  // the model reads. The `tried` enumeration stays conditional: nothing fell back, nothing to enumerate.
   const via = ` (via ${outcome.engine}${
     outcome.tried.length > 1 ? `; tried ${outcome.tried.map((s) => `${s.engine}:${s.code}`).join(", ")}` : ""
   })`;
@@ -149,23 +147,21 @@ export function searchTool(deps: SearchToolDeps) {
     const clamped = Math.max(1, Math.min(requested, MAX_SEARCH_RESULTS));
     const resolve = params.resolve === true;
 
-    // One answer to "did the caller name an engine", so the filter and the refusal below cannot
-    // disagree — written as one expression for the same reason `wantedChars` is one expression in
-    // `read.ts`. `??` puts `null` with "absent", which is what the sibling tool does with a nullish
-    // budget; `""`, `0`, `false` and `NaN` stay asked-for, and are refused below rather than being read
-    // as a chain nobody constrained.
+    // One answer to "did the caller name an engine", in one expression, so the filter and the refusal
+    // below cannot disagree — same reason `wantedChars` is one expression in `read.ts`. `??` puts `null`
+    // with "absent", as the sibling tool does with a nullish budget; `""`, `0`, `false` and `NaN` were
+    // sent, so they are refused below rather than read as a chain nobody constrained.
     const forced = params.engine ?? undefined;
     const activeEngines = forced === undefined ? engines : engines.filter((engine) => engine.name === forced);
     if (forced !== undefined && activeEngines.length === 0) {
-      // Two facts, one message each, because only one of them is a setting anyone can change.
+      // Two facts, one message each, because only one of them is a setting anyone can change. An
+      // unfamiliar name is a typo and the remedy is to retype it; a name that is real and switched off is
+      // a setting. Merged into "not available", the first reads as a capability the gateway lacks, and a
+      // model told that goes looking for a `bing` setting that does not exist.
       //
-      // `engine "bing" is not available (enabled: google, duckduckgo)` covered both, which got the
-      // common one wrong: a name nobody recognises reads as a capability the gateway lacks, and the one
-      // thing a model can do with that — go look for a setting to do with `bing` — finds nothing, because
-      // the fix is to retype the name. So a stranger is refused with `config.ts`'s own wording for the
-      // same question (`chain.ts`'s "no adapter" is deliberately not reused: that one means the name
-      // *passed* config validation and still has no factory, which is our bug, not the caller's), and an
-      // engine that is real but switched off is told which of its two states it is in.
+      // `config.ts`'s wording is reused for the stranger; `chain.ts`'s "no adapter" deliberately is not,
+      // because it means the name *passed* config validation and still has no factory — our bug, not
+      // theirs.
       if (isEngineName(forced)) {
         const enabled = engines.map((engine) => engine.name).join(", ");
         throw new GatewayError(

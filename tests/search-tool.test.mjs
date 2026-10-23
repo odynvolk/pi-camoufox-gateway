@@ -281,8 +281,7 @@ test("reports the engine chain it tried", async (t) => {
  * "DuckDuckGo served this after Google walled" are different claims, and only the second one used to
  * be stated: the header named an engine only once the chain had walked, so the common case — first
  * engine, no wall — said nothing in the text a model reads, and left the engine in `details.engine`
- * alone. `src/extension.ts` has a comment claiming the success path "has named its chain all along";
- * that is the sentence that let this stay open, and it was true only of a success that fell back.
+ * alone.
  *
  * Asserted against the first line on purpose. Every result line already prints the result's own host,
  * so a link to `google.com` in the body would satisfy a loose match without this being about it.
@@ -351,17 +350,15 @@ test("a non-string engine is refused by name rather than compared against the ch
 });
 
 /**
- * The rest of the falsy values, one test each.
+ * The falsy `engine` values, one test each.
  *
- * The filter tested `params.engine` for truthiness while the refusal tested it for `!== undefined`, so
- * every value below took the "nobody forced an engine" branch: the two-engine chain ran, and the answer
- * was attributed to whichever engine happened to serve it. That is the promise this branch wrote down
- * twice — the schema description ("anything else is refused with code unsupported") and the README
- * bullet — made false for five of the six values anyone can send.
+ * Truthiness is what the filter tested, so each value below read as "nobody forced an engine": the whole
+ * two-engine chain ran, and the header attributed the answer to whichever engine served it. The schema
+ * description ("anything else is refused with code unsupported") and the README bullet both say these
+ * are refused.
  *
- * One test per value rather than a loop, because `engine: "bing"` being the only case anyone wrote down
- * is exactly how the hole survived its own test file: a loop that silently skips a value looks like a
- * loop that covers it.
+ * One test per value rather than a loop, because `bing` being the only case anyone wrote down is how this
+ * survived its own test file: a loop that skips a value looks identical to one that covers it.
  */
 
 /** Refused, and refused before a page was fetched: a refusal that cost two navigations is not a refusal. */
@@ -436,9 +433,9 @@ test("engine null is the absence it looks like, and keys the same chain an omitt
 });
 
 test("both tools read a nullish argument as absence, not as a value to refuse", async (t) => {
-  // The decision behind that last test, pinned where it can rot: search now normalises `engine` with
-  // `??`, which is the exact expression `wantedChars` uses. Two tools with two different answers to
-  // "is null an ask?" is the thing a caller cannot guess, so the pair is asserted together.
+  // The decision above, pinned as an assertion rather than a comment: search normalises `engine` with
+  // `??`, which is the exact expression `wantedChars` uses. Two tools giving two different answers to
+  // "is null an ask?" is the thing a caller cannot guess, so the pair is tested together.
   const { tool, client, config } = setup(t, {
     pageContents: new Map([["https://huge.test/", "h".repeat(20_000)]]),
   });
