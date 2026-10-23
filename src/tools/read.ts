@@ -158,11 +158,15 @@ function assertSchemaUsable(schema: Record<string, unknown>): void {
 function assertMaxCharsUsable(budget: number, askedForParam: boolean): void {
   if (isCountUsable(budget, 1)) return;
 
+  // Two names and two remedies, because a caller can only change one of them.
+  const name = askedForParam ? "maxChars" : "read.defaultMaxChars";
+  const remedy = askedForParam
+    ? "omit it for your read.defaultMaxChars"
+    : 'fix it in your config, or pass "maxChars"';
+
   throw new GatewayError(
     "unsupported",
-    askedForParam
-      ? `"maxChars" must be a positive integer of characters, got ${describeArgument(budget)} — omit it for your read.defaultMaxChars`
-      : `"read.defaultMaxChars" must be a positive integer of characters, got ${describeArgument(budget)} — fix it in your config, or pass "maxChars"`,
+    `"${name}" must be a positive integer of characters, got ${describeArgument(budget)} — ${remedy}`,
   );
 }
 
@@ -186,7 +190,8 @@ function assertOffsetUsable(offset: number): void {
 
   throw new GatewayError(
     "unsupported",
-    `"offset" must be a whole number of characters counting from 0, got ${describeArgument(offset)} — continue from the nextOffset a previous read returned`,
+    `"offset" must be a whole number of characters counting from 0, got ${describeArgument(offset)} — ` +
+      "continue from the nextOffset a previous read returned",
   );
 }
 

@@ -131,9 +131,13 @@ test("a maxChars the ceiling cannot size is refused, not served uncapped", async
 
   // The guard's placement is the claim, not its predicate: below `navigate()` every assertion above
   // still passes, and the page has been fetched and put in front of the model by the time the refusal
-  // says it should not have been. Counted, so it is a fact about the calls rather than a sentence in
-  // the message — and counted, not "no calls at all", because the liveness probe is allowed to dial.
-  assert.equal(fake.state.calls.filter((c) => c.path === "/tabs/open").length, 0, "neither tab was opened, not even to be refused");
+  // says it should not have been. Counted by route rather than "no calls at all", so the assertion is
+  // about the two calls that would be the defect, not about a total something else could satisfy.
+  assert.equal(
+    fake.state.calls.filter((c) => c.path === "/tabs/open").length,
+    0,
+    "neither tab was opened, not even to be refused",
+  );
   assert.equal(
     fake.state.calls.filter((c) => c.path.endsWith("/snapshot")).length,
     0,
@@ -203,6 +207,9 @@ test("a bad read.defaultMaxChars is refused too, because the guard measures what
 
   assert.equal(error.code, "unsupported", "a default the ceiling cannot order is not a budget");
   assert.match(error.message, /^"read\.defaultMaxChars" must be/u, "and it names the key at fault, not a param nobody passed");
+  // The remedy has to move with the blame. The param branch says "omit it", which is only safe advice
+  // once the default is checked too — and is nonsense here, where the caller already omitted it.
+  assert.equal(/omit it/u.test(error.message), false, `advice nobody can follow: ${error.message}`);
 });
 
 test("a fractional read.defaultMaxChars is refused, not spent as a single character", async (t) => {
@@ -221,6 +228,7 @@ test("an asked-for maxChars is blamed as the param, not as the config key that w
 
   assert.match(error.message, /^"maxChars" must be/u, `blamed the wrong thing: ${error.message}`);
   assert.equal(/read\.defaultMaxChars" must be/u.test(error.message), false, "the default is not at fault here");
+  assert.match(error.message, /omit it for your read\.defaultMaxChars$/u, "and the advice is the followable kind");
 });
 
 /**
