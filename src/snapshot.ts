@@ -228,13 +228,6 @@ function organicResults(blocks: LinkBlock[], engine: string): SearchResult[] {
 }
 
 /**
- * Classifies a snapshot that should not be read as content.
- *
- * Detection is structural on purpose. Prose alone cannot be the evidence: GitHub's README mentions a
- * captcha, so phrase-only matching refused to read any page that *discussed* bot countermeasures.
- * A wall is an interstitial, so either the host says so or the page is tiny.
- */
-/**
  * A browser's own refusal, from its shape rather than its wording.
  *
  * Measured against the recorded pages, not designed in the abstract: the one error page we have is
@@ -260,6 +253,16 @@ function isBrowserRefusal(text: string): boolean {
 /** The affordance a browser puts on its own error page, spelled the four ways browsers spell it. */
 const RETRY_AFFORDANCE = /^\s*- button "(?:try again|reload|refresh|retry)/iu;
 
+/**
+ * Classifies a snapshot that should not be read as content.
+ *
+ * Three branches, and only one of them is width-bounded: the host says so, the shape of a browser's
+ * refusal is taken at any size, or a phrase matches while the page is still under
+ * `INTERSTITIAL_MAX_CHARS`.
+ *
+ * Phrases are the gated ones because prose alone cannot be the evidence: GitHub's README mentions a
+ * captcha, so phrase-only matching refused to read any page that *discussed* bot countermeasures.
+ */
 export function detectWall(snapshot: SnapshotLike): GatewayErrorCode | null {
   const text = snapshot.text ?? "";
   const url = snapshot.url ?? "";
