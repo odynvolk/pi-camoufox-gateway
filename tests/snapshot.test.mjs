@@ -125,8 +125,8 @@ test("detects a browser error page as a wall", () => {
 /**
  * B.5 — the width was never the evidence.
  *
- * Browser-error detection today rides on the page being under `INTERSTITIAL_MAX_CHARS`, so it is a
- * promise about the *size* of a browser's own error page: render the same refusal a little wider — a
+ * Detection used to ride on the page being under `INTERSTITIAL_MAX_CHARS`, which made it a promise about
+ * the *size* of a browser's own error page: render the same refusal a little wider — a
  * help article expanded, a translated UI, a distro build with more boilerplate — and the check stops
  * being taken and the refusal comes back as page text. The read path has no fallback for that; the
  * search path answers `parse_error` because nothing on the page is link-shaped, which is why the two

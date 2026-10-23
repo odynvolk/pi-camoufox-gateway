@@ -428,9 +428,10 @@ export function readTool(deps: ReadToolDeps) {
         params.onProgress,
       );
 
-      // One classifier, and its phrase evidence is size-bounded: past `INTERSTITIAL_MAX_CHARS` nothing a
-      // page says can make it a wall. `blockedHosts` is the branch that isn't — an internal error page is
-      // refused at any width — which is why a *public* error page past that stays invisible here: B.5.
+      // One classifier. Its *phrase* evidence is size-bounded — past `INTERSTITIAL_MAX_CHARS` nothing a
+      // page says can make it a wall — while its host, empty-page and structural branches are not, so a
+      // wide browser refusal is still refused here. Neither is `blockedHosts`, one layer out: an
+      // internal destination is refused at any width.
       const wall = detectWall(snapshot);
       if (wall) {
         throw new GatewayError(wall, `the page did not load as content (${wall}): ${snapshot.url}`, {
