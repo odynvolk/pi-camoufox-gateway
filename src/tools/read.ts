@@ -156,9 +156,7 @@ function assertSchemaUsable(schema: Record<string, unknown>): void {
  * the two is named, because only one of them is something the caller can change.
  */
 function assertMaxCharsUsable(budget: number, askedForParam: boolean): void {
-  // One predicate, so there is no value left to special-case: `Number.isInteger` is false for `NaN`,
-  // `Infinity`, floats, and — unlike a bare `typeof` — for every non-number reaching us unvalidated.
-  if (typeof budget === "number" && Number.isInteger(budget) && budget >= 1) return;
+  if (isCountUsable(budget, 1)) return;
 
   throw new GatewayError(
     "unsupported",
@@ -166,6 +164,42 @@ function assertMaxCharsUsable(budget: number, askedForParam: boolean): void {
       ? `"maxChars" must be a positive integer of characters, got ${describeArgument(budget)} — omit it for your read.defaultMaxChars`
       : `"read.defaultMaxChars" must be a positive integer of characters, got ${describeArgument(budget)} — fix it in your config, or pass "maxChars"`,
   );
+}
+
+/**
+ * Refuse an `offset` that would not survive the arithmetic it is used in.
+ *
+ * `extractText` ends `nextOffset` at `(options.offset ?? 0) + sliced.length` — `??`, so nothing is
+ * defaulted, and `+`, so a string is concatenated rather than added. Measured through the fake gateway
+ * before this guard existed: an `offset` of `"100"` produced a `nextOffset` of `"100100"`, which
+ * `extension.ts` renders to the model as `[continue with offset=100100]` and `camoufox-gateway.ts`
+ * copies into a `structuredContent.nextOffset` that its own output schema declares `number | null`. One
+ * call therefore told a model to resume 100 100 characters into a 30 000-char page — a navigation, for
+ * an empty page — and told a script, in the field that means "nothing left", that there was nothing
+ * left. `NaN` serialized out of JSON as that same `null`.
+ *
+ * `0` is legal, because that is where a page starts. The floor is the only difference between this and
+ * the budget above, and the reason the two keep their own message rather than one shared sentence.
+ */
+function assertOffsetUsable(offset: number): void {
+  if (isCountUsable(offset, 0)) return;
+
+  throw new GatewayError(
+    "unsupported",
+    `"offset" must be a whole number of characters counting from 0, got ${describeArgument(offset)} — continue from the nextOffset a previous read returned`,
+  );
+}
+
+/**
+ * Whether a value can be counted, which is the one question every numeric argument has to answer before
+ * it reaches any arithmetic: a number, whole, and at or above `minimum`.
+ *
+ * One predicate, deliberately. Every place that re-decides it is another value that can get through,
+ * and `maxChars` is the one that already did. `Number.isInteger` is false for `NaN`, `Infinity` and
+ * floats, and — unlike a bare `typeof` — for every non-number reaching an unvalidated call site.
+ */
+function isCountUsable(value: unknown, minimum: number): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= minimum;
 }
 
 /**
@@ -432,6 +466,11 @@ export function readTool(deps: ReadToolDeps) {
     // page we go and fetch in order to reject the ask is a page whose text has already crossed over.
     const wanted = params.maxChars ?? read.defaultMaxChars;
     assertMaxCharsUsable(wanted, params.maxChars !== undefined);
+    // The same rule for the other number, and the same place: after this, the cache key and the
+    // arithmetic can both be trusted to hold a count. An absent `offset` *is* 0, which is legal, so
+    // measuring `?? 0` closes nothing that the guard above leaves open — the difference is that the
+    // budget falls back to a config value nothing validated.
+    assertOffsetUsable(params.offset ?? 0);
     // Before anything is fetched or cached: a schema with no refs to fill is not a question a page —
     // fresh or stored — could answer.
     if (params.schema) assertSchemaUsable(params.schema);

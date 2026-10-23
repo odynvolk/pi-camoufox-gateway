@@ -252,6 +252,53 @@ function label(value) {
   return typeof value === "string" ? JSON.stringify(value) : `${typeof value}:${String(value)}`;
 }
 
+/**
+ * The same mechanism, one line away: `params.offset` goes unguarded into `(options.offset ?? 0) +
+ * sliced.length`, and `??` defaults nothing while `+` concatenates anything. Measured through the repo's
+ * own fake gateway, on a page wide enough that we do the cutting:
+ *
+ * | `offset` as sent | `nextOffset` out | type     |
+ * | ---              | ---              | ---      |
+ * | `NaN`            | `NaN`            | number   |
+ * | `"100"`          | `"100100"`       | string   |
+ * | `"abc"`          | `"abc100"`       | string   |
+ * | `-5`             | `95`             | number   |
+ * | `12.5`           | `112.5`          | number   |
+ *
+ * Both consequences are reachable. `src/extension.ts` renders `[continue with offset=…]` straight to the
+ * model, so `"100"` becomes an instruction to resume 100 100 characters into a 30 000-char page — a
+ * navigation, for an empty page. And `src/camoufox-gateway.ts` copies the value into
+ * `structuredContent.nextOffset`, declared `Type.Union([Type.Number(), Type.Null()])`: a typed caller
+ * received a string, and `NaN` serialized out of JSON as `null` — "nothing left", from a call whose
+ * prose said there was.
+ */
+test("an offset that cannot be counted is refused, not concatenated into the answer", async (t) => {
+  const { tool } = setup(t, { pageContents: new Map([["https://big.test/", "z".repeat(30_000)]]) });
+
+  for (const offset of [NaN, "100", "abc", -5, 12.5]) {
+    await assert.rejects(
+      () => tool.read({ url: "https://big.test/", maxChars: 100, offset }),
+      (error) => {
+        assert.equal(error.code, "unsupported", `${label(offset)} was accepted as an offset`);
+        assert.match(error.message, /^"offset"/u, "and it names the argument at fault, not the budget");
+        return true;
+      },
+      label(offset),
+    );
+  }
+});
+
+test("offset 0 is legal, because that is where a page starts", async (t) => {
+  // The floor is the whole difference between this and `maxChars`, so it is the case a reused `< 1`
+  // would break — and the guard refusing it would be a read that cannot ask for the first screen.
+  const { tool } = setup(t, { pageContents: new Map([["https://big.test/", "z".repeat(30_000)]]) });
+
+  const out = await tool.read({ url: "https://big.test/", maxChars: 100, offset: 0 });
+
+  assert.equal(out.text.length, 100);
+  assert.equal(out.nextOffset, 100, "and the way on is still a number");
+});
+
 test("offset continues where the last read stopped", async (t) => {
   const { fake, tool } = setup(t, {
     pageContents: new Map([["https://big.test/", "z".repeat(30_000)]]),
