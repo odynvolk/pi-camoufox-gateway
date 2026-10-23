@@ -1,11 +1,21 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 
 import { classifySerp, detectWall, extractText, parseSerp } from "../src/snapshot.ts";
 
+/** Every recorded page, so a budget check picks up a fixture the moment one is added. */
+const FIXTURES = readdirSync(new URL("./fixtures/", import.meta.url), { withFileTypes: true })
+  .filter((entry) => entry.isFile() && entry.name.endsWith(".txt"))
+  .map((entry) => entry.name)
+  .sort();
+
+function readFixture(name) {
+  return readFileSync(new URL(`./fixtures/${name}`, import.meta.url), "utf8");
+}
+
 function fixture(name, url = "https://example.test/") {
-  const text = readFileSync(new URL(`./fixtures/${name}`, import.meta.url), "utf8");
+  const text = readFixture(name);
   return {
     url,
     text,
@@ -110,6 +120,67 @@ test("detects the google consent wall instead of reporting zero results", () => 
 test("detects a browser error page as a wall", () => {
   const snapshot = fixture("page-network-error.txt", "https://www.bing.com/search?q=x");
   assert.equal(detectWall(snapshot), "navigation_failed");
+});
+
+/**
+ * B.5 — the width was never the evidence.
+ *
+ * Browser-error detection today rides on the page being under `INTERSTITIAL_MAX_CHARS`, so it is a
+ * promise about the *size* of a browser's own error page: render the same refusal a little wider — a
+ * help article expanded, a translated UI, a distro build with more boilerplate — and the check stops
+ * being taken and the refusal comes back as page text. The read path has no fallback for that; the
+ * search path answers `parse_error` because nothing on the page is link-shaped, which is why the two
+ * thresholds are pinned together elsewhere in this file.
+ *
+ * The recorded page carries the structural signature instead: one heading at level 1, a retry
+ * affordance, and not one `/url` line — nothing on it is a document. That evidence does not care how
+ * wide the page is, which is what makes it worth taking at any width: the rule this repo already states
+ * is that *keyword* evidence must be size-gated, precisely because a long page can mention anything.
+ *
+ * Built by widening the real fixture with filler paragraphs, so the only thing changed about it is the
+ * thing the threshold is made of. No captured wide error page exists in `tests/fixtures/`, and this is
+ * constructed evidence, labelled as such — the structural rule is what generalises, not this page.
+ */
+test("a browser error page past the interstitial threshold is still a network error", () => {
+  const recorded = readFixture("page-network-error.txt");
+  const wide = `${recorded}\n${"- paragraph:\n  - text: Filler sentence that adds width without adding a document.\n".repeat(90)}`;
+
+  assert.ok(wide.length > 3_000, `widened error page is ${wide.length} chars — not past the threshold, so this asserts nothing`);
+  assert.equal(detectWall({ url: "https://www.bing.com/search?q=x", text: wide }), "navigation_failed");
+});
+
+/**
+ * The false positive, written first — because that is the failure this file's own solution doc says
+ * killed the last attempt, and the asymmetry has not changed: a wrong `navigation_failed` denies a read
+ * that worked, a missed one returns odd text.
+ *
+ * This is the page the structural rule must not touch: one heading, a retry button, and *content* — the
+ * difference from a browser refusal being that a document is actually reachable from it. A reader who
+ * landed here was looking for a "try again" button on purpose.
+ */
+test("a long page about retrying, with links, is content and not a network error", () => {
+  const troubleshooting = [
+    '- heading "Try again after a network error" [level=1]',
+    "- paragraph:",
+    "  - text: What to do when a fetch fails and you want to retry safely.",
+    '  - link "Backoff and retries" [e1]:',
+    "    - /url: https://example.test/docs/backoff",
+    '  - link "Error taxonomy" [e2]:',
+    "    - /url: https://example.test/docs/errors",
+    '- button "Try Again" [e3]',
+    "- paragraph:",
+    "  - text: Retrying without a budget is how a transient becomes an outage.",
+  ].join("\n");
+
+  assert.equal(detectWall({ url: "https://example.test/docs/retries", text: troubleshooting }), null);
+});
+
+test("exactly one fixture in the recorded set has the browser-error structure", () => {
+  // The budget, measured rather than asserted per-page. Every other recorded page carries a `/url` — a
+  // document reachable from it — which is the one thing a browser's own refusal never has.
+  const matching = FIXTURES.filter((name) => detectWall({ url: "https://example.test/", text: readFixture(name) }) === "navigation_failed");
+
+  assert.deepEqual(matching, ["page-network-error.txt"]);
 });
 
 test("distinguishes an empty page from a wall", () => {

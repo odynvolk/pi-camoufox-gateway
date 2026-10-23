@@ -234,6 +234,32 @@ function organicResults(blocks: LinkBlock[], engine: string): SearchResult[] {
  * captcha, so phrase-only matching refused to read any page that *discussed* bot countermeasures.
  * A wall is an interstitial, so either the host says so or the page is tiny.
  */
+/**
+ * A browser's own refusal, from its shape rather than its wording.
+ *
+ * Measured against the recorded pages, not designed in the abstract: the one error page we have is
+ * 378 chars, 6 blocks, 1 heading at level 1, 1 ref — a `Try Again` button — and zero `/url` lines, and
+ * every other recorded page carries at least one `/url`. That last condition is the load-bearing one, so
+ * it is worth being explicit about what it excludes: a refusal that renders a help article would carry
+ * one and go undetected. No such page is recorded here, and loosening the rule to cover a hypothetical
+ * one would trade a measured budget for an unmeasured one.
+ */
+function isBrowserRefusal(text: string): boolean {
+  const lines = text.split("\n");
+
+  const headings = lines.filter((line) => /^\s*- heading /u.test(line));
+  const [heading] = headings;
+  if (headings.length !== 1 || !/\[level=1\]/u.test(heading ?? "")) return false;
+
+  // A page you can navigate away from is not a refusal, however it is headed.
+  if (lines.some((line) => /\/url:/u.test(line))) return false;
+
+  return lines.some((line) => RETRY_AFFORDANCE.test(line));
+}
+
+/** The affordance a browser puts on its own error page, spelled the four ways browsers spell it. */
+const RETRY_AFFORDANCE = /^\s*- button "(?:try again|reload|refresh|retry)/iu;
+
 export function detectWall(snapshot: SnapshotLike): GatewayErrorCode | null {
   const text = snapshot.text ?? "";
   const url = snapshot.url ?? "";
@@ -241,6 +267,17 @@ export function detectWall(snapshot: SnapshotLike): GatewayErrorCode | null {
   if (/consent\.google\.com/u.test(url)) return "consent_wall";
 
   if (text.trim().length === 0) return "empty_page";
+
+  // Structural, and deliberately not size-gated. This repo's own rule is that *keyword* evidence over
+  // fetched text must be size-gated, because a long page can mention anything — GitHub's README
+  // contains "complete a captcha". A refusal is different: it is what a page looks like when there is
+  // nothing on it, so the shape is evidence at any width, and taking it only under a threshold was what
+  // made a slightly wider refusal read as content.
+  //
+  // Three things, all of them structure: one heading, a retry affordance, and no `/url` anywhere —
+  // nothing on the page is a document. The button is what keeps the second test honest: a long article
+  // about retrying has the heading and the width, and is saved from this rule by having links to read.
+  if (isBrowserRefusal(text)) return "navigation_failed";
 
   if (text.length <= INTERSTITIAL_MAX_CHARS) {
     if (/before you continue to google|unusual traffic|not a robot|verify you are (a |an )?(robot|human)|\bcaptcha\b/iu.test(text)) {
