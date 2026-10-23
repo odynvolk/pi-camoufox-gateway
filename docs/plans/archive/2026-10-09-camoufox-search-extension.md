@@ -6,6 +6,25 @@
 > `http://localhost:9377` as the shipped default. Everything below describes what was probed on
 > 2026-10-09 and should not be edited to match today's default.
 
+> **Reversed since.** Two decisions below were revisited, and the text recording them is left as
+> written — this is where the reversal is stated instead. Both are recorded here because a plan that
+> quietly disagrees with the shipped code reads as *the code being wrong*, and the next person to check
+> will believe this file.
+>
+> - **Search cache key.** Recorded below as "Key = normalized query + engine + `resolve`", with `n`
+>   clamped to 10. The shipped key is normalized query + the **active engine chain** (both engines when
+>   nothing was forced, one when it was) + a `raw` marker — and it excludes **both** `n` and `resolve`.
+>   Only the exclusion is a reversal; the query normalization is still exactly as recorded. What changed
+>   the answer was caching the whole engine page and slicing it when the outcome is shaped: a key naming
+>   `n` would put one call's budget into the identity of a page, so a cheap first lookup would cap a
+>   later, larger one.
+> - **Private network ranges.** Decided below: "do not block by default", because no allow/deny
+>   semantics exist anywhere in the gateway. That reasoning still holds — the gateway enforces none of
+>   this — which is exactly why the guard is ours and why the answer flipped: private ranges are refused
+>   by default, loopback, RFC1918 and link-local including the cloud metadata address, re-checked on
+>   every snapshot rather than only at tab open. `blockedHosts` still ships empty, so the half of the
+>   decision about *user rules* stands; the half about *our own default* does not.
+
 ## Problem summary
 
 pi has no web access: no built-in `web_search`/`web_fetch`, and the ecosystem option
