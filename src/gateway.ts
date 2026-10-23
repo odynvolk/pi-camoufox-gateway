@@ -712,6 +712,13 @@ export class GatewayClient {
     if (response.status >= 500) {
       return new GatewayError("gateway_error", `gateway error ${response.status}: ${message}`, { details, retryable: true });
     }
+    // B.7. A 400 means "the request you sent is not acceptable", so leaving it here is a claim about
+    // who is wrong — and it used to be a guess. It is one now only because `request-contract.test.mjs`
+    // checks every body this client sends against the recorded `openapi.json`, so a field we assembled
+    // wrongly fails that suite rather than arriving here. What survives to this line is a gateway
+    // rejecting a body its own contract accepts, which is the service's to answer for. Relabelling it
+    // `internal_error` would be the same guess pointed the other way, and wrong whenever the gateway has
+    // drifted from its published document.
     return new GatewayError("gateway_error", `gateway rejected the request (${response.status}): ${message}`, { details });
   }
 
