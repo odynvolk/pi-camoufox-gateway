@@ -272,6 +272,31 @@ test("reports the engine chain it tried", async (t) => {
   assert.equal(out.engine, "duckduckgo");
   assert.deepEqual(out.tried.map((s) => s.engine), ["google", "duckduckgo"]);
   assert.match(out.text, /google:consent_wall/u);
+  assert.match(out.text.split("\n")[0], /via duckduckgo/u, "and the answer is attributed to the engine that served it, not the one that walled");
+});
+
+/**
+ * A model cannot calibrate trust in a result set it cannot attribute. "Google served this" and
+ * "DuckDuckGo served this after Google walled" are different claims, and only the second one used to
+ * be stated: the header named an engine only once the chain had walked, so the common case — first
+ * engine, no wall — said nothing in the text a model reads, and left the engine in `details.engine`
+ * alone. `src/extension.ts` has a comment claiming the success path "has named its chain all along";
+ * that is the sentence that let this stay open, and it was true only of a success that fell back.
+ *
+ * Asserted against the first line on purpose. Every result line already prints the result's own host,
+ * so a link to `google.com` in the body would satisfy a loose match without this being about it.
+ */
+test("a first-try success still names the engine that answered", async (t) => {
+  const { tool } = setup(t);
+
+  const out = await tool.search({ query: "camoufox" });
+
+  assert.equal(out.engine, "google");
+  assert.equal(out.tried.length, 1, "nothing fell back — this is the case that used to be silent");
+
+  const header = out.text.split("\n")[0];
+  assert.match(header, /\(via google\)/u, "attributed even when there was no chain to report");
+  assert.doesNotMatch(header, /tried/u, "and with no fallback, there is no fallback to enumerate");
 });
 
 test("an empty query is rejected before touching the gateway", async (t) => {

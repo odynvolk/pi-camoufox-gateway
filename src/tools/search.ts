@@ -81,9 +81,17 @@ export function formatResults(outcome: {
   fromCache?: boolean;
 }): string {
   const lines: string[] = [];
-  const fallback = outcome.tried.length > 1 ? ` (via ${outcome.engine}; tried ${outcome.tried.map((s) => `${s.engine}:${s.code}`).join(", ")})` : "";
+  // The engine that answered is named on every success, not only on one that fell back. "Google served
+  // this" and "DuckDuckGo served this after Google walled" are different claims about the same eight
+  // links, and a model cannot weigh a result set it cannot attribute — which is the whole reason
+  // `details.engine` was not enough: it is a field for a script, not text the model reads. The `tried`
+  // enumeration stays conditional, because it is the fallback's own fact: nothing fell back, nothing to
+  // enumerate.
+  const via = ` (via ${outcome.engine}${
+    outcome.tried.length > 1 ? `; tried ${outcome.tried.map((s) => `${s.engine}:${s.code}`).join(", ")}` : ""
+  })`;
   const asked = outcome.requested !== undefined && outcome.requested !== outcome.results.length ? ` (${outcome.results.length} of ${outcome.requested} asked for)` : "";
-  lines.push(`Search results for "${outcome.query}" — ${outcome.results.length} result(s)${asked}${fallback}:`);
+  lines.push(`Search results for "${outcome.query}" — ${outcome.results.length} result(s)${asked}${via}:`);
   outcome.results.forEach((result, index) => {
     const suffix = result.resolved === false ? " [url unresolved]" : "";
     lines.push(`${index + 1}. ${result.title}\n   ${result.url}${suffix}\n   ${engineLabel(result)}${result.snippet ? ` — ${result.snippet}` : ""}`);
