@@ -111,7 +111,7 @@ test("a maxChars past read.maxCharsCeiling is capped, and the outcome names what
  */
 test("a maxChars the ceiling cannot size is refused, not served uncapped", async (t) => {
   const ceiling = testConfig().read.maxCharsCeiling;
-  const { tool } = setup(t, {
+  const { fake, tool } = setup(t, {
     pageContents: new Map([["https://huge.test/", "h".repeat(ceiling * 5)]]),
     snapshotLimit: ceiling * 5,
   });
@@ -128,6 +128,17 @@ test("a maxChars the ceiling cannot size is refused, not served uncapped", async
       label(maxChars),
     );
   }
+
+  // The guard's placement is the claim, not its predicate: below `navigate()` every assertion above
+  // still passes, and the page has been fetched and put in front of the model by the time the refusal
+  // says it should not have been. Counted, so it is a fact about the calls rather than a sentence in
+  // the message — and counted, not "no calls at all", because the liveness probe is allowed to dial.
+  assert.equal(fake.state.calls.filter((c) => c.path === "/tabs/open").length, 0, "neither tab was opened, not even to be refused");
+  assert.equal(
+    fake.state.calls.filter((c) => c.path.endsWith("/snapshot")).length,
+    0,
+    "and no page was read in order to say it would not be read",
+  );
 });
 
 /**
