@@ -149,10 +149,14 @@ export function searchTool(deps: SearchToolDeps) {
     const clamped = Math.max(1, Math.min(requested, MAX_SEARCH_RESULTS));
     const resolve = params.resolve === true;
 
-    const activeEngines = params.engine
-      ? engines.filter((engine) => engine.name === params.engine)
-      : engines;
-    if (params.engine !== undefined && activeEngines.length === 0) {
+    // One answer to "did the caller name an engine", so the filter and the refusal below cannot
+    // disagree — written as one expression for the same reason `wantedChars` is one expression in
+    // `read.ts`. `??` puts `null` with "absent", which is what the sibling tool does with a nullish
+    // budget; `""`, `0`, `false` and `NaN` stay asked-for, and are refused below rather than being read
+    // as a chain nobody constrained.
+    const forced = params.engine ?? undefined;
+    const activeEngines = forced === undefined ? engines : engines.filter((engine) => engine.name === forced);
+    if (forced !== undefined && activeEngines.length === 0) {
       // Two facts, one message each, because only one of them is a setting anyone can change.
       //
       // `engine "bing" is not available (enabled: google, duckduckgo)` covered both, which got the
@@ -162,11 +166,11 @@ export function searchTool(deps: SearchToolDeps) {
       // same question (`chain.ts`'s "no adapter" is deliberately not reused: that one means the name
       // *passed* config validation and still has no factory, which is our bug, not the caller's), and an
       // engine that is real but switched off is told which of its two states it is in.
-      if (isEngineName(params.engine)) {
+      if (isEngineName(forced)) {
         const enabled = engines.map((engine) => engine.name).join(", ");
         throw new GatewayError(
           "unsupported",
-          `"${params.engine}" is disabled in your config (enabled: ${enabled || "none"}) — enable it under`
+          `"${forced}" is disabled in your config (enabled: ${enabled || "none"}) — enable it under`
             + ` "engines", or drop "engine" from the call`,
         );
       }
@@ -175,7 +179,7 @@ export function searchTool(deps: SearchToolDeps) {
       // `5` and `"5"` need to look different here, and it is the branch a model is most likely to hit.
       throw new GatewayError(
         "unsupported",
-        `unknown engine ${describeArgument(params.engine)} — known: ${ENGINE_NAMES.join(", ")}`,
+        `unknown engine ${describeArgument(forced)} — known: ${ENGINE_NAMES.join(", ")}`,
       );
     }
 
