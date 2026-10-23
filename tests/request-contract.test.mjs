@@ -104,9 +104,40 @@ function violationsOf(body, schema) {
   return found;
 }
 
+/**
+ * Every way a batch of recorded calls fails the contract, as strings so one run reports all of them.
+ *
+ * Shared by both tests on purpose: the case where a path resolves to no declared operation is not
+ * "nothing to check", it is this client calling a route the recorded 1.14.0 contract does not have —
+ * exactly how a gateway upgrade becomes a silent 404 — and it has to be reported by the same code path
+ * that reports a bad field, not by a second filter that could drift away from it.
+ */
+function problemsOf(calls) {
+  const problems = [];
+
+  for (const call of calls) {
+    const template = templateFor(call.path);
+    const schema = template === undefined ? undefined : CONTRACTS.get(`${call.method} ${template}`);
+    if (!schema) {
+      problems.push(`${call.method} ${call.path} is not a declared operation with a request body`);
+      continue;
+    }
+    for (const problem of violationsOf(call.body, schema)) {
+      problems.push(`${call.method} ${template}: ${problem}`);
+    }
+  }
+
+  return problems;
+}
+
 function clientWith(t, options = {}) {
   const fake = withFakeGateway(t, { assertNoTabLeak: false, ...options });
   return { fake, client: createGatewayClient({ baseUrl: BASE, timeoutMs: 2000, ...options.client }) };
+}
+
+/** Bodies only: a GET has a path to match and nothing to check against it. */
+function bodiesOf(fake) {
+  return fake.state.calls.filter((call) => call.body !== undefined && call.body !== null);
 }
 
 test("every body the client sends is one the recorded contract accepts", async (t) => {
@@ -124,33 +155,41 @@ test("every body the client sends is one the recorded contract accepts", async (
   await client.waitFor({ userId, tabId: tab.tabId, selector: "h1", timeoutMs: 250 });
   await client.extract({ userId, tabId: tab.tabId, schema: { type: "object", properties: { t: { type: "string" } } } });
 
-  const withBodies = fake.state.calls.filter((call) => call.body !== undefined && call.body !== null);
+  const withBodies = bodiesOf(fake);
   assert.ok(withBodies.length >= 4, `expected the four body-carrying calls, saw ${withBodies.length}`);
 
-  const problems = [];
-  for (const call of withBodies) {
-    const template = templateFor(call.path);
-    const schema = template === undefined ? undefined : CONTRACTS.get(`${call.method} ${template}`);
-    if (!schema) {
-      problems.push(`${call.method} ${call.path} is not a declared operation with a request body`);
-      continue;
-    }
-    for (const problem of violationsOf(call.body, schema)) {
-      problems.push(`${call.method} ${template}: ${problem}`);
-    }
-  }
-
-  assert.deepEqual(problems, [], "the client is sending bodies the recorded contract does not accept");
+  assert.deepEqual(problemsOf(withBodies), [], "the client is sending bodies the recorded contract does not accept");
 });
 
-test("the client sends no body the contract does not name at all", async (t) => {
-  // The unmatched case, asserted as a case rather than left as an absence. A path that resolves to no
-  // declared operation is not "nothing to check" — it is this client calling a route the recorded
-  // 1.14.0 contract does not have, which is exactly how a gateway upgrade becomes a silent 404.
-  const { fake } = clientWith(t);
-  const unmatched = fake.state.calls.filter(
-    (call) => call.body !== undefined && call.body !== null && templateFor(call.path) === undefined,
-  );
+/**
+ * The unmatched route, seen firing.
+ *
+ * The first test asserts nothing is unmatched across the four calls a normal read makes, which is the
+ * guarantee. It cannot show that the unmatched branch *works*, and an assertion nobody has watched go
+ * red is a guess dressed as a guard — this file's header says as much about an absent check, and
+ * `b32fbcb` removed exactly this shape from `gateway.test.mjs` one commit before this branch.
+ *
+ * A route the client can reach that the contract lacks is not reachable by inventing a client method:
+ * every path in `ENDPOINTS` is declared. It is reachable the way a real one arrives — a gateway served
+ * behind a path prefix. `url()` joins baseUrl and path by concatenation, so the prefix is sent, and the
+ * recorded contract is still 1.14.0 without it. That is the same shape as a gateway that renamed a
+ * route, which is what this file exists to notice.
+ */
+test("a body sent to a route the contract does not have is reported, not skipped", async (t) => {
+  const { fake, client } = clientWith(t, { client: { baseUrl: `${BASE}/proxy` } });
 
-  assert.deepEqual(unmatched.map((call) => `${call.method} ${call.path}`), []);
+  // The fake has no route under a prefix either, so this answers the way an undeclared route does: a
+  // 404, after the body has already been assembled, sent and recorded. The response is not asserted and
+  // does not need to be — what is under test is the path a body left the client on, which is recorded
+  // before routing happens.
+  await client.openTab({ userId: "undeclared-route", url: "https://example.test/a" }).catch(() => undefined);
+
+  const withBodies = bodiesOf(fake);
+  // The guard against the mistake this file was written to avoid: an installed fake that saw no
+  // traffic checks nothing, so the traffic is asserted before the check is.
+  assert.equal(withBodies.length, 1, "no body was sent, so the assertion below would be checking an empty log");
+
+  assert.deepEqual(problemsOf(withBodies), [
+    "POST /proxy/tabs/open is not a declared operation with a request body",
+  ]);
 });
