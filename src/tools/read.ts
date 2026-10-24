@@ -69,10 +69,6 @@ export interface ReadOutcome {
   cappedAt?: number;
 }
 
-// This module keeps the name its own: the loop's stop rule is pinned against it rather than a literal,
-// and the number belongs to the machine, not to the tool that has always used it.
-export { STABLE_ROUNDS } from "../settle.ts";
-
 /**
  * Refuse a schema that cannot be answered as asked, before spending a navigation on it.
  *

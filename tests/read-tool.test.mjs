@@ -7,7 +7,8 @@ import { withFakeGateway } from "./helpers/fake_gateway.mjs";
 import { testConfig } from "./helpers/config.mjs";
 import { createGatewayClient } from "../src/gateway.ts";
 import { createCache } from "../src/cache.ts";
-import { readTool, STABLE_ROUNDS } from "../src/tools/read.ts";
+import { readTool } from "../src/tools/read.ts";
+import { STABLE_ROUNDS } from "../src/settle.ts";
 import { assertHostAllowed, urlPolicyFromConfig } from "../src/net-policy.ts";
 
 const BASE = "http://gateway.test:9377";
