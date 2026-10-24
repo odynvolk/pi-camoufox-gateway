@@ -367,8 +367,7 @@ export class GatewayClient {
       // be a claim about the wrong thing — and silence is the only remaining answer that is not wrong.
       if (gatewayError && isRouteMissing(gatewayError)) return undefined;
       // Anything else with a status came back from the gateway: an answer, with no state in it we may read.
-      // And a status is only ever written where a response was (`responseDetails`), so none is silence rather
-      // than an error that forgot to say.
+      // And only `responseDetails` writes one, so an absence is the transport saying it never got a response.
       const answered = typeof gatewayError?.details?.status === "number";
       return { answered };
     }
