@@ -7,7 +7,7 @@
  * failure rather than a mystery.
  */
 
-import { GatewayError, type GatewayErrorCode } from "./errors.ts";
+import { GatewayError } from "./errors.ts";
 import { LivenessCache } from "./liveness.ts";
 import { assertTabUrlAllowed, DEFAULT_URL_POLICY, policyCanRefuse, type UrlPolicy } from "./net-policy.ts";
 
