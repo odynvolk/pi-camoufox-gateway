@@ -237,6 +237,11 @@ export function createFakeGateway(options = {}) {
         return json({ ok: true });
       }
 
+      // `refsAvailable` / `googleSerp` are what the real gateway was observed sending here (the 2026-10-09
+      // probe record in `docs/brainstorms/2026-10-09-pi-camoufox-gateway.md` → Verified facts about the
+      // gateway), and are deliberately unmodelled: the recorded contract declares no fields on a navigate
+      // answer, and nothing reads these. They stay to prove we ignore what we do not model — not to be
+      // "completed" by adding them back to `NavigateResult`.
       if (method === "POST" && sub === "/navigate") {
         if (body.macro) {
           const template = MACROS[body.macro];

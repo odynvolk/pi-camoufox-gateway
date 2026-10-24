@@ -6,10 +6,10 @@
  */
 
 import { DEFAULT_CONFIG, isRecord, loadConfig, type CamoufoxConfig } from "./config.ts";
-import { createCache, type Cache } from "./cache.ts";
+import { type Cache } from "./cache.ts";
 import { GatewayError, type GatewayErrorCode } from "./errors.ts";
 import { enginesFromConfig, type TriedStep } from "./engines/chain.ts";
-import { createGatewayClient, type GatewayClient, type GatewayHealth } from "./gateway.ts";
+import { type GatewayClient, type GatewayHealth } from "./gateway.ts";
 import { readTool, type ReadOutcome } from "./tools/read.ts";
 import { searchTool, type CachedSearch, type SearchOutcome } from "./tools/search.ts";
 

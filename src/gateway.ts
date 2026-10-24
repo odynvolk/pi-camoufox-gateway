@@ -7,7 +7,7 @@
  * failure rather than a mystery.
  */
 
-import { GatewayError, type GatewayErrorCode } from "./errors.ts";
+import { GatewayError } from "./errors.ts";
 import { LivenessCache } from "./liveness.ts";
 import { assertTabUrlAllowed, DEFAULT_URL_POLICY, policyCanRefuse, type UrlPolicy } from "./net-policy.ts";
 
@@ -63,8 +63,6 @@ export interface OpenTabResult {
 
 export interface NavigateResult {
   url: string;
-  refsAvailable?: boolean;
-  googleSerp?: boolean;
 }
 
 export interface SnapshotResult {
@@ -485,7 +483,7 @@ export class GatewayClient {
       body: { userId: params.userId, macro: params.macro, query: params.query },
       signal: params.signal,
     });
-    return this.asNavigateResult(body, params.tabId);
+    return this.asNavigateResult(body);
   }
 
   async snapshot(params: {
@@ -659,14 +657,15 @@ export class GatewayClient {
     }
   }
 
-  private asNavigateResult(body: Record<string, unknown>, tabId: string): NavigateResult {
-    if (body.ok === false) {
-      throw new GatewayError("navigation_failed", messageFrom(body, 200), { details: { tabId } });
-    }
+  /**
+   * Reads one field. Navigate's recorded 200 (`tests/fixtures/openapi.json`) declares no properties, so it
+   * argues nothing about the fields we skip — it neither promises them nor denies them.
+   *
+   * Never sees a `{ "ok": false }` body: `perform()` rejects those first, classifying them by the gateway's message.
+   */
+  private asNavigateResult(body: Record<string, unknown>): NavigateResult {
     return {
       url: typeof body.url === "string" ? body.url : "",
-      refsAvailable: typeof body.refsAvailable === "boolean" ? body.refsAvailable : undefined,
-      googleSerp: typeof body.googleSerp === "boolean" ? body.googleSerp : undefined,
     };
   }
 
