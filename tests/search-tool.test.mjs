@@ -480,6 +480,11 @@ test("normalises the query for cache purposes", async (t) => {
  */
 const SERP_SKELETON = `- heading "camoufox"\n- searchbox "Search" [e1]: camoufox\n- navigation:\n  - link "Allt" [e2]\n  - link "Webb" [e3]`;
 const SERP_WITH_RESULTS = `${SERP_SKELETON}\n- link "Camoufox: Introduction" [e9]:\n  - /url: https://camoufox.com\n  - text: An open source anti-detect browser.`;
+/** A page as wide as one call may return — what a caller asking `n: 10` is owed, once the render finishes. */
+const TEN_RESULTS_PAGE = Array.from(
+  { length: 10 },
+  (_unused, i) => `- link "Tall ${i + 1}" [e${i + 2}]:\n  - /url: https://example.test/t${i + 1}\n  - text: snippet ${i + 1}`,
+).join("\n");
 
 test("a search that waited for its SERP says how long it waited, and says nothing else", async (t) => {
   const { tool } = setup(t, {
@@ -510,17 +515,45 @@ test("a search that needed no re-look says nothing about waiting", async (t) => 
 test("a search served from cache reports no wait it did not pay", async (t) => {
   // `settledInMs` is a cost, and the caching rule in this file is that a caller who rode along on
   // someone else's work does not report having done it.
-  const { tool } = setup(t, {
-    snapshotScripts: new Map([["https://www.google.com/search?q=late", [SERP_SKELETON, SERP_WITH_RESULTS]]]),
+  //
+  // The chain waited on google and failed there, so the page that was stored is the one duckduckgo
+  // answered with at a glance — which is what makes it storable at all. A page the engines had to wait
+  // for is not kept, and the test below is why.
+  const { fake, tool } = setup(t, {
+    pageContents: new Map([["https://www.google.com/search?q=late", SERP_SKELETON]]),
   });
 
   const first = await tool.search({ query: "late" });
+  assert.equal(first.engine, "duckduckgo", "the stored page came from the engine that answered at a glance");
   const second = await tool.search({ query: "late" });
 
   assert.equal(typeof first.settledInMs, "number", "the call that fetched the page paid for it");
   assert.equal(second.fromCache, true);
   assert.equal(second.settledInMs, undefined, "the call that fetched nothing claims no waiting");
   assert.equal(/\bwaited\b/u.test(second.text), false);
+});
+
+test("a SERP caught at its first result answers this call and is not kept for the next", async (t) => {
+  // The engines stop at the first organic result, so a page caught between its chrome and its results is
+  // a page only partly known — and nothing later can tell it from a page that finished there. Returning
+  // it is honest, because `shortBy` says what came up short. Storing it under a key that deliberately
+  // ignores `n` is not: one result becomes the answer for every later ask, for the whole `cache.serpMs`.
+  const { fake, tool } = setup(t, {
+    snapshotScripts: new Map([["https://www.google.com/search?q=slow", [SERP_SKELETON, SERP_WITH_RESULTS]]]),
+  });
+
+  const narrow = await tool.search({ query: "slow", n: 1 });
+  assert.equal(narrow.results.length, 1, "stop-at-first is still what answers a search");
+
+  // The page has arrived since. Were the partial frame still stored, none of what follows would be read.
+  fake.state.snapshotScripts.set("https://www.google.com/search?q=slow", [TEN_RESULTS_PAGE]);
+  const before = fake.state.calls.length;
+
+  const wide = await tool.search({ query: "slow", n: 10 });
+
+  assert.notEqual(wide.fromCache, true, "a page we stopped looking at mid-render was not kept");
+  assert.ok(fake.state.calls.length > before, "the wider ask went back to the gateway instead of the frozen frame");
+  assert.equal(wide.results.length, 10, "and came back with a page");
 });
 
 test("the wait a search reports is the whole chain's, not just the engine that answered", async (t) => {

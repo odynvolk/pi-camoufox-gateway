@@ -29,7 +29,7 @@ export function googleEngine(): Engine {
         // The whole page, unsliced. One fact is worth keeping out of a constant: the macro takes only a
         // query, and Google's page is ten wide — more needs pagination we do not have. So asking for 20
         // buys a page of ~10 whatever `n` says, and `tools/search.ts` is where any further slice happens.
-        return { results: verdict.results };
+        return { results: verdict.results, ...(verdict.polled ? { polled: true } : {}) };
       } finally {
         await client.closeTabQuietly({ userId, tabId: tab.tabId });
       }

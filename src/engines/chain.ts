@@ -50,6 +50,14 @@ export interface ChainOutcome {
    * duration, and its per-engine record in `tried` already says where the attempt went.
    */
   settledInMs?: number;
+  /**
+   * Set when the engine that *answered* had re-looked at its own page — not the chain's total, and the
+   * two are not interchangeable.
+   *
+   * A google that spent its budget and then failed says nothing about whether the duckduckgo page that
+   * answered afterwards had finished rendering, and that page is what a caller would be keeping.
+   */
+  pagePolled?: true;
 }
 
 export function enginesFromConfig(engines: EngineConfig[]): Engine[] {
@@ -100,7 +108,13 @@ export async function searchWithFallback(
         continue;
       }
       tried.push({ engine: engine.name, code: "ok", message: "served" });
-      return { engine: engine.name, results: outcome.results, tried, ...(settledInMs > 0 ? { settledInMs } : {}) };
+      return {
+        engine: engine.name,
+        results: outcome.results,
+        tried,
+        ...(settledInMs > 0 ? { settledInMs } : {}),
+        ...(outcome.polled ? { pagePolled: true } : {}),
+      };
     } catch (error) {
       // A code here says nothing about where it came from: the transport codes its own failures, but
       // `classifySerp`, the address guard and the post-response checks code theirs too. What makes the

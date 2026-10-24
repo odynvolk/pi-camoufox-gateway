@@ -192,17 +192,27 @@ export function searchTool(deps: SearchToolDeps) {
       );
     }
 
-    // `n` deliberately stays out of the key: the cached value is the whole engine page, sliced only
-    // when the outcome is shaped, so a cheap first call can never cap a later one.
+    // `n` deliberately stays out of the key: a stored page is a whole engine page, sliced only when the
+    // outcome is shaped, so a cheap first call can never cap a later one. What holds that up is
+    // `shouldStore` below rather than the shape of the value: the engines stop at the first organic
+    // result, so a page they had to wait for was partly known when they stopped, and one result kept
+    // would answer every later ask until `cache.serpMs` expired.
+    //
+    // What the gate does not catch, and nothing at this seam can: a first look that already carries
+    // results and grows afterwards. Closing that would mean re-looking at every search that answered at a
+    // glance — measured at two extra snapshots and ~300ms on the plain path, for the same page.
     const key = `search:${query}:${activeEngines.map((e) => e.name).join(">")}:raw`;
 
     let fromCache = false;
     const cached = cache.get(key);
     if (cached) fromCache = true;
 
-    // Carried out through this closure rather than the cached value, as `read` carries its own settle
-    // cost: time is per call, and a caller that rode along on someone else's chain did not spend it.
+    // Two facts the chain reports and a cache value cannot carry without becoming a second answer: what
+    // this chain waited, and whether the page that answered had been re-looked at. Both ride closures, as
+    // `read` carries its own settle cost — time is per call, and a caller that rode along on someone
+    // else's chain spent neither.
     let settledInMs = 0;
+    let pagePolled = false;
 
     // A failure is never cached — `run` stores only on a resolved value — so the next call is free to
     // try the chain again, and the error keeps the single code it was given where it was caught.
@@ -214,8 +224,9 @@ export function searchTool(deps: SearchToolDeps) {
         ...(params.onProgress ? { onProgress: params.onProgress } : {}),
       });
       settledInMs = chain.settledInMs ?? 0;
+      pagePolled = chain.pagePolled === true;
       return { query, engine: chain.engine, results: chain.results, tried: chain.tried };
-    }, config.cache.serpMs);
+    }, config.cache.serpMs, { shouldStore: () => !pagePolled });
 
     // Resolution happens after the cache and only for what will be shown: a wrapper costs one page
     // load each, so we never resolve urls the caller did not ask to see.

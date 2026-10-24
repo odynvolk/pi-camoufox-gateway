@@ -26,7 +26,7 @@ export function duckduckgoEngine(): Engine {
         // Whole page, unsliced — same reason as `google.ts`, and the reason no engine here declares a
         // page width of its own: a duckduckgo page carries whatever it carried, and saying so in a type
         // would be a second width to keep honest.
-        return { results: verdict.results };
+        return { results: verdict.results, ...(verdict.polled ? { polled: true } : {}) };
       } finally {
         await client.closeTabQuietly({ userId, tabId: tab.tabId });
       }

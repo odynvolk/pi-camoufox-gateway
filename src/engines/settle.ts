@@ -57,7 +57,7 @@ export function serpWorthAnotherLook(snapshot: SnapshotLike, engine: EngineName)
 }
 
 /**
- * The engine's one snapshot-or-more, and the verdict on the last of them.
+ * The engine's one snapshot-or-more, the verdict on the last of them, and whether a re-look was needed.
  *
  * Takes the whole context rather than its parts because an engine has nothing else to decide: the
  * judgement above, the budget above, and the shared re-look machine are the same for both.
@@ -66,7 +66,7 @@ export async function settledSerpVerdict(
   context: EngineContext,
   tabId: string,
   engine: EngineName,
-): Promise<SerpVerdict> {
+): Promise<SerpVerdict & { polled: boolean }> {
   const client: GatewayClient = context.client;
   const { snapshot, polled, settledInMs } = await snapshotSettled(client, context.userId, tabId, {
     budgetMs: SEARCH_SETTLE_MS,
@@ -78,5 +78,5 @@ export async function settledSerpVerdict(
   // Reported before the verdict is decided, because an engine that waited and then found nothing leaves
   // by throwing — and the time is still gone.
   if (polled) context.onSettled?.(settledInMs);
-  return classifySerp(snapshot, engine);
+  return { ...classifySerp(snapshot, engine), polled };
 }

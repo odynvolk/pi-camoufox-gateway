@@ -37,6 +37,14 @@ export interface EngineOutcome {
    * a second, per-engine width next to the tool's one and let the two disagree in silence.
    */
   results: SearchResult[];
+  /**
+   * Set when this page took a re-look before it had a result in it.
+   *
+   * The stop rule is the first organic result, so a page that had to be waited for was, at the moment we
+   * stopped, only partly known. That is fine to hand back and not fine to keep — hence a fact about the
+   * page rather than a duration, which the caller cannot read as either.
+   */
+  polled?: true;
 }
 
 export interface Engine {
