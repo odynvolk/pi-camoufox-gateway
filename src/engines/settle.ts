@@ -8,7 +8,7 @@
 
 import type { EngineName } from "../config.ts";
 import type { GatewayClient } from "../gateway.ts";
-import { classifySerp, detectWall, type SerpVerdict, type SnapshotLike } from "../snapshot.ts";
+import { classifySerp, detectWall, wallWorthWaitingOn, type SerpVerdict, type SnapshotLike } from "../snapshot.ts";
 import { snapshotSettled } from "../settle.ts";
 import type { EngineContext } from "./types.ts";
 
@@ -33,10 +33,9 @@ export const SEARCH_SETTLE_POLL_MS = 150;
  *
  * Two branches matter:
  *
- * - A wall ends the wait. A consent page or a browser refusal is a page that has *decided*, and the
- *   chain's answer to that is the next engine, not a longer pause. `empty_page` is the exception: it is
- *   what a blank snapshot is called, and a blank snapshot is the most obviously-still-rendering page
- *   there is.
+ * - A wall ends the wait, with the one exception `wallWorthWaitingOn` states — the same exception read
+ *   applies to its own predicate, because "a blank page is a page that has not started" is not a fact
+ *   two callers may disagree about.
  * - Everything else that is not results keeps looking, including the case nothing can distinguish from
  *   here. That is paid for knowingly rather than assumed away, and it is measured: the B.6 page
  *   (`tests/fixtures/serp-duckduckgo-html.txt`, 26 link blocks whose every `/url` is protocol-relative)
@@ -51,9 +50,8 @@ export const SEARCH_SETTLE_POLL_MS = 150;
  * which is the wrong statement this whole path exists to avoid.
  */
 export function serpWorthAnotherLook(snapshot: SnapshotLike, engine: EngineName): boolean {
-  const verdict = classifySerp(snapshot, engine);
-  if (verdict.kind === "results") return false;
-  return verdict.code === "empty_page" || detectWall(snapshot) === null;
+  if (classifySerp(snapshot, engine).kind === "results") return false;
+  return wallWorthWaitingOn(detectWall(snapshot));
 }
 
 /**

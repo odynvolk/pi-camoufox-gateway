@@ -13,7 +13,7 @@ import type { Cache } from "../cache.ts";
 import { describeArgument, GatewayError } from "../errors.ts";
 import type { GatewayClient, SnapshotResult } from "../gateway.ts";
 import { assertTabUrlAllowed, urlPolicyFromConfig } from "../net-policy.ts";
-import { detectWall, extractText, type ExtractedText } from "../snapshot.ts";
+import { detectWall, extractText, wallWorthWaitingOn, type ExtractedText } from "../snapshot.ts";
 import type { SettledSnapshot } from "../settle.ts";
 import { snapshotSettled } from "../settle.ts";
 
@@ -265,15 +265,13 @@ export function readTool(deps: ReadToolDeps) {
   /**
    * A page worth re-snapshotting: too thin to be the real content, and not already classified.
    *
-   * `empty_page` is deliberately still poll-worthy — "nothing rendered yet" is exactly the state a
-   * client-rendered site passes through. Any other wall is a stable answer, so waiting on it is
-   * wasted time the model pays for.
+   * The char threshold is read's own, because a document offers nothing better to measure. Whether a
+   * wall is worth waiting on is not — that one is `wallWorthWaitingOn`, shared with the engines.
    */
   function worthPollingAgain(snapshot: SnapshotResult): boolean {
     if (read.waitForSettleMs <= 0) return false;
     if (pageChars(snapshot) >= read.settleMinChars) return false;
-    const wall = detectWall(snapshot);
-    return wall === null || wall === "empty_page";
+    return wallWorthWaitingOn(detectWall(snapshot));
   }
 
   /** The shared re-look machine, read's judgement of "not a page yet" injected into it. */

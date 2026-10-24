@@ -302,6 +302,21 @@ export function detectWall(snapshot: SnapshotLike): GatewayErrorCode | null {
 }
 
 /**
+ * Whether a wall is a page still arriving, rather than a page that has decided.
+ *
+ * One rule for both callers of the re-look machine, because the two differ on everything else — read
+ * counts characters, an engine reads its own parser — and a second copy of *this* judgement is a second
+ * answer waiting to drift.
+ *
+ * `empty_page` is the exception, and the narrow one: it is what a blank snapshot is called, and a blank
+ * snapshot is the most obviously-still-rendering page there is. Any other wall is a page that has
+ * answered, and waiting on an answer buys latency and nothing else.
+ */
+export function wallWorthWaitingOn(wall: GatewayErrorCode | null): boolean {
+  return wall === null || wall === "empty_page";
+}
+
+/**
  * A SERP snapshot that is not results, and the code the model should be told.
  *
  * Every error branch carries `url` and `engine` in `details`, plus `excerpt` where it is the evidence:
