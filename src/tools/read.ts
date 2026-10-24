@@ -3,7 +3,7 @@
  * hand back a bounded slice of the page. The bound is the point — the gateway happily returns ~20K
  * tokens of accessibility tree for a single page, and the model asked for a page, not an eviction.
  *
- * The settle loop exists because `openTab` returning does not mean the page is there: a client
+ * The settle loop (`settle.ts`) exists because `openTab` returning does not mean the page is there: a client
  * rendered site answers with its skeleton, and the old code snapshotted that and called it the page.
  */
 
@@ -14,6 +14,8 @@ import { describeArgument, GatewayError } from "../errors.ts";
 import type { GatewayClient, SnapshotResult } from "../gateway.ts";
 import { assertTabUrlAllowed, urlPolicyFromConfig } from "../net-policy.ts";
 import { detectWall, extractText, type ExtractedText } from "../snapshot.ts";
+import type { SettledSnapshot } from "../settle.ts";
+import { snapshotSettled } from "../settle.ts";
 
 export interface ReadToolDeps {
   client: GatewayClient;
@@ -67,20 +69,9 @@ export interface ReadOutcome {
   cappedAt?: number;
 }
 
-/**
- * How many identical snapshots in a row count as "the page is finished".
- *
- * Exported so the cost of the settle loop is pinned by a test instead of re-hardcoded in it.
- */
-export const STABLE_ROUNDS = 2;
-
-/** Two consecutive snapshots are the same page, not merely two strings of the same length. */
-function samePage(left: SnapshotResult, right: SnapshotResult): boolean {
-  // `totalChars` and `refsCount` are cheap and catch the two shapes text alone cannot see: a slice the
-  // gateway capped, where the returned text stops growing while the page keeps going, and a skeleton
-  // that swaps content at a constant width.
-  return left.text === right.text && left.totalChars === right.totalChars && left.refsCount === right.refsCount;
-}
+// This module keeps the name its own: the loop's stop rule is pinned against it rather than a literal,
+// and the number belongs to the machine, not to the tool that has always used it.
+export { STABLE_ROUNDS } from "../settle.ts";
 
 /**
  * Refuse a schema that cannot be answered as asked, before spending a navigation on it.
@@ -226,24 +217,6 @@ function pageCacheKey(url: string, offset: number | undefined): string {
   return `read:${new URL(url).href}:${offset ?? 0}`;
 }
 
-function delay(ms: number, signal?: AbortSignal): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (signal?.aborted) {
-      reject(new GatewayError("aborted", "the read was cancelled while waiting for the page to render"));
-      return;
-    }
-    const timer = setTimeout(() => {
-      signal?.removeEventListener("abort", onAbort);
-      resolve();
-    }, ms);
-    function onAbort() {
-      clearTimeout(timer);
-      reject(new GatewayError("aborted", "the read was cancelled while waiting for the page to render"));
-    }
-    signal?.addEventListener("abort", onAbort, { once: true });
-  });
-}
-
 export function readTool(deps: ReadToolDeps) {
   const { client, config, userId } = deps;
   const read = config.read;
@@ -303,46 +276,19 @@ export function readTool(deps: ReadToolDeps) {
     return wall === null || wall === "empty_page";
   }
 
-  async function snapshotSettled(
-    tabId: string,
-    offset: number | undefined,
-    signal?: AbortSignal,
-    onProgress?: (note: string) => void,
-  ): Promise<{ snapshot: SnapshotResult; settledInMs: number; polled: boolean; stalledAtDeadline: boolean }> {
-    const first = await client.snapshot({ userId, tabId, offset, signal });
-    if (!worthPollingAgain(first)) return { snapshot: first, settledInMs: 0, polled: false, stalledAtDeadline: false };
-
-    const startedAt = Date.now();
-    const deadline = startedAt + read.waitForSettleMs;
-    let latest = first;
-    let unchanged = 0;
-    let polled = false;
-    // Whether the budget ran out while the page was still growing. That is the only case where
-    // "raise the budget" is honest advice: a page that stopped growing on its own will not grow
-    // because we asked again.
-    let stalledAtDeadline = true;
-    // One repeat is a slow script, two is a finished page: that is the stop signal available without
-    // knowing the app's selectors. The deadline bounds how long it can take, and each poll is its own
-    // gateway request, so the worst case is the deadline plus one request.
-    while (Date.now() < deadline) {
-      // This is the wait the note exists for: a thin page, and up to `read.waitForSettleMs` of
-      // re-snapshotting it. Without it the call looks hung exactly where it is knowingly slow.
-      onProgress?.(`page still rendering (${pageChars(latest)} chars), re-snapshotting`);
-      // Never sleep past the budget. Sleep the interval instead and a poll configured near the deadline
-      // sleeps through it and still issues its request, which is a longer read and a slower refusal than
-      // the comment above promises. Config validation keeps the configured pair sane, so the clamp is
-      // here for a budget assembled some other way.
-      await delay(Math.max(0, Math.min(read.settlePollMs, deadline - Date.now())), signal);
-      const next = await client.snapshot({ userId, tabId, offset, signal });
-      unchanged = samePage(next, latest) ? unchanged + 1 : 0;
-      latest = next;
-      polled = true;
-      if (unchanged >= STABLE_ROUNDS || !worthPollingAgain(next)) {
-        stalledAtDeadline = false;
-        break;
-      }
-    }
-    return { snapshot: latest, settledInMs: Date.now() - startedAt, polled, stalledAtDeadline };
+  /** The shared re-look machine, read's judgement of "not a page yet" injected into it. */
+  function settleOnPageRendered(tabId: string, params: ReadParams): Promise<SettledSnapshot> {
+    return snapshotSettled(client, userId, tabId, {
+      budgetMs: read.waitForSettleMs,
+      pollMs: read.settlePollMs,
+      worthLookingAgain: worthPollingAgain,
+      // The note names the char count because that is the signal this caller has: a thin page, and up to
+      // `read.waitForSettleMs` of re-snapshotting it.
+      onPoll: (snapshot) => params.onProgress?.(`page still rendering (${pageChars(snapshot)} chars), re-snapshotting`),
+      offset: params.offset,
+      signal: params.signal,
+      cancelledMessage: "the read was cancelled while waiting for the page to render",
+    });
   }
 
   /**
@@ -421,12 +367,7 @@ export function readTool(deps: ReadToolDeps) {
             : `waitFor "${params.waitFor}" did not appear within ${read.waitForTimeoutMs}ms`;
       }
 
-      const { snapshot, settledInMs, polled, stalledAtDeadline } = await snapshotSettled(
-        tab.tabId,
-        params.offset,
-        params.signal,
-        params.onProgress,
-      );
+      const { snapshot, settledInMs, polled, stalledAtDeadline } = await settleOnPageRendered(tab.tabId, params);
 
       // One classifier. Its *phrase* evidence is size-bounded — past `INTERSTITIAL_MAX_CHARS` nothing a
       // page says can make it a wall — while its host, empty-page and structural branches are not, so a
