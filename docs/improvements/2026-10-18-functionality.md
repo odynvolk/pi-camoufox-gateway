@@ -14,8 +14,8 @@ Capability and user-visible behaviour only. Code-quality findings live in
 
 **Shipped items are deleted rather than ticked, and their numbers stay as gaps.** Nothing is renumbered:
 1.2 and the open questions below cite these labels, and a renumbered roadmap turns every one of those
-citations into a reference at the wrong item. So Tier 1 has no 1.3 or 1.4, and Tier 2 has no 2.4 — its
-unshipped half became 2.6 rather than being deleted with the rest.
+citations into a reference at the wrong item. So Tier 1 has no 1.3, 1.4 or 1.6, and Tier 2 has no 2.4 —
+its unshipped half became 2.6 rather than being deleted with the rest.
 
 Evidence base: a full functional profile of `src/`, plus the gateway's own recorded OpenAPI
 contract. "Reachable" below means *the gateway does this today and we simply don't call it* — a
@@ -119,24 +119,6 @@ first choice.
 **Reachable:** yes — `/tabs/{id}/navigate` already accepts `{macro, query}` and we already call it.
 Two caveats: no endpoint lists the macros, so engine names stay compile-time constants (consistent
 with `ENGINE_NAMES`); and it needs the same seed-tab dance Google does.
-
-### 1.6 Hydration tolerance on the search path
-
-Both engines call `client.snapshot` exactly once, immediately after open/navigate
-(`src/engines/google.ts`, `src/engines/duckduckgo.ts`). Only `camoufox_read` re-snapshots.
-
-The consequence is a wrong statement about the world: a slow-rendering SERP is reported as **that
-engine has no results**, then costs an engine hop on top of being wrong. And since a clean
-zero-result answer is itself a fallback trigger, a wrong zero is worse than a timeout.
-
-Jina exposes this exact trade-off as a per-request knob (`x-respond-timing`: `visible-content` /
-`mutation-idle` / `resource-idle` — "trade off latency against completeness"). Our read path already
-proves the mechanism works in this codebase.
-
-**Scope:** small — reuse `snapshotSettled` with its own smaller budget so search doesn't inherit
-read's cost. Report the time spent, as read already does.
-
----
 
 ## Tier 2 — clear value, a real cost or caveat
 
