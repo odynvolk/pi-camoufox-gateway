@@ -96,6 +96,7 @@ const SearchOutputSchema = Type.Object({
   clampedTo: Type.Optional(Type.Number({ description: "Set when the ask exceeded what one call may return" })),
   shortBy: Type.Optional(Type.Number({ description: "How far short of the ask the page came" })),
   pageCarried: Type.Optional(Type.Number({ description: "How many the engine page held, when more than this call returned" })),
+  settledInMs: Type.Optional(Type.Number({ description: "Extra time the engines spent re-looking at a SERP that had not arrived" })),
   fromCache: Type.Optional(Type.Boolean()),
   error: Type.Optional(ToolErrorSchema),
 });
@@ -221,6 +222,7 @@ function searchResult(args: SearchToolArgs, outcome: ToolOutcome<SearchDetails>)
       ...(details.clampedTo === undefined ? {} : { clampedTo: details.clampedTo }),
       ...(details.shortBy === undefined ? {} : { shortBy: details.shortBy }),
       ...(details.pageCarried === undefined ? {} : { pageCarried: details.pageCarried }),
+      ...(details.settledInMs === undefined ? {} : { settledInMs: details.settledInMs }),
       ...(details.fromCache === undefined ? {} : { fromCache: details.fromCache }),
     },
   };

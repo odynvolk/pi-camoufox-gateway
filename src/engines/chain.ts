@@ -43,6 +43,13 @@ export interface ChainOutcome {
   engine: EngineName;
   results: SearchResult[];
   tried: TriedStep[];
+  /**
+   * What the engines spent re-looking at pages that had not arrived, added up across every attempt.
+   *
+   * Absent when nothing waited. Only ever carried out on a success: a refusal has no place to print a
+   * duration, and its per-engine record in `tried` already says where the attempt went.
+   */
+  settledInMs?: number;
 }
 
 export function enginesFromConfig(engines: EngineConfig[]): Engine[] {
@@ -68,13 +75,22 @@ export async function searchWithFallback(
 
   const tried: TriedStep[] = [];
   let firstError: GatewayError | undefined;
+  // Summed across attempts, including the ones that ended in a throw: a hop is paid on top of the wait
+  // that preceded it, so an answer that named only the serving engine would print less time than the
+  // model waited for it.
+  let settledInMs = 0;
 
   for (const engine of engines) {
     // Before the attempt, not after it: an engine costs a tab, a navigation, and a snapshot, and the
     // second one only runs because the first failed. Saying which is running is the whole point.
     context.onProgress?.(`searching "${query}" with ${engine.name}`);
     try {
-      const outcome = await engine.search(query, context);
+      const outcome = await engine.search(query, {
+        ...context,
+        onSettled: (ms) => {
+          settledInMs += ms;
+        },
+      });
       if (outcome.results.length === 0) {
         // A guard on the `Engine` type, not a state either adapter reaches: `classifySerp` answers a
         // clean page with nothing organic as an error verdict, which both adapters throw rather than
@@ -84,7 +100,7 @@ export async function searchWithFallback(
         continue;
       }
       tried.push({ engine: engine.name, code: "ok", message: "served" });
-      return { engine: engine.name, results: outcome.results, tried };
+      return { engine: engine.name, results: outcome.results, tried, ...(settledInMs > 0 ? { settledInMs } : {}) };
     } catch (error) {
       // A code here says nothing about where it came from: the transport codes its own failures, but
       // `classifySerp`, the address guard and the post-response checks code theirs too. What makes the

@@ -30,8 +30,8 @@ export interface SearchParams {
   onProgress?: (note: string) => void;
 }
 
-/** What goes into the cache: the facts, no rendering. */
-export type CachedSearch = Omit<SearchOutcome, "text" | "clampedTo" | "shortBy" | "pageCarried" | "fromCache">;
+/** What goes into the cache: the facts, no rendering, and no cost — see `settledInMs`. */
+export type CachedSearch = Omit<SearchOutcome, "text" | "clampedTo" | "shortBy" | "pageCarried" | "fromCache" | "settledInMs">;
 
 export interface SearchOutcome {
   query: string;
@@ -56,6 +56,13 @@ export interface SearchOutcome {
    * whole page. Nothing in this file may claim more than it returned.
    */
   pageCarried?: number;
+  /**
+   * Extra time the engines spent re-looking at a SERP that had not arrived.
+   *
+   * Absent when the first look answered, and absent on a cache hit: this is a cost, and a call that
+   * fetched nothing did not pay it.
+   */
+  settledInMs?: number;
   fromCache?: boolean;
   text: string;
 }
@@ -78,6 +85,7 @@ export function formatResults(outcome: {
   clampedTo?: number;
   shortBy?: number;
   pageCarried?: number;
+  settledInMs?: number;
   fromCache?: boolean;
 }): string {
   const lines: string[] = [];
@@ -118,6 +126,11 @@ export function formatResults(outcome: {
       : `${outcome.requested ?? outcome.results.length} asked for`;
     lines.push(`(the ${outcome.engine} page carried ${outcome.pageCarried} result(s), ${outcome.results.length} returned: ${why})`);
   }
+  // Time, not a verdict: the wait is already reflected in how long the call took, and what the model
+  // cannot tell from the result is that any of it was spent waiting rather than searching. No advice
+  // follows, because the budget is a constant this tool does not expose — a bigger one is not a lever
+  // the caller has.
+  if (outcome.settledInMs !== undefined) lines.push(`(waited ${outcome.settledInMs}ms for the page to render)`);
   if (outcome.fromCache) lines.push("(served from cache)");
   return lines.join("\n");
 }
@@ -187,6 +200,10 @@ export function searchTool(deps: SearchToolDeps) {
     const cached = cache.get(key);
     if (cached) fromCache = true;
 
+    // Carried out through this closure rather than the cached value, as `read` carries its own settle
+    // cost: time is per call, and a caller that rode along on someone else's chain did not spend it.
+    let settledInMs = 0;
+
     // A failure is never cached — `run` stores only on a resolved value — so the next call is free to
     // try the chain again, and the error keeps the single code it was given where it was caught.
     const outcome = await cache.run(key, async () => {
@@ -196,6 +213,7 @@ export function searchTool(deps: SearchToolDeps) {
         signal: params.signal,
         ...(params.onProgress ? { onProgress: params.onProgress } : {}),
       });
+      settledInMs = chain.settledInMs ?? 0;
       return { query, engine: chain.engine, results: chain.results, tried: chain.tried };
     }, config.cache.serpMs);
 
@@ -225,6 +243,7 @@ export function searchTool(deps: SearchToolDeps) {
       ...(clampedTo ? { clampedTo } : {}),
       ...(results.length < Math.min(requested, clamped) ? { shortBy: Math.min(requested, clamped) - results.length } : {}),
       ...(pageCarried === undefined ? {} : { pageCarried }),
+      ...(settledInMs > 0 ? { settledInMs } : {}),
       ...(fromCache ? { fromCache: true } : {}),
     };
     return { ...shaped, text: formatResults(shaped) };

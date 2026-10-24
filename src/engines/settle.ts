@@ -68,12 +68,15 @@ export async function settledSerpVerdict(
   engine: EngineName,
 ): Promise<SerpVerdict> {
   const client: GatewayClient = context.client;
-  const { snapshot } = await snapshotSettled(client, context.userId, tabId, {
+  const { snapshot, polled, settledInMs } = await snapshotSettled(client, context.userId, tabId, {
     budgetMs: SEARCH_SETTLE_MS,
     pollMs: SEARCH_SETTLE_POLL_MS,
     worthLookingAgain: (looked) => serpWorthAnotherLook(looked, engine),
     signal: context.signal,
     cancelledMessage: "the search was cancelled while waiting for the results page to render",
   });
+  // Reported before the verdict is decided, because an engine that waited and then found nothing leaves
+  // by throwing — and the time is still gone.
+  if (polled) context.onSettled?.(settledInMs);
   return classifySerp(snapshot, engine);
 }
