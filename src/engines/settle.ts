@@ -57,6 +57,27 @@ export function serpWorthAnotherLook(snapshot: SnapshotLike, engine: EngineName)
 }
 
 /**
+ * What may be said about a page that was still arriving when the budget ran out.
+ *
+ * `classifySerp`'s error messages are claims about what the engine had. A frame taken while the page was
+ * still growing is not evidence for one: the loop only reaches its deadline while another look is still
+ * wanted, and a page that had answered stable and empty already stopped it. The *code* has to stay
+ * whatever the last frame looked like, because `chain.ts` hops on `empty_results` and stops on `timeout`
+ * — so the correction goes in the message, which is the line the model reads first and the one
+ * `structuredTried` hands a script.
+ */
+function undecidedVerdict(verdict: SerpVerdict, engine: EngineName): SerpVerdict {
+  if (verdict.kind === "results") return verdict;
+  return {
+    ...verdict,
+    message: `${engine}'s results page was still rendering when the ${SEARCH_SETTLE_MS}ms wait ran out, so it is not known whether it had results`,
+    // `read` reports the same fact under this name, and it is the one the advice depends on: a page that
+    // stopped changing on its own will not change because the budget was bigger.
+    details: { ...verdict.details, stalledAtDeadline: true },
+  };
+}
+
+/**
  * The engine's one snapshot-or-more, the verdict on the last of them, and whether a re-look was needed.
  *
  * Takes the whole context rather than its parts because an engine has nothing else to decide: the
@@ -68,7 +89,7 @@ export async function settledSerpVerdict(
   engine: EngineName,
 ): Promise<SerpVerdict & { polled: boolean }> {
   const client: GatewayClient = context.client;
-  const { snapshot, polled, settledInMs } = await snapshotSettled(client, context.userId, tabId, {
+  const { snapshot, polled, settledInMs, stalledAtDeadline } = await snapshotSettled(client, context.userId, tabId, {
     budgetMs: SEARCH_SETTLE_MS,
     pollMs: SEARCH_SETTLE_POLL_MS,
     worthLookingAgain: (looked) => serpWorthAnotherLook(looked, engine),
@@ -78,5 +99,6 @@ export async function settledSerpVerdict(
   // Reported before the verdict is decided, because an engine that waited and then found nothing leaves
   // by throwing — and the time is still gone.
   if (polled) context.onSettled?.(settledInMs);
-  return { ...classifySerp(snapshot, engine), polled };
+  const verdict = classifySerp(snapshot, engine);
+  return { ...(stalledAtDeadline ? undecidedVerdict(verdict, engine) : verdict), polled };
 }

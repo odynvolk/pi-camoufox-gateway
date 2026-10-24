@@ -357,6 +357,13 @@ test("the recorded page this parser is blind to is re-looked until it stops chan
   const error = await duckduckgoEngine().search("camoufox", { client, userId: "u1" }).catch((e) => e);
 
   assert.equal(error.code, "empty_results", "blind is still blind on the third look");
+  // The other half of the deadline fix: a page that answered *stable* and empty is a real zero, and has
+  // to keep being reported as one. Only a wait that ran out is an unknown.
+  assert.equal(
+    error.message,
+    "duckduckgo returned no organic results for that query",
+    "the page stopped changing, so saying it had nothing is a statement we can make",
+  );
   assert.equal(
     callsFor(fake, "/snapshot").length,
     1 + STABLE_ROUNDS,
@@ -378,6 +385,18 @@ test("a page that never stops changing costs the search budget and nothing more"
   const error = await googleEngine().search("camoufox", { client, userId: "u1" }).catch((e) => e);
 
   assert.equal(error.code, "empty_results");
+  // The code has to stay: `chain.ts` hops on `empty_results` and stops on `timeout`, and a page that
+  // never stopped changing is not a reason to give up on the next engine. The *message* is the other
+  // half, and it is what the model reads first — this is the one case where the branch cannot say the
+  // query came up empty, only that our waiting came up short.
+  assert.doesNotMatch(
+    error.message,
+    /no organic results|no results/u,
+    `"${error.message}" states an absence the run-out of time cannot establish`,
+  );
+  assert.match(error.message, /still rendering/u, "what was actually observed: a page still arriving");
+  assert.match(error.message, new RegExp(`${SEARCH_SETTLE_MS}ms`, "u"), "and for how long we looked");
+  assert.equal(error.details?.stalledAtDeadline, true, "read reports this fact as data; so does this");
   assert.ok(
     callsFor(fake, "/snapshot").length <= 1 + Math.ceil(SEARCH_SETTLE_MS / SEARCH_SETTLE_POLL_MS),
     `${callsFor(fake, "/snapshot").length} snapshots is more re-look than one engine's budget can buy`,
