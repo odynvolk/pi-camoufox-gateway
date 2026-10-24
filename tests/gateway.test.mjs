@@ -136,9 +136,9 @@ test("a navigate answer reporting no url reports no url, not a guess", async () 
 });
 
 /**
- * A field of the wrong type is the input every `typeof` check on a gateway body exists for, and navigate
- * has three of them. Asserted for the wrong type only: a right-typed answer is the shape the fake already
- * serves, covered through the engine chain rather than re-read here.
+ * A field of the wrong type is the input every `typeof` check on a gateway body exists for. Asserted for
+ * the wrong type only: a right-typed answer is the shape the fake already serves, and `engines.test.mjs`
+ * runs that end to end.
  */
 test("a navigate answer with fields of the wrong type is not passed through as a fact", async () => {
   const result = await navigateAnsweredBy({ ok: true, tabId: "tab-1", url: 42, refsAvailable: "yes", googleSerp: "true" });
