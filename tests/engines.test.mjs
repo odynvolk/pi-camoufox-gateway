@@ -416,6 +416,35 @@ test("the search settle budget is its own, and smaller than the one a read may s
   );
 });
 
+test("an abort that lands during a search's settle sleep ends it and closes the gateway's tab", async (t) => {
+  // The window the re-look machine opened on the search path: up to `SEARCH_SETTLE_MS` per engine spent
+  // asleep with a tab open. Two ways this used to be wrong and still looked fine — a timer left running
+  // after the caller gave up, and a teardown close that inherited the signal that had just aborted, which
+  // is dropped before it is sent and leaves the tab open on the gateway. Only the second one is visible
+  // from the server side, which is why the assertion below is `liveTabs()` and not our own bookkeeping.
+  const { fake, client } = setup(t, {
+    snapshotScripts: new Map([["https://www.google.com/search?q=camoufox", ['- heading "Loading…" [level=1]']]]),
+  });
+  const controller = new AbortController();
+  const running = googleEngine()
+    .search("camoufox", { client, userId: "u1", signal: controller.signal })
+    .catch((e) => e);
+  const startedAt = Date.now();
+
+  const abortTimer = setTimeout(() => controller.abort(), 10);
+  const error = await running;
+  clearTimeout(abortTimer);
+
+  assert.equal(error.code, "aborted");
+  assert.match(error.message, /cancelled while waiting for the results page to render/u, "the sleep is where it stopped");
+  assert.ok(
+    Date.now() - startedAt < SEARCH_SETTLE_POLL_MS,
+    "the poll sleep outlived the abort, so its timer was never cleared",
+  );
+  assert.deepEqual(fake.liveTabs(), []);
+  assert.equal(client.openTabCount(), 0);
+});
+
 test("a SERP that answers on the first look costs exactly the requests it always cost", async (t) => {
   const google = setup(t);
   await googleEngine().search("camoufox", { client: google.client, userId: "u1" });
