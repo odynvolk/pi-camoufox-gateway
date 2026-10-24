@@ -57,7 +57,6 @@ const ReadSchema = Type.Object({
   ),
 });
 
-type SearchArgs = Static<typeof SearchSchema>;
 type ReadArgs = Static<typeof ReadSchema>;
 
 /**
