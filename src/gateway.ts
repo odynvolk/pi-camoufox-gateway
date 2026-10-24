@@ -63,8 +63,6 @@ export interface OpenTabResult {
 
 export interface NavigateResult {
   url: string;
-  refsAvailable?: boolean;
-  googleSerp?: boolean;
 }
 
 export interface SnapshotResult {
@@ -659,12 +657,15 @@ export class GatewayClient {
     }
   }
 
-  /** Never sees a `{ "ok": false }` body: `perform()` rejects those first, classifying them by the gateway's message. */
+  /**
+   * Reads one field. Navigate's recorded 200 (`tests/fixtures/openapi.json`) declares no properties, so it
+   * argues nothing about the fields we skip — it neither promises them nor denies them.
+   *
+   * Never sees a `{ "ok": false }` body: `perform()` rejects those first, classifying them by the gateway's message.
+   */
   private asNavigateResult(body: Record<string, unknown>): NavigateResult {
     return {
       url: typeof body.url === "string" ? body.url : "",
-      refsAvailable: typeof body.refsAvailable === "boolean" ? body.refsAvailable : undefined,
-      googleSerp: typeof body.googleSerp === "boolean" ? body.googleSerp : undefined,
     };
   }
 
