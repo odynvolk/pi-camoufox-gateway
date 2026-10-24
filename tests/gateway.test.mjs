@@ -109,6 +109,45 @@ test("a navigate answering { ok: false } is classified by what the gateway said"
   }
 });
 
+/**
+ * A gateway answering a navigate with exactly this body.
+ *
+ * A bare `fetchImpl` rather than the fake, because these rows are about what a navigate answer does *not*
+ * earn us. The fake answers as the real gateway does, and `engines.test.mjs` runs that shape end to end.
+ */
+async function navigateAnsweredBy(body) {
+  const client = createGatewayClient({
+    baseUrl: BASE,
+    timeoutMs: 200,
+    fetchImpl: async () => ({ status: 200, ok: true, text: async () => JSON.stringify(body) }),
+  });
+  return client.navigateMacro({ userId: "u1", tabId: "tab-1", macro: "@google_search", query: "a b" });
+}
+
+/**
+ * Navigate's recorded 200 (`tests/fixtures/openapi.json`) declares no fields at all, so the one we do read
+ * is worth pinning on its own terms: `url` is typed `string`, and `""` is what honours that when the
+ * gateway says nothing. An `undefined` there would be a type lying about the answer, not a shorter answer.
+ */
+test("a navigate answer reporting no url reports no url, not a guess", async () => {
+  const result = await navigateAnsweredBy({ ok: true, tabId: "tab-1" });
+
+  assert.equal(result.url, "");
+});
+
+/**
+ * A field of the wrong type is the input every `typeof` check on a gateway body exists for, and navigate
+ * has three of them. Asserted for the wrong type only: a right-typed answer is the shape the fake already
+ * serves, covered through the engine chain rather than re-read here.
+ */
+test("a navigate answer with fields of the wrong type is not passed through as a fact", async () => {
+  const result = await navigateAnsweredBy({ ok: true, tabId: "tab-1", url: 42, refsAvailable: "yes", googleSerp: "true" });
+
+  assert.equal(result.url, "", "a url reported as a number is not a destination");
+  assert.equal(result.refsAvailable, undefined, "yes is not the gateway saying refs exist");
+  assert.equal(result.googleSerp, undefined, "nor is a string the gateway saying this was a SERP");
+});
+
 test("snapshot requests the tab path with userId and offset", async (t) => {
   const { fake, client } = clientWith(t);
   const { tabId } = await openTab(t, client, "u1", "https://example.com");
