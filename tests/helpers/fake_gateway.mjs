@@ -55,6 +55,10 @@ export function createFakeGateway(options = {}) {
     snapshotReportsUrl: true, // false: `/snapshot` stays silent about where the page is
     tabsReportUrl: true, // false: neither endpoint will say, so the location is genuinely unknown
     waitHangsForMs: 0, // the gateway holds /wait past our per-request deadline, ignoring its own timeout
+    healthRoute: true, // false simulates a gateway older than GET /health
+    healthStatus: 200, // 503 is the documented "unhealthy or recovering" answer
+    healthBody: undefined, // anything: answers /health with exactly this, for shapes we must interpret
+    healthHangsForMs: 0, // a gateway that has nothing to say about itself
     openLatencyMs: 0,
     hangUrls: new Set(),
     hangForMs: 10_000,
@@ -161,6 +165,24 @@ export function createFakeGateway(options = {}) {
 
     if (method === "GET" && path === "/") {
       return json({ ok: true, enabled: true, engine: "camoufox", browserRunning: true });
+    }
+
+    if (method === "GET" && path === "/health") {
+      if (!state.healthRoute) return json({ error: "Not Found" }, 404);
+      if (state.healthHangsForMs) await sleep(state.healthHangsForMs);
+      if (state.healthBody !== undefined) return json(state.healthBody, state.healthStatus);
+      // The two documented shapes, each carrying only the fields its own response declares.
+      if (state.healthStatus !== 200) return json({ ok: false, recovering: true }, state.healthStatus);
+      const activeTabs = [...state.sessions.values()].reduce((total, tabs) => total + tabs.size, 0);
+      return json({
+        ok: true,
+        engine: "camoufox",
+        browserConnected: true,
+        browserRunning: true,
+        activeTabs,
+        activeSessions: state.sessions.size,
+        consecutiveFailures: 0,
+      });
     }
 
     if (method === "POST" && path === "/tabs/open" && state.failOpen) {

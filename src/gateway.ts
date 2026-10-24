@@ -100,6 +100,27 @@ export interface GatewayStatus {
   checkedAt: number;
 }
 
+/**
+ * What `GET /health` said about the gateway, as far as it said anything.
+ *
+ * Every fact is optional because the recorded contract makes none of them required — an answer naming
+ * only `browserConnected` conforms, and an absent field stays absent rather than being guessed at.
+ *
+ * `answered` is the one always known, and the reason the call is worth making: a gateway that will not
+ * say is a different instruction than one that says it has no browser.
+ */
+export interface GatewayHealth {
+  answered: boolean;
+  ok?: boolean;
+  /** The gateway's word for "coming back", reported on the documented 503. A reason to wait. */
+  recovering?: boolean;
+  browserConnected?: boolean;
+  browserRunning?: boolean;
+  activeTabs?: number;
+  activeSessions?: number;
+  consecutiveFailures?: number;
+}
+
 interface RequestOptions {
   userId?: string;
   query?: Record<string, string | number | undefined>;
@@ -112,6 +133,15 @@ interface RequestOptions {
    * for the ordinary condition "the selector never appeared", which the caller handles, not fails.
    */
   tolerateNotOk?: boolean;
+  /**
+   * Statuses that answer rather than fail, for the one call whose most useful response is a 5xx.
+   *
+   * `GET /health` documents 503 as "unhealthy or recovering", which is a *status*: mapped to the
+   * `gateway_error` the 500 rule produces, `recovering` — the one field worth asking for — is destroyed at
+   * the transport boundary before any caller can read it. Deliberately per-request: widening the 500 rule
+   * would make every 5xx on every endpoint a claim we could read as state.
+   */
+  acceptStatuses?: number[];
   /**
    * `"connect-only"` retries only when the request never landed (so the gateway could not have
    * created anything). Opening a tab must use this: a timeout usually means the tab exists and the
@@ -142,6 +172,7 @@ const PREFLIGHT_TIMEOUT_MS = 2_000;
  */
 export const ENDPOINTS = {
   status: { method: "GET", path: "/" },
+  health: { method: "GET", path: "/health" },
   openTab: { method: "POST", path: "/tabs/open" },
   listTabs: { method: "GET", path: "/tabs" },
   navigate: { method: "POST", path: "/tabs/{tabId}/navigate" },
@@ -287,6 +318,62 @@ export class GatewayClient {
       engine: typeof status.engine === "string" ? status.engine : undefined,
       browserRunning: typeof status.browserRunning === "boolean" ? status.browserRunning : undefined,
       checkedAt: startedAt,
+    };
+  }
+
+  /**
+   * Ask the gateway how it is, and never let the asking be what fails.
+   *
+   * Three answers, and the difference between them is the value: it reported state, it answered without
+   * reporting any, or it did not answer at all (`{ answered: false }`). `undefined` is the fourth, and the
+   * only one that has to be silent: a gateway with no such route says nothing about its browser either way.
+   *
+   * Never cached, deliberately — `activeTabs` and `browserConnected` describe the gateway as it is, and a
+   * remembered "0 active tabs" attached to a fresh failure is a false statement about live state. It reuses
+   * the probe's deadline rather than adding a knob of its own, and takes none of the probe's caching.
+   */
+  async health(signal?: AbortSignal): Promise<GatewayHealth | undefined> {
+    let body: Record<string, unknown> | undefined;
+    try {
+      body = await this.requestJson<Record<string, unknown>>("GET", endpointPath("health"), {
+        signal,
+        // Bounded on the probe's deadline rather than `timeoutMs`: a diagnostic that hangs may only cost
+        // the caller the diagnostic it was asked for.
+        timeoutMs: this.preflightTimeoutMs,
+        // One attempt, as an optional wait gets — retrying a look-see that already came back empty only
+        // doubles the latency of a failure the caller is about to be told about.
+        retry: "never",
+        acceptStatuses: [503],
+        // `ok: false` is the content of both documented answers rather than a refusal, and on a 200 it is
+        // a fact about the gateway we have to be able to report.
+        tolerateNotOk: true,
+      });
+    } catch (error) {
+      // A caller that gave up is not a gateway that failed to answer, and there is nothing to report.
+      if (signal?.aborted) return undefined;
+      const gatewayError = error instanceof GatewayError ? error : undefined;
+      // An older gateway answers 404 for a path it never had. It plainly did answer, so "no answer" would
+      // be a claim about the wrong thing — and silence is the only remaining answer that is not wrong.
+      if (gatewayError && isRouteMissing(gatewayError)) return undefined;
+      // Anything else that came back with a status came back from the gateway: an answer, with no state in
+      // it we are allowed to read. A transport that never reached a status is the only genuine silence.
+      const answered = typeof gatewayError?.details?.status === "number";
+      return { answered };
+    }
+
+    // Read per field, per type: the contract requires none of them, so an answer that omits one stays an
+    // answer that omits one.
+    const flag = (key: string): boolean | undefined => (typeof body?.[key] === "boolean" ? (body[key] as boolean) : undefined);
+    const count = (key: string): number | undefined => (typeof body?.[key] === "number" ? (body[key] as number) : undefined);
+    return {
+      answered: true,
+      ok: flag("ok"),
+      recovering: flag("recovering"),
+      browserConnected: flag("browserConnected"),
+      browserRunning: flag("browserRunning"),
+      activeTabs: count("activeTabs"),
+      activeSessions: count("activeSessions"),
+      consecutiveFailures: count("consecutiveFailures"),
     };
   }
 
@@ -644,6 +731,10 @@ export class GatewayClient {
 
       if (!response.ok) {
         if (options.tolerateMissing && response.status === 404) return {} as T;
+        // An expected status is read for its fields rather than rejected for its number. It returns here
+        // rather than falling through: the body of a 503 is `{ ok: false }`, which the check below exists
+        // to reject for every request that has no such answer to read.
+        if (options.acceptStatuses?.includes(response.status)) return body as T;
         throw this.httpError(response, body, path, options);
       }
       if (body && typeof body === "object" && (body as Record<string, unknown>).ok === false && !options.tolerateNotOk) {
