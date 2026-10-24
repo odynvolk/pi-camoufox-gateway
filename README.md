@@ -200,7 +200,8 @@ still tells pi which it is, so nothing has to guess from a blank page.
 
 Everything else in `details` — `settledInMs`, `cappedAt`, `fromCache`, `pageCarried`, `extracted`, and
 the rest — is only filled in by a call that got that far: a failed one carries just the frame above and
-`error`, with a search's `tried` naming the engines it got through.
+`error`, with a search's `tried` naming the engines it got through, plus `gatewayHealth` on the four
+codes that get a diagnosis (see Error codes).
 
 A read also reports what it is doing while it does it: opening the tab, holding for a `waitFor` selector,
 and re-snapshotting a page that has not finished rendering. Those reach pi's tool updates, not the model.
@@ -208,6 +209,26 @@ and re-snapshotting a page that has not finished rendering. Those reach pi's too
 ## Error codes
 
 The tool output starts with the code so the model can react instead of guessing.
+
+Four codes — `gateway_error`, `timeout`, `navigation_failed`, `tab_not_found` — also get a second line,
+because "the gateway failed" and "the gateway is answering, but nothing is behind it" are different
+instructions:
+
+```text
+gateway_error: gateway error 500: snapshot exploded
+Gateway state after the failure: ok=true, browserConnected=false, browserRunning=false, activeTabs=0, activeSessions=1, consecutiveFailures=3.
+```
+
+Only what that gateway actually reported is printed, so a `503` recovery answer comes back as its own two
+fields — `ok=false, recovering=true` — and a gateway that answered nothing answers as
+`unknown — the gateway did not answer GET /health`. The same facts, unnarrated, are on
+`details.gatewayHealth`: the message is for the model, `details` is for a script.
+
+That second line is asked for only after a call has already failed — a working one costs nothing — never
+remembered between calls, since a stale count of live tabs is a wrong count, and bounded by the same 2s
+the liveness probe runs to. A gateway older than `GET /health` gets its failure back with nothing added.
+The liveness gate itself stays on `GET /`: a `503` means *recovering*, and refusing every call while the
+gateway says it is coming back would be a worse outage than the one being diagnosed.
 
 | Code | Meaning |
 |---|---|
