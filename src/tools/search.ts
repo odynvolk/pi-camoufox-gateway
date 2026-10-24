@@ -192,15 +192,15 @@ export function searchTool(deps: SearchToolDeps) {
       );
     }
 
-    // `n` deliberately stays out of the key: a stored page is a whole engine page, sliced only when the
-    // outcome is shaped, so a cheap first call can never cap a later one. What holds that up is
-    // `shouldStore` below rather than the shape of the value: the engines stop at the first organic
-    // result, so a page they had to wait for was partly known when they stopped, and one result kept
-    // would answer every later ask until `cache.serpMs` expired.
+    // `n` deliberately stays out of the key: the stored value is never pre-sliced — the outcome slices it
+    // — so one page serves every ask for that query. What makes that safe is `shouldStore` below rather
+    // than the shape of the value: the engines stop at the first organic result, so a page they had to
+    // wait for is not known to be finished, and one result kept would answer every later ask until
+    // `cache.serpMs` expired.
     //
-    // What the gate does not catch, and nothing at this seam can: a first look that already carries
-    // results and grows afterwards. Closing that would mean re-looking at every search that answered at a
-    // glance — measured at two extra snapshots and ~300ms on the plain path, for the same page.
+    // The gap that remains, and nothing at this seam closes it: a first look that already carries results
+    // and grows afterwards looks exactly like a finished page. Watching for that means re-looking at every
+    // search, measured at two extra snapshots and ~300ms on the plain path, for the same page.
     const key = `search:${query}:${activeEngines.map((e) => e.name).join(">")}:raw`;
 
     let fromCache = false;

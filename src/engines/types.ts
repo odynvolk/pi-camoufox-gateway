@@ -40,9 +40,9 @@ export interface EngineOutcome {
   /**
    * Set when this page took a re-look before it had a result in it.
    *
-   * The stop rule is the first organic result, so a page that had to be waited for was, at the moment we
-   * stopped, only partly known. That is fine to hand back and not fine to keep — hence a fact about the
-   * page rather than a duration, which the caller cannot read as either.
+   * The stop rule is the first organic result, so a page that had to be waited for was only partly known
+   * at the moment we stopped — fine to hand back, not fine to keep for the next caller. A fact about the
+   * page rather than a duration, because how long something took does not say whether it finished.
    */
   polled?: true;
 }

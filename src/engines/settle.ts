@@ -69,8 +69,8 @@ function undecidedVerdict(verdict: SerpVerdict, engine: EngineName): SerpVerdict
   return {
     ...verdict,
     message: `${engine}'s results page was still rendering when the ${SEARCH_SETTLE_MS}ms wait ran out, so it is not known whether it had results`,
-    // `read` reports the same fact under this name, and it is the one the advice depends on: a page that
-    // stopped changing on its own will not change because the budget was bigger.
+    // The same fact `read` reports, under the same name, so one word means one thing across the two
+    // tools that have a settle budget and only sometimes spend it.
     details: { ...verdict.details, stalledAtDeadline: true },
   };
 }
