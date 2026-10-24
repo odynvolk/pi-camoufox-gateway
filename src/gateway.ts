@@ -485,7 +485,7 @@ export class GatewayClient {
       body: { userId: params.userId, macro: params.macro, query: params.query },
       signal: params.signal,
     });
-    return this.asNavigateResult(body, params.tabId);
+    return this.asNavigateResult(body);
   }
 
   async snapshot(params: {
@@ -659,10 +659,8 @@ export class GatewayClient {
     }
   }
 
-  private asNavigateResult(body: Record<string, unknown>, tabId: string): NavigateResult {
-    if (body.ok === false) {
-      throw new GatewayError("navigation_failed", messageFrom(body, 200), { details: { tabId } });
-    }
+  /** Never sees a `{ "ok": false }` body: `perform()` rejects those first, classifying them by the gateway's message. */
+  private asNavigateResult(body: Record<string, unknown>): NavigateResult {
     return {
       url: typeof body.url === "string" ? body.url : "",
       refsAvailable: typeof body.refsAvailable === "boolean" ? body.refsAvailable : undefined,
