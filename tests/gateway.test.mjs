@@ -656,19 +656,22 @@ test("every field health surfaces is one the recorded contract declares for GET 
   const { client } = clientWith(t, { healthBody: sample });
   const health = await client.health();
 
-  // `engine` is the one declared field we do not surface: `GET /` already reports it, and nothing reads it.
+  // `engine` is the one declared field we do not surface: `GET /` declares it too, and nothing reads it.
   const surfaced = Object.keys(health).filter((key) => key !== "answered");
   assert.deepEqual(
     surfaced.filter((key) => !(key in declared)),
     [],
-    `health invents fields the gateway does not report: ${surfaced.filter((key) => !(key in declared)).join(", ")}`,
+    `health invents a field the recorded contract does not declare: ${surfaced.filter((key) => !(key in declared)).join(", ")}`,
   );
   assert.deepEqual(
     Object.keys(declared).filter((key) => key !== "engine" && !surfaced.includes(key)),
     [],
-    "health stopped surfacing a field the gateway reports",
+    "health stopped surfacing a field the recorded contract declares",
   );
   assert.deepEqual(required, [], "every field of both responses is optional, which is why every one is optional here too");
+  // A 2026-10-09 probe record (`docs/brainstorms/2026-10-09-pi-camoufox-gateway.md`) has a live gateway also
+  // answering `memory: { rssMb, heapUsedMb }`, which this 1.14.0 recording does not declare — so it is read
+  // nowhere here and asserted nowhere. Refreshing the recording is how that settles; coding the note is not.
 });
 
 test("maps 404 tab not found distinctly from transport failures", async (t) => {
