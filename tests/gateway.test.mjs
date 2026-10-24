@@ -430,6 +430,250 @@ test("maps a connection refusal to gateway_unreachable naming the url", async (t
   assert.match(error.message, /gateway\.test:9377/u);
 });
 
+/**
+ * `GET /health` — the other status endpoint, and not the probe.
+ *
+ * It is never called before a request and never gates one: it answers "what was the gateway's state"
+ * after something already failed, which is the only question `GET /` cannot answer. The two documented
+ * responses are 200 (state) and 503 (*unhealthy or recovering*), and a 503 has to arrive as data — read
+ * it as a 5xx and the one field worth having, `recovering`, is destroyed by the transport.
+ */
+function healthCalls(fake) {
+  return fake.state.calls.filter((c) => c.path === "/health");
+}
+
+test("health reports the counts and booleans the gateway answers with", async (t) => {
+  const { fake, client } = clientWith(t);
+
+  const health = await client.health();
+
+  assert.equal(health.answered, true);
+  assert.equal(health.ok, true);
+  assert.equal(health.browserConnected, true);
+  assert.equal(health.browserRunning, true);
+  assert.equal(health.activeTabs, 0);
+  assert.equal(health.activeSessions, 0);
+  assert.equal(health.consecutiveFailures, 0);
+  assert.equal(healthCalls(fake).length, 1);
+});
+
+test("a 503 from the health endpoint is a status we read, not an error we throw", async (t) => {
+  const { fake, client } = clientWith(t, { healthStatus: 503 });
+
+  const health = await client.health();
+
+  assert.equal(health.answered, true, "an unhealthy answer is still an answer");
+  assert.equal(health.ok, false);
+  assert.equal(health.recovering, true, "`recovering` is the field this call exists for");
+  assert.equal(health.activeTabs, undefined, "the 503 shape does not carry it, so nothing is invented");
+  assert.equal(healthCalls(fake).length, 1, "a diagnostic is not retried");
+});
+
+test("a health answer naming only some fields invents nothing for the rest", async (t) => {
+  // No field of either recorded response is `required`, so absence is a conforming answer rather than a
+  // shape to repair.
+  const { client } = clientWith(t, { healthBody: { browserConnected: false } });
+
+  const health = await client.health();
+
+  assert.equal(health.answered, true);
+  assert.equal(health.browserConnected, false);
+  assert.equal(health.activeTabs, undefined);
+  assert.equal(health.ok, undefined, "`ok` included: a gateway that omits it is not read as either state");
+});
+
+test("a 200 that answers `ok: false` is reported, not raised", async (t) => {
+  // A 200 is not a promise of health, and `{ ok: false }` is a legal body on it. Left to the ordinary
+  // `{ ok: false }` rule this becomes a `gateway_error` with no status at all, which would be reported as
+  // a gateway that never answered.
+  const { client } = clientWith(t, { healthBody: { ok: false, browserConnected: false, activeTabs: 0 } });
+
+  const health = await client.health();
+
+  assert.equal(health.answered, true);
+  assert.equal(health.ok, false, "the gateway's own verdict survives the call that asked for it");
+  assert.equal(health.browserConnected, false);
+});
+
+test("a health field of the wrong type is not passed through as a fact", async (t) => {
+  // `details` is where a script reads these, and an `activeTabs` it has to type-check is worse than one
+  // the gateway did not report.
+  const { client } = clientWith(t, { healthBody: { activeTabs: "0", browserConnected: "no" } });
+
+  const health = await client.health();
+
+  assert.equal(health.answered, true);
+  assert.equal(health.activeTabs, undefined);
+  assert.equal(health.browserConnected, undefined);
+});
+
+test("only the documented 503 is read as an answer, not any 5xx", async (t) => {
+  // The mutation this guards: `status >= 500` is one character wider than the two statuses the contract
+  // has, and it would read a body served by a broken gateway as live state.
+  const { client } = clientWith(t, { healthStatus: 500, healthBody: { ok: false, recovering: true } });
+
+  const health = await client.health();
+
+  assert.equal(health.answered, true, "a 500 is still a gateway that answered");
+  assert.equal(health.recovering, undefined, "and a body on an undocumented status is not state");
+});
+
+test("a 503 accepted on the health request is not accepted on any other", async () => {
+  // Per-request by construction, and asserted as one: the same response answers both calls, and only
+  // one of them is allowed to treat it as an answer.
+  const client = createGatewayClient({
+    baseUrl: BASE,
+    timeoutMs: 200,
+    fetchImpl: async () => ({
+      status: 503,
+      ok: false,
+      text: async () => JSON.stringify({ ok: false, recovering: true }),
+    }),
+  });
+
+  assert.equal((await client.health()).recovering, true, "the health call read it as a status");
+  const error = expectError(await client.snapshot({ userId: "u1", tabId: "t1" }).catch((e) => e), "gateway_error");
+  assert.match(error.message, /503/u, "an ordinary request still reports it as a gateway failure");
+});
+
+test("a gateway with no /health route is reported as nothing learned", async (t) => {
+  // An older gateway answers 404, which says nothing about its browser. Reporting "no answer" here would
+  // be a claim about a gateway that plainly answered.
+  const { fake, client } = clientWith(t, { healthRoute: false });
+
+  assert.equal(await client.health(), undefined);
+  assert.equal(healthCalls(fake).length, 1, "the route was asked for, and was not there");
+});
+
+test("a gateway that cannot be reached is reported as no answer", async (t) => {
+  const { fake, client } = clientWith(t, { unreachable: true });
+
+  assert.deepEqual(await client.health(), { answered: false });
+  assert.equal(healthCalls(fake).length, 1, "and it is paid for once, not once per retry");
+});
+
+test("a response that said nothing is an answer, not a gateway that never spoke", async () => {
+  // A 2xx with nothing in it did reach the gateway. That is the fact the verdict has to rest on, not on
+  // whether our own throw happened to carry a status.
+  const client = createGatewayClient({
+    baseUrl: BASE,
+    timeoutMs: 200,
+    fetchImpl: async () => ({ status: 204, ok: true, text: async () => "" }),
+  });
+
+  assert.deepEqual(await client.health(), { answered: true }, "answered, with no state to report");
+});
+
+/**
+ * One row per thing `perform()` can throw, covering both directions of the rule `health()` depends on: an
+ * error thrown with a response in hand carries its status, and one thrown without it cannot.
+ *
+ * The verdict is decided off an absence, so all of its soundness lives in who may write the other half.
+ * Pinning it per throw site is what stops a `details` added at a transport throw, or a dropped one at a
+ * response throw, from becoming a statement about a gateway that never made one.
+ */
+const OUTCOMES = [
+  { name: "a 5xx", response: { status: 500, ok: false, body: { error: "boom" } }, code: "gateway_error", status: 500 },
+  { name: "a 200 answered `{ ok: false }`", response: { status: 200, ok: true, body: { ok: false, error: "captcha challenge" } }, code: "consent_wall", status: 200 },
+  { name: "a 200 with no body at all", response: { status: 200, ok: true, body: undefined }, code: "gateway_error", status: 200 },
+  { name: "a gateway that refused the connection", fail: Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" }), code: "gateway_unreachable", status: undefined },
+  { name: "a request that never got back", hangs: true, code: "timeout", status: undefined },
+  { name: "a transport failure we do not recognise", fail: new Error("socket half-closed"), code: "gateway_error", status: undefined },
+];
+
+test("only an error a response caused claims a response", async () => {
+  for (const row of OUTCOMES) {
+    const client = createGatewayClient({
+      baseUrl: BASE,
+      timeoutMs: 30,
+      fetchImpl: async () => {
+        if (row.hangs) return new Promise(() => {});
+        if (row.fail) throw row.fail;
+        return {
+          status: row.response.status,
+          ok: row.response.ok,
+          text: async () => (row.response.body === undefined ? "" : JSON.stringify(row.response.body)),
+        };
+      },
+    });
+
+    const error = await client.snapshot({ userId: "u1", tabId: "tab-1" }).catch((thrown) => thrown);
+    assert.equal(error.code, row.code, `${row.name} → ${error.code}`);
+    assert.equal(error.details?.status, row.status, `${row.name}: a status is how health() knows the gateway answered`);
+  }
+});
+
+test("the health request runs to the probe deadline, not the request timeout", async () => {
+  const startedAt = Date.now();
+  const client = createGatewayClient({
+    baseUrl: BASE,
+    timeoutMs: 400,
+    preflightTimeoutMs: 20,
+    fetchImpl: () => new Promise(() => {}),
+  });
+
+  assert.deepEqual(await client.health(), { answered: false });
+  // Which deadline fired is only visible in how long this took, so the margin is wide: 20ms asked for,
+  // 400ms would have been the request timeout, and anything under 300 cannot be that.
+  assert.ok(Date.now() - startedAt < 300, `an unanswered health check cost ${Date.now() - startedAt}ms`);
+});
+
+test("a caller that stops the health request is not answered with a claim about the gateway", async (t) => {
+  const cancelled = new AbortController();
+  cancelled.abort();
+  const { fake, client } = clientWith(t);
+
+  assert.equal(await client.health(cancelled.signal), undefined);
+  assert.equal(healthCalls(fake).length, 0, "a signal already given up on is not dialled at all");
+});
+
+test("the health request is never cached, so a reported state is never a stale one", async (t) => {
+  // Deliberate, and only assertable here: `activeTabs` describes the gateway right now, and a cached
+  // "0 active tabs" attached to a fresh failure is a false statement about live state.
+  const { fake, client } = clientWith(t);
+
+  await client.health();
+  await client.health();
+
+  assert.equal(healthCalls(fake).length, 2);
+});
+
+test("every field health surfaces is one the recorded contract declares for GET /health", async (t) => {
+  const spec = JSON.parse(readFileSync(new URL("./fixtures/openapi.json", import.meta.url), "utf8"));
+  const responses = spec.paths["/health"].get.responses;
+  const declared = {};
+  const required = [];
+  for (const response of Object.values(responses)) {
+    Object.assign(declared, response.content?.["application/json"]?.schema?.properties ?? {});
+    required.push(...(response.content?.["application/json"]?.schema?.required ?? []));
+  }
+
+  const sample = Object.fromEntries(
+    Object.entries(declared).map(([key, rule]) => [key, rule.type === "boolean" ? true : rule.type === "integer" ? 7 : "camoufox"]),
+  );
+  assert.ok(Object.keys(sample).length >= 7, `the recorded response shrank to ${Object.keys(sample).join(", ")}`);
+
+  const { client } = clientWith(t, { healthBody: sample });
+  const health = await client.health();
+
+  // `engine` is the one declared field we do not surface: `GET /` declares it too, and nothing reads it.
+  const surfaced = Object.keys(health).filter((key) => key !== "answered");
+  assert.deepEqual(
+    surfaced.filter((key) => !(key in declared)),
+    [],
+    `health invents a field the recorded contract does not declare: ${surfaced.filter((key) => !(key in declared)).join(", ")}`,
+  );
+  assert.deepEqual(
+    Object.keys(declared).filter((key) => key !== "engine" && !surfaced.includes(key)),
+    [],
+    "health stopped surfacing a field the recorded contract declares",
+  );
+  assert.deepEqual(required, [], "every field of both responses is optional, which is why every one is optional here too");
+  // A 2026-10-09 probe record (`docs/brainstorms/2026-10-09-pi-camoufox-gateway.md`) has a live gateway also
+  // answering `memory: { rssMb, heapUsedMb }`, which this 1.14.0 recording does not declare — so it is read
+  // nowhere here and asserted nowhere. Refreshing the recording is how that settles; coding the note is not.
+});
+
 test("maps 404 tab not found distinctly from transport failures", async (t) => {
   const { client } = clientWith(t);
 

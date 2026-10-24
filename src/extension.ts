@@ -7,9 +7,9 @@
 
 import { DEFAULT_CONFIG, isRecord, loadConfig, type CamoufoxConfig } from "./config.ts";
 import { createCache, type Cache } from "./cache.ts";
-import { GatewayError } from "./errors.ts";
+import { GatewayError, type GatewayErrorCode } from "./errors.ts";
 import { enginesFromConfig, type TriedStep } from "./engines/chain.ts";
-import { createGatewayClient, type GatewayClient } from "./gateway.ts";
+import { createGatewayClient, type GatewayClient, type GatewayHealth } from "./gateway.ts";
 import { readTool, type ReadOutcome } from "./tools/read.ts";
 import { searchTool, type CachedSearch, type SearchOutcome } from "./tools/search.ts";
 
@@ -105,6 +105,37 @@ export interface ExtensionDepsWithConfig extends ExtensionDeps {
   configError?: string;
 }
 
+/**
+ * Codes worth a gateway diagnosis, and only these.
+ *
+ * The question `GET /health` answers is "is anything behind the gateway" — live for a gateway that
+ * failed a request, settled for everything else. A page that came back and read as a wall, an empty SERP
+ * or an unparseable tree proves a browser was there, and `gateway_unreachable` is the clearest case of
+ * all: the liveness probe just asked the same thing and got nothing, and a cached one re-throws before a
+ * tool runs, so a second dial here would make some of those failures pay a timeout and the rest none.
+ */
+const DIAGNOSED_CODES: GatewayErrorCode[] = ["gateway_error", "timeout", "navigation_failed", "tab_not_found"];
+
+/** Where a diagnosis is filed on `details`, nested so it cannot overwrite the failure's own `status`. */
+const HEALTH_DETAIL = "gatewayHealth";
+
+/**
+ * The fields a diagnosis may print, in the order a reader should meet them: verdict first, then the counts.
+ *
+ * Typed as a total over the record, not a free list: a field `health()` reads and this does not name is read,
+ * cached on `details`, and never said out loud — the one place a model reads. A hand-listed set could only
+ * notice that after the fact.
+ */
+const HEALTH_FACTS = {
+  ok: true,
+  recovering: true,
+  browserConnected: true,
+  browserRunning: true,
+  activeTabs: true,
+  activeSessions: true,
+  consecutiveFailures: true,
+} as const satisfies Record<Exclude<keyof GatewayHealth, "answered">, true>;
+
 export function createExtension(deps: ExtensionDepsWithConfig): Extension {
   const { client, config, cache, userId } = deps;
 
@@ -139,6 +170,37 @@ export function createExtension(deps: ExtensionDepsWithConfig): Extension {
     }
   }
 
+  /**
+   * Run a tool call, and attach what the gateway says about itself when it fails.
+   *
+   * A call that succeeds passes through here having asked the gateway nothing extra, which is the whole
+   * reason the request is affordable. Two things make it safe to put in front of every tool: it is never
+   * what fails the call (the transport already returned, and `health()` keeps every outcome of its own),
+   * and it never rewrites the report — code, message, retryability and the details the failure already
+   * carried are copied across as they were, and a diagnosis that could not be had re-throws the original
+   * object rather than a rebuild of it.
+   */
+  async function withGatewayHealth<T>(work: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+    let failure: unknown;
+    try {
+      return await work();
+    } catch (error) {
+      failure = error;
+    }
+
+    const gatewayError = failure instanceof GatewayError ? failure : undefined;
+    if (!gatewayError || !DIAGNOSED_CODES.includes(gatewayError.code)) throw failure;
+
+    const health = await client.health(signal);
+    // Nothing was learned — typically a gateway older than the endpoint. The failure is the whole report.
+    if (!health) throw gatewayError;
+
+    throw new GatewayError(gatewayError.code, gatewayError.message, {
+      details: { ...(gatewayError.details ?? {}), [HEALTH_DETAIL]: health },
+      retryable: gatewayError.retryable,
+    });
+  }
+
   return {
     gatewayUrl: config.gatewayUrl,
     config,
@@ -147,22 +209,30 @@ export function createExtension(deps: ExtensionDepsWithConfig): Extension {
     async search(args, context) {
       guard();
       await liveness(context?.signal);
-      const outcome: SearchOutcome = await search.search({
-        ...args,
-        signal: context?.signal,
-        ...(context?.onProgress ? { onProgress: context.onProgress } : {}),
-      });
+      const outcome: SearchOutcome = await withGatewayHealth(
+        () =>
+          search.search({
+            ...args,
+            signal: context?.signal,
+            ...(context?.onProgress ? { onProgress: context.onProgress } : {}),
+          }),
+        context?.signal,
+      );
       return { text: outcome.text, details: outcomeToDetails(outcome) };
     },
 
     async read(args, context) {
       guard();
       await liveness(context?.signal);
-      const outcome: ReadOutcome = await read.read({
-        ...args,
-        signal: context?.signal,
-        ...(context?.onProgress ? { onProgress: context.onProgress } : {}),
-      });
+      const outcome: ReadOutcome = await withGatewayHealth(
+        () =>
+          read.read({
+            ...args,
+            signal: context?.signal,
+            ...(context?.onProgress ? { onProgress: context.onProgress } : {}),
+          }),
+        context?.signal,
+      );
       const { text: _text, ...rest } = outcome;
       return {
         text: renderRead(outcome),
@@ -242,6 +312,28 @@ function triedChain(details: Record<string, unknown> | undefined): string[] {
 }
 
 /**
+ * What the gateway said about itself after this failure, as one line.
+ *
+ * Read defensively like the chain above — `details` has been through pi, and a half-shaped record prints
+ * nothing rather than `=undefined`. Three tails, because three different things happened and the model
+ * has to be able to tell them apart: state was reported, nothing was, nothing answered.
+ */
+function gatewayHealthLine(details: Record<string, unknown> | undefined): string | undefined {
+  const health = details?.[HEALTH_DETAIL];
+  if (!isRecord(health)) return undefined;
+
+  const lead = "Gateway state after the failure:";
+  if (health.answered !== true) return `${lead} unknown — the gateway did not answer \`GET /health\`.`;
+
+  // Object key order is declaration order, so the declaration above is also the order they are met in.
+  const facts = Object.keys(HEALTH_FACTS)
+    .filter((key) => typeof health[key] === "boolean" || typeof health[key] === "number")
+    .map((key) => `${key}=${String(health[key])}`);
+  if (facts.length === 0) return `${lead} the gateway answered \`GET /health\` without reporting any state.`;
+  return `${lead} ${facts.join(", ")}.`;
+}
+
+/**
  * Failure text the model can act on: the code first, then whatever the reader can do with.
  *
  * `context` carries only what was verified. A config that failed to load resolves to the shipped
@@ -308,6 +400,11 @@ export function formatError(error: unknown, context: ErrorContext): { text: stri
     // the answer, which it cannot.
     lines.push("Nothing on the page had the shape of a link, so this is likelier our parser than your query — repeating it is unlikely to change the answer.");
   }
+  // The gateway's own state, when this failure was diagnosed. Printed after the code's advice because
+  // that advice is about the code and this is about the service behind it — and before the chain, which
+  // reads as the closing record of what was attempted.
+  const healthLine = gatewayHealthLine(gatewayError.details);
+  if (healthLine) lines.push(healthLine);
   // A chain that walked past a non-terminal code re-throws the *first* error, because that is the one
   // that says something about the query. So the second engine's different failure was invisible: a
   // `consent_wall` from google was the last word the model got even after duckduckgo went blind with
