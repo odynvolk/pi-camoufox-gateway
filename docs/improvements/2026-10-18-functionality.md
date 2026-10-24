@@ -12,6 +12,11 @@ tags: [functionality, roadmap, gateway-capabilities, search, read, context-budge
 Capability and user-visible behaviour only. Code-quality findings live in
 [2026-10-18-code.md](./2026-10-18-code.md).
 
+**Shipped items are deleted rather than ticked, and their numbers stay as gaps.** Nothing is renumbered:
+1.2 and the open questions below cite these labels, and a renumbered roadmap turns every one of those
+citations into a reference at the wrong item. So Tier 1 has no 1.3 or 1.4, and Tier 2 has no 2.4 — its
+unshipped half became 2.6 rather than being deleted with the rest.
+
 Evidence base: a full functional profile of `src/`, plus the gateway's own recorded OpenAPI
 contract. "Reachable" below means *the gateway does this today and we simply don't call it* — a
 stronger claim than "needs upstream work", and worth keeping the two separate.
@@ -88,74 +93,6 @@ expression template, **or** ask upstream for first-class region scoping.
 > ⚠️ Never expose raw `expression`. A validated CSS `region` only, and **refuse selectors matching
 > form controls** — a selector can reach `input[value]` and `document.cookie`, which turns a read
 > tool into a credential reader.
-
-### 1.3 Put a real ceiling on `maxChars`
-
-**Shipped** — `read.maxCharsCeiling` (40,000) as a config key, the clamp, the disclosure line naming which
-of the two cut the page short, and a load-time refusal of a `read.defaultMaxChars` above the ceiling.
-Kept here rather than deleted because the open question below cites "1.2-vs-1.3", and renumbering a
-roadmap breaks the references to its labels.
-
-One thing this item did *not* foresee, and the reason it stayed open a while: a ceiling enforced by
-comparing numbers has one value it cannot order. `NaN` is not above the ceiling, so a malformed ask —
-`"1,000"` from a model formatting a separator, since nothing validates these arguments — skipped the cap
-and returned the entire page, with `truncated: false` on it, because no comparison had intervened. Now
-checked rather than clamped: `maxChars` must be a positive integer or the call is refused. What that
-first pass missed is that the guard checked the value *asked for* and returned early when it was absent,
-so the default it fell back to was never measured — and the arithmetic spends the default.
-
-**Outcome:** a request beyond policy comes back capped-with-a-note, not 500 000 chars into the
-context window.
-
-What used to sit here, in the present tense: only `>= 1` was enforced, in `src/snapshot.ts` →
-`Math.max(1, options.maxChars)`, and the config-level guard reached only the *default* — never the
-per-call param. That last clause was the dangerous half, because read as advice it says the number you
-pass is unpoliced — the one thing the paragraph above it had just stopped being true of.
-
-Neither half is the rule now. The budget is measured on the value the call actually spends — `maxChars`,
-or the `read.defaultMaxChars` it falls back to — and refused as `unsupported` unless it is a positive
-integer. `offset` is refused on the same rule with a floor of 0, because that is where a page starts. Both
-refusals run before anything is fetched, so a rejected ask costs no navigation.
-
-The offset guard is the sharper of the two, and was not part of this item at all: `nextOffset` ends at
-`(offset ?? 0) + sliced.length`, where `??` defaults nothing and `+` concatenates, so an `offset` of
-`"100"` used to return a `nextOffset` of `"100100"` — a string, in a field the read output schema declares
-`number | null`, and rendered to the model as the way to continue.
-
-What the old sentence was pointing at is still the reason for all of it: the 12 000 default protects the
-context window, and the caller it protects against is exactly the one this tool is designed for — a model
-that guesses "more is better".
-
-Prior art, and both halves are now in place rather than still worth copying: Jina separates
-`x-max-tokens` (**trim**) from `x-token-budget` (**reject if over**). The trim is `read.maxCharsCeiling`;
-the reject is the half this item turned out to need as well, and the half that had to be found rather
-than inferred — a ceiling that trims by comparison does nothing, silently, to the one value it cannot
-compare. OWASP lists Unbounded Consumption as LLM10:2025
-([top-10](https://genai.owasp.org/llm-top-10/)).
-
-**Scope:** tiny — one config key, one clamp, one disclosure line. Disclose it the way the `n` clamp
-already is. **Reachable:** purely client-side. **Risk:** none.
-
-### 1.4 Name the engine that answered, on the happy path
-
-> **Shipped.** The header now names the answering engine on every success — `(via google)` — with the
-> `; tried …` enumeration staying conditional, because that part is the fallback's own fact. And
-> `engine?` enumerates instead of taking a free-form string, with two refusals where there was one: an
-> unfamiliar name as "unknown engine", a real one switched off as "disabled in your config".
-
-The `(via <engine>; tried …)` suffix used to appear only when `tried.length > 1` (`src/tools/search.ts`),
-so a first-try Google success named nothing in the text a model reads — only in `details.engine`, which
-is a field for a script. Since fixed.
-
-A model cannot calibrate trust in a result set it cannot attribute. "Google served this" and
-"DuckDuckGo served this after Google walled" are different claims. The same fix covered the free-form
-`engine?` param (`src/camoufox-gateway.ts`): requesting `bing` used to say *that* it isn't available,
-never *why*. That reasoning is no longer only in prose — the two cases are named apart, and the schema
-carries the set. *(Note: the prose explaining **why bing specifically** is a gateway reality, not a
-missing adapter, and still lives only in the README.)*
-
-**Scope:** trivial — the string is already computed. **Risk:** none.
-*(Honest labelling: this one is internal-justification-strong, external-evidence-weak.)*
 
 ### 1.5 Add a second engine that returns JSON: `@reddit_search`
 
@@ -283,36 +220,6 @@ and the tool has no concept of "this is not a document-shaped page".
 Note the posture change: a download means a file lands on the gateway host — a different risk
 profile from returning text.
 
-### 2.4 Per-call cache bypass, and fix what `cache.pageMs` means
-
-> **Shipped, with a deviation.** `cache.pageMs` now caches read pages, and
-> `fresh: true` is the per-call bypass. What was *not* taken is the shape below: a boolean answers
-> "now or not" but not "how stale is acceptable", which is the more useful question for research.
-
-30 minutes of SERP staleness is right for research and wrong for "what's the latest", and nothing
-today lets the model say otherwise.
-
-Separately, and also since fixed: **`cache.pageMs` used to not cache pages.** Its only consumer was
-goto-wrapper resolution, and `camoufox_read` took no cache at all — so the name was wrong in a
-model-facing README row, not just internally. `camoufox_read` now holds the shared cache, serves a
-re-read url from it for `cache.pageMs`, and says so on a hit.
-
-Prior art: Jina expresses freshness as `x-cache-tolerance: <seconds>` — **staleness tolerance rather
-than a boolean**, which is the better shape, with `x-no-cache` for the hard override.
-
-#### 2.4.1 `cache.pageMs` named a knob nothing turned — fixed
-
-Its only consumer was goto-wrapper resolution (the consumer was `src/tools/search.ts`, resolving into `src/resolve.ts`); `camoufox_read`
-had no cache dependency at all. The name is model-facing in the README config table, so this was not
-just an internal misnomer: someone who set it to 60 s and someone who left it alone got identical read
-behaviour, and `maxChars` looked like the cause. Removed from the code doc as fixed; the knob now
-means what it says.
-
-**Scope:** small. **Reachable:** purely client-side.
-
-**Status:** the bypass shipped, as `fresh`. What did *not* is the shape above — a boolean answers
-"now or not", but not "how stale is acceptable", which is the more useful question for research.
-
 ### 2.5 Multi-result reads — one call, several urls
 
 `urls: [...]` returning N bounded pages under one shared budget. Turn count again, plus a *fairer*
@@ -332,11 +239,23 @@ reduces turn count."
 
 ---
 
+### 2.6 Say how stale is acceptable, not whether to refresh
+
+The one half of the per-call cache bypass that did not ship. `fresh: true` answers *now or not*; what
+research actually asks is *how much staleness is fine* — 30 minutes of SERP age is right for a survey
+question and wrong for "what's the latest", and a boolean cannot say which was meant.
+
+Prior art: Jina expresses freshness as `x-cache-tolerance: <seconds>` — staleness tolerance rather
+than a boolean — with `x-no-cache` for the hard override. `fresh` is the `x-no-cache` half; the
+tolerance half is this.
+
+**Scope:** small, and it is widening an existing param rather than adding one. **Reachable:** purely
+client-side.
+
 ## Tier 3 — record it, don't build it soon
 
 | Capability | Reachable? | Why not now |
 | --- | --- | --- |
-| `/health` as preflight + real status in errors | yes | **Best promotion candidate.** Returns `browserConnected`, `browserRunning`, `activeTabs`, `activeSessions`, `consecutiveFailures`. "Browser not connected, 0 active tabs" is a *different instruction to a model* than "gateway failed". Small, zero risk. |
 | `GET /tabs/{id}/links` | yes | Returns `{text, href, ref}` — a cleaner "what's on this page" than re-parsing the tree. We have no "give me the links" affordance today. |
 | Tab-group teardown `DELETE /tabs/group/{listItemId}` | yes | Solves a leak class the per-tab `finally` close already covers. Marginal. |
 | `viewport` / mobile as a token lever | yes | Playwright MCP: "Mobile pages are usually lighter, which saves tokens." Genuinely clever, but it changes *what renders* → silently invalidates fixture-based parsing. |
@@ -383,7 +302,8 @@ timid.
    decides whether 1.1 *replaces* it or sits behind it.
 3. **What is the observed real-world rate of each failure code?** `formatError` carries 18 codes and
    the v1 plan records that the read-thin decision was deferred to v2 "for lack of usage data" — and
-   nothing collects it. Without it, the 1.2-vs-1.3 choice (scope vs budget) is a guess.
+   nothing collects it. Without it, the choice between scoping a read down (1.2) and giving it a bigger
+   budget is a guess.
 4. **Is the gateway trusted-local or a network service?** `CAMOFOX_ACCESS_KEY` and
    `CAMOFOX_BIND_HOST` exist upstream; our only auth is a Bearer key. Every SSRF and exfiltration
    judgement above changes if the gateway is reachable off-box.
