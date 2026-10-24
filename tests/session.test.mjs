@@ -506,8 +506,8 @@ test("a gateway that answers while a read fails reports its own state on the err
 });
 
 test("what the gateway said goes in details, and the reading of it in the text", async (t) => {
-  // The split item 1.4 shipped the tools for: a script takes the named fields off `details`, a model
-  // reads a line. Asserted against the same failure, because the two halves drifting apart is the defect.
+  // Two readings of one record: a script takes the named fields off `details`, a model reads a line.
+  // Asserted against the same failure, because the two halves drifting apart is the defect.
   const { extension } = extensionFor(t, "pi-health-rendered", {
     ...BROKEN_PAGE,
     healthBody: { ...NO_BROWSER, engine: "camoufox" },
