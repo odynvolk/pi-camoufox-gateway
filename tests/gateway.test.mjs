@@ -74,6 +74,41 @@ test("navigateMacro sends macro and query to the tab", async (t) => {
   assert.equal(call.body.userId, "u1");
 });
 
+/**
+ * A navigate that answered `{ "ok": false }` is classified by the central `{ok:false}` rule, from the
+ * gateway's own words — not by a per-endpoint guess.
+ *
+ * `navigateMacro` does not pass `tolerateNotOk`, so `perform()` rejects the body before any navigate-specific
+ * reading of it can happen. Rows, because the two messages this classifier recognises are the whole reason it
+ * is the better owner: "google served a consent interstitial" and "that url was refused" each say what to do
+ * next, and one code for a navigation that failed says neither.
+ */
+test("a navigate answering { ok: false } is classified by what the gateway said", async () => {
+  const rows = [
+    { error: "redirected to consent.google.com", code: "consent_wall" },
+    { error: "Blocked URL scheme (only http/https allowed)", code: "blocked_url" },
+    { error: "navigation timed out inside the browser", code: "gateway_error" },
+  ];
+
+  for (const row of rows) {
+    const client = createGatewayClient({
+      baseUrl: BASE,
+      timeoutMs: 200,
+      fetchImpl: async () => ({
+        status: 200,
+        ok: true,
+        text: async () => JSON.stringify({ ok: false, error: row.error }),
+      }),
+    });
+
+    const error = await client
+      .navigateMacro({ userId: "u1", tabId: "tab-1", macro: "@google_search", query: "a b" })
+      .catch((thrown) => thrown);
+    expectError(error, row.code);
+    assert.ok(error.message.includes(row.error), `the gateway's own words survive: ${error.message}`);
+  }
+});
+
 test("snapshot requests the tab path with userId and offset", async (t) => {
   const { fake, client } = clientWith(t);
   const { tabId } = await openTab(t, client, "u1", "https://example.com");
