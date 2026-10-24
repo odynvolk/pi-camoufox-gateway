@@ -4,7 +4,7 @@
  */
 
 import { GatewayError } from "../errors.ts";
-import { classifySerp } from "../snapshot.ts";
+import { settledSerpVerdict } from "./settle.ts";
 import type { Engine, EngineContext, EngineOutcome } from "./types.ts";
 
 /** `html.duckduckgo.com` is deliberately avoided: it returns a search form, not results. */
@@ -18,9 +18,7 @@ export function duckduckgoEngine(): Engine {
       const url = `${SEARCH_URL}${encodeURIComponent(query)}`;
       const tab = await client.openTab({ userId, url, signal });
       try {
-        const snapshot = await client.snapshot({ userId, tabId: tab.tabId, signal });
-
-        const verdict = classifySerp(snapshot, "duckduckgo");
+        const verdict = await settledSerpVerdict(context, tab.tabId, "duckduckgo");
         if (verdict.kind === "error") {
           throw new GatewayError(verdict.code, verdict.message, { details: verdict.details });
         }

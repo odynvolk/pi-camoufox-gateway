@@ -9,6 +9,10 @@ import { GatewayError } from "../src/errors.ts";
 import { enginesFromConfig, searchWithFallback } from "../src/engines/chain.ts";
 import { googleEngine } from "../src/engines/google.ts";
 import { duckduckgoEngine } from "../src/engines/duckduckgo.ts";
+import { SEARCH_SETTLE_MS, SEARCH_SETTLE_POLL_MS } from "../src/engines/settle.ts";
+import { parseSerp } from "../src/snapshot.ts";
+import { STABLE_ROUNDS } from "../src/settle.ts";
+import { DEFAULT_CONFIG } from "../src/config.ts";
 
 const BASE = "http://gateway.test:9377";
 
@@ -238,4 +242,168 @@ test("honours enabled flags and ordering from config", async (t) => {
   ]);
 
   assert.deepEqual(engines.map((e) => e.name), ["google"]);
+});
+
+// --- hydration tolerance on the search path ---------------------------------------------------
+//
+// Every frame here is cut from a recorded fixture rather than invented, because the case this section is
+// about is a page that *looks finished* and is not. Everything above the first organic block of
+// `serp-google.txt` is that page's own chrome with the results missing, and `serp-no-results.txt` is a
+// *finished* page that looks the same way from the outside — which is the whole reason a re-look is the
+// answer and reading the first snapshot harder is not.
+
+const fixture = (name) => readFileSync(new URL(`./fixtures/${name}`, import.meta.url), "utf8");
+
+const GOOGLE_SERP = fixture("serp-google.txt");
+const DUCKDUCKGO_SERP = fixture("serp-duckduckgo.txt");
+/** `serp-google.txt` down to its own chrome: 5 link blocks, 0 organic results. */
+const GOOGLE_SKELETON = GOOGLE_SERP.split("\n").slice(0, 8).join("\n");
+/** `serp-duckduckgo.txt` down to its own chrome: 9 link blocks, 0 organic results. */
+const DUCKDUCKGO_SKELETON = DUCKDUCKGO_SERP.split("\n").slice(0, 66).join("\n");
+/** A whole recorded page that answered cleanly with nothing organic in it. */
+const GOOGLE_NO_RESULTS = fixture("serp-no-results.txt");
+/** The B.6 page: 26 link blocks, every `/url` protocol-relative, so nothing parses as a result. */
+const DUCKDUCKGO_BLIND_PAGE = fixture("serp-duckduckgo-html.txt");
+
+/** A frame that parses as a SERP has to be one the engine's own parser finds nothing in. */
+function assertNoOrganics(text, engine, label) {
+  assert.equal(
+    parseSerp({ url: "", text }, engine).results.length,
+    0,
+    `${label} carries an organic result, so a test built on it proves nothing`,
+  );
+}
+
+test("a google page still rendering on the first look is re-looked, not reported as one with no results", async (t) => {
+  assertNoOrganics(GOOGLE_SKELETON, "google", "the chrome-only frame");
+
+  const { fake, client } = setup(t, {
+    snapshotScripts: new Map([["https://www.google.com/search?q=camoufox", [GOOGLE_SKELETON, GOOGLE_SERP]]]),
+  });
+
+  const outcome = await googleEngine().search("camoufox", { client, userId: "u1" });
+
+  assert.equal(outcome.results.length, 10, "the recorded page's ten results, once they had arrived");
+  assert.equal(callsFor(fake, "/snapshot").length, 2, "one look was thin, one was the page — no more");
+});
+
+test("a first look that matches the recorded zero-result page is still re-looked", async (t) => {
+  // The two cases this item turns on are indistinguishable on the first snapshot: this frame is a
+  // *finished* page that answered with nothing, served here as the first frame of a page that was
+  // still arriving. Only re-looking separates them, which is why the predicate asks the parser rather
+  // than measuring the page.
+  assertNoOrganics(GOOGLE_NO_RESULTS, "google", "the recorded no-results page");
+
+  const { fake, client } = setup(t, {
+    snapshotScripts: new Map([["https://www.google.com/search?q=camoufox", [GOOGLE_NO_RESULTS, GOOGLE_SERP]]]),
+  });
+
+  const outcome = await googleEngine().search("camoufox", { client, userId: "u1" });
+
+  assert.equal(outcome.results.length, 10, "the re-look is what turned 'no results' into the page");
+});
+
+test("duckduckgo waits the same way google does, on the same shape of page", async (t) => {
+  assertNoOrganics(DUCKDUCKGO_SKELETON, "duckduckgo", "the chrome-only frame");
+
+  const { fake, client } = setup(t, {
+    // The recorded duckduckgo page is wider than the fake's snapshot window, so without this the count
+    // below would be a fact about the fake rather than about the fixture.
+    snapshotLimit: 40_000,
+    snapshotScripts: new Map([["https://duckduckgo.com/?q=camoufox", [DUCKDUCKGO_SKELETON, DUCKDUCKGO_SERP]]]),
+  });
+
+  const outcome = await duckduckgoEngine().search("camoufox", { client, userId: "u1" });
+
+  assert.equal(outcome.results.length, 19, "the recorded duckduckgo page's nineteen results");
+  assert.equal(callsFor(fake, "/snapshot").length, 2, "and the same single re-look google needed");
+});
+
+test("a SERP that has not arrived at all is re-looked, not reported as an empty page", async (t) => {
+  // `empty_page` is what a blank snapshot is called, and a blank first snapshot is the most
+  // obviously-still-rendering page there is. Read's loop already refuses to treat it as settled.
+  const { fake, client } = setup(t, {
+    snapshotScripts: new Map([["https://www.google.com/search?q=camoufox", ["", GOOGLE_SERP]]]),
+  });
+
+  const outcome = await googleEngine().search("camoufox", { client, userId: "u1" });
+
+  assert.equal(outcome.results.length, 10);
+  assert.equal(callsFor(fake, "/snapshot").length, 2);
+});
+
+test("a wall is hopped past without spending the search settle budget on it", async (t) => {
+  // A wall is not a page still arriving; it is a page that has decided. Waiting on it is latency the
+  // model pays before the hop that was always the answer.
+  const { fake, client } = setup(t, { consentWallOn: new Set(["u1"]) });
+
+  const error = await googleEngine().search("camoufox", { client, userId: "u1" }).catch((e) => e);
+
+  assert.equal(error.code, "consent_wall");
+  assert.equal(callsFor(fake, "/snapshot").length, 1, "one look named the wall, so one look was enough");
+});
+
+test("the recorded page this parser is blind to is re-looked until it stops changing, and no longer", async (t) => {
+  // B.6: 26 link blocks, every one of them a protocol-relative wrapper, so the answer is deterministic
+  // and a re-look cannot change it. It costs the two identical looks that prove the page is finished —
+  // bounded by the loop's stability stop, not by the budget. That is the price of a predicate that
+  // cannot tell "no results yet" from "no results we can read", and it is paid knowingly.
+  assertNoOrganics(DUCKDUCKGO_BLIND_PAGE, "duckduckgo", "the B.6 page");
+
+  const { fake, client } = setup(t, {
+    pageContents: new Map([["https://duckduckgo.com/?q=camoufox", DUCKDUCKGO_BLIND_PAGE]]),
+  });
+
+  const error = await duckduckgoEngine().search("camoufox", { client, userId: "u1" }).catch((e) => e);
+
+  assert.equal(error.code, "empty_results", "blind is still blind on the third look");
+  assert.equal(
+    callsFor(fake, "/snapshot").length,
+    1 + STABLE_ROUNDS,
+    "the page stopped changing, which is the stop the budget is only the backstop of",
+  );
+});
+
+test("a page that never stops changing costs the search budget and nothing more", async (t) => {
+  // The one shape that does run to the deadline: a page that keeps changing and never becomes a SERP.
+  // Bounded per engine, because the chain pays it once per engine before it gives up.
+  const frames = Array.from(
+    { length: 20 },
+    (_unused, index) => `- heading "loading ${index}" [level=1]\n- link "chrome ${index}" [e1]:\n  - /url: /?q=${index}`,
+  );
+  const { fake, client } = setup(t, {
+    snapshotScripts: new Map([["https://www.google.com/search?q=camoufox", frames]]),
+  });
+
+  const error = await googleEngine().search("camoufox", { client, userId: "u1" }).catch((e) => e);
+
+  assert.equal(error.code, "empty_results");
+  assert.ok(
+    callsFor(fake, "/snapshot").length <= 1 + Math.ceil(SEARCH_SETTLE_MS / SEARCH_SETTLE_POLL_MS),
+    `${callsFor(fake, "/snapshot").length} snapshots is more re-look than one engine's budget can buy`,
+  );
+});
+
+test("the search settle budget is its own, and smaller than the one a read may spend", () => {
+  // Search runs a chain, so this budget is paid once per engine before a hop. Inheriting read's would
+  // put a document's patience on the critical path of every search.
+  assert.ok(
+    SEARCH_SETTLE_MS < DEFAULT_CONFIG.read.waitForSettleMs,
+    `${SEARCH_SETTLE_MS}ms per engine is not under read's ${DEFAULT_CONFIG.read.waitForSettleMs}ms`,
+  );
+  assert.ok(
+    SEARCH_SETTLE_POLL_MS < SEARCH_SETTLE_MS,
+    "a poll interval at or above the budget means one look and a sleep through the rest of it",
+  );
+});
+
+test("a SERP that answers on the first look costs exactly the requests it always cost", async (t) => {
+  const google = setup(t);
+  await googleEngine().search("camoufox", { client: google.client, userId: "u1" });
+  // Open the seed tab, run the macro, one look, close. Anything else is a re-look nobody asked for.
+  assert.equal(google.fake.state.calls.filter((call) => call.path !== "/").length, 4);
+
+  const duckduckgo = setup(t);
+  await duckduckgoEngine().search("camoufox", { client: duckduckgo.client, userId: "u1" });
+  assert.equal(duckduckgo.fake.state.calls.filter((call) => call.path !== "/").length, 3);
 });
