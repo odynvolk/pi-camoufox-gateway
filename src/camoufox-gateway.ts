@@ -57,8 +57,6 @@ const ReadSchema = Type.Object({
   ),
 });
 
-type ReadArgs = Static<typeof ReadSchema>;
-
 /**
  * Output contracts.
  *
