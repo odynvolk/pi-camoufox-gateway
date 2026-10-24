@@ -226,6 +226,17 @@ function isNetworkFailure(error: unknown): boolean {
 }
 
 /**
+ * Details only a response can write.
+ *
+ * `health()` has to tell a gateway that refused from one that never spoke, and all it is handed is an error.
+ * So the proof of an answer is a status, written only here, where a response is in hand — which is what makes
+ * an error carrying none mean silence, rather than an error that forgot to say.
+ */
+function responseDetails(response: Response, path: string): Record<string, unknown> {
+  return { status: response.status, path };
+}
+
+/**
  * Reject as soon as the signal does, even if the underlying fetch never settles. Some fetch
  * implementations ignore `signal`, and a hung request would otherwise outlive the tool call.
  */
@@ -355,8 +366,9 @@ export class GatewayClient {
       // An older gateway answers 404 for a path it never had. It plainly did answer, so "no answer" would
       // be a claim about the wrong thing — and silence is the only remaining answer that is not wrong.
       if (gatewayError && isRouteMissing(gatewayError)) return undefined;
-      // Anything else that came back with a status came back from the gateway: an answer, with no state in
-      // it we are allowed to read. A transport that never reached a status is the only genuine silence.
+      // Anything else with a status came back from the gateway: an answer, with no state in it we may read.
+      // And a status is only ever written where a response was (`responseDetails`), so none is silence rather
+      // than an error that forgot to say.
       const answered = typeof gatewayError?.details?.status === "number";
       return { answered };
     }
@@ -738,10 +750,13 @@ export class GatewayClient {
         throw this.httpError(response, body, path, options);
       }
       if (body && typeof body === "object" && (body as Record<string, unknown>).ok === false && !options.tolerateNotOk) {
-        throw this.gatewayBodyError(body as Record<string, unknown>, path);
+        throw this.gatewayBodyError(body as Record<string, unknown>, responseDetails(response, path));
       }
       if (body === undefined) {
-        throw new GatewayError("gateway_error", `gateway returned no body for ${method} ${path}`);
+        // An answer with nothing in it is still an answer, and says so with the status it arrived on.
+        throw new GatewayError("gateway_error", `gateway returned no body for ${method} ${path}`, {
+          details: responseDetails(response, path),
+        });
       }
       return body as T;
     } catch (error) {
@@ -783,7 +798,7 @@ export class GatewayClient {
 
   private httpError(response: Response, body: unknown, path: string, options: RequestOptions): GatewayError {
     const message = messageFrom(body, response.status);
-    const details = { status: response.status, path };
+    const details = responseDetails(response, path);
 
     if (response.status === 401 || response.status === 403) {
       return new GatewayError("gateway_unauthorized", `gateway rejected our credentials: ${message}`, { details });
@@ -813,17 +828,23 @@ export class GatewayClient {
     return new GatewayError("gateway_error", `gateway rejected the request (${response.status}): ${message}`, { details });
   }
 
-  private gatewayBodyError(body: Record<string, unknown>, path: string): GatewayError {
+  /**
+   * A 200 that answered `{ "ok": false }`.
+   *
+   * `details` arrives already carrying the status, because the fact this error states — the gateway said no
+   * — is one only a response can establish. See `responseDetails`.
+   */
+  private gatewayBodyError(body: Record<string, unknown>, details: Record<string, unknown>): GatewayError {
     const message = messageFrom(body, 200);
     if (/consent|captcha/i.test(message)) {
       return new GatewayError("consent_wall", `google served a consent/CAPTCHA interstitial: ${message}`, {
-        details: { path },
+        details,
       });
     }
     if (/blocked url|scheme/i.test(message)) {
-      return new GatewayError("blocked_url", message, { details: { path } });
+      return new GatewayError("blocked_url", message, { details });
     }
-    return new GatewayError("gateway_error", message, { details: { path } });
+    return new GatewayError("gateway_error", message, { details });
   }
 }
 

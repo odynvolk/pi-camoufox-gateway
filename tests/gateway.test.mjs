@@ -552,6 +552,57 @@ test("a gateway that cannot be reached is reported as no answer", async (t) => {
   assert.equal(healthCalls(fake).length, 1, "and it is paid for once, not once per retry");
 });
 
+test("a response that said nothing is an answer, not a gateway that never spoke", async () => {
+  // A 2xx with nothing in it did reach the gateway. That is the fact the verdict has to rest on, not on
+  // whether our own throw happened to carry a status.
+  const client = createGatewayClient({
+    baseUrl: BASE,
+    timeoutMs: 200,
+    fetchImpl: async () => ({ status: 204, ok: true, text: async () => "" }),
+  });
+
+  assert.deepEqual(await client.health(), { answered: true }, "answered, with no state to report");
+});
+
+/**
+ * One row per thing `perform()` can throw, covering both directions of the rule `health()` depends on: an
+ * error thrown with a response in hand carries its status, and one thrown without it cannot.
+ *
+ * The verdict is decided off an absence, so all of its soundness lives in who may write the other half.
+ * Pinning it per throw site is what stops a `details` added at a transport throw, or a dropped one at a
+ * response throw, from becoming a statement about a gateway that never made one.
+ */
+const OUTCOMES = [
+  { name: "a 5xx", response: { status: 500, ok: false, body: { error: "boom" } }, code: "gateway_error", status: 500 },
+  { name: "a 200 answered `{ ok: false }`", response: { status: 200, ok: true, body: { ok: false, error: "captcha challenge" } }, code: "consent_wall", status: 200 },
+  { name: "a 200 with no body at all", response: { status: 200, ok: true, body: undefined }, code: "gateway_error", status: 200 },
+  { name: "a gateway that refused the connection", fail: Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" }), code: "gateway_unreachable", status: undefined },
+  { name: "a request that never got back", hangs: true, code: "timeout", status: undefined },
+  { name: "a transport failure we do not recognise", fail: new Error("socket half-closed"), code: "gateway_error", status: undefined },
+];
+
+test("only an error a response caused claims a response", async () => {
+  for (const row of OUTCOMES) {
+    const client = createGatewayClient({
+      baseUrl: BASE,
+      timeoutMs: 30,
+      fetchImpl: async () => {
+        if (row.hangs) return new Promise(() => {});
+        if (row.fail) throw row.fail;
+        return {
+          status: row.response.status,
+          ok: row.response.ok,
+          text: async () => (row.response.body === undefined ? "" : JSON.stringify(row.response.body)),
+        };
+      },
+    });
+
+    const error = await client.snapshot({ userId: "u1", tabId: "tab-1" }).catch((thrown) => thrown);
+    assert.equal(error.code, row.code, `${row.name} → ${error.code}`);
+    assert.equal(error.details?.status, row.status, `${row.name}: a status is how health() knows the gateway answered`);
+  }
+});
+
 test("the health request runs to the probe deadline, not the request timeout", async () => {
   const startedAt = Date.now();
   const client = createGatewayClient({
