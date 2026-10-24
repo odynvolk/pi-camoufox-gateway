@@ -53,6 +53,7 @@ export function createFakeGateway(options = {}) {
     waitReject: null, // { status, message }: answer /wait with an error at that status
     openReportsUrl: true, // false simulates a gateway that never reports where a tab ended up
     snapshotReportsUrl: true, // false: `/snapshot` stays silent about where the page is
+    dropsTabAfterSnapshot: false, // the browser closes the tab under us after the first look
     tabsReportUrl: true, // false: neither endpoint will say, so the location is genuinely unknown
     waitHangsForMs: 0, // the gateway holds /wait past our per-request deadline, ignoring its own timeout
     healthRoute: true, // false simulates a gateway older than GET /health
@@ -270,6 +271,10 @@ export function createFakeGateway(options = {}) {
           tab.title = jumped;
         }
         const full = snapshotTextFor(tab);
+        // A page can be taken away between two looks, which is the one tab failure the open-time checks
+        // cannot see. Answered first, then forgotten: the request that finds it gone is the next one.
+        const dropping = state.dropsTabAfterSnapshot && !tab.droppedOnce;
+        if (dropping) tab.droppedOnce = true;
         // The real gateway paginates, so the fake must: `read` decides whether to poll on the size of
         // the whole page and reports the slice, and a stub that ignored `offset` would hide any bug in
         // telling those two apart.
@@ -277,7 +282,7 @@ export function createFakeGateway(options = {}) {
         const text = full.slice(offset);
         const limit = state.snapshotLimit;
         const truncated = text.length > limit;
-        return json({
+        const answer = json({
           ...(state.snapshotReportsUrl ? { url: tab.url } : {}),
           snapshot: truncated ? text.slice(0, limit) : text,
           refsCount: (text.match(/\[e\d+\]/g) ?? []).length,
@@ -286,6 +291,8 @@ export function createFakeGateway(options = {}) {
           hasMore: truncated,
           nextOffset: truncated ? offset + limit : offset + text.length,
         });
+        if (dropping) tabsOf(userId).delete(tabId);
+        return answer;
       }
 
       if (method === "POST" && sub === "/wait") {

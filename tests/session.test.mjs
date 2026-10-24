@@ -26,15 +26,26 @@ const ERROR_CONTEXT = Object.freeze({ gatewayUrl: CONFIG.gatewayUrl });
 function extensionFor(t, userId = "pi-abcdef", options = {}) {
   // `config` belongs to the extension, not to the fake gateway; passing it through unsplit used to
   // land it in the fake's state, where it was silently ignored and the test ran on the defaults.
-  const { config: configOverrides, ...gatewayOptions } = options;
+  // `client` is a third kind: the probe's windows and deadline are client construction, not config, and
+  // the loader has no key for them.
+  const { config: configOverrides, client: clientOverrides, wrapFetch, ...gatewayOptions } = options;
   const fake = withFakeGateway(t, gatewayOptions);
   const config = testConfig({ gatewayUrl: "http://gateway.test:9377", timeoutMs: 2000, ...configOverrides });
   const client = createGatewayClient({
     baseUrl: config.gatewayUrl,
     timeoutMs: config.timeoutMs,
     urlPolicy: urlPolicyFromConfig(config),
+    // Lets a test act at the moment one request goes out, which is the only way to be exactly as late as
+    // a caller who gives up halfway through.
+    ...(wrapFetch ? { fetchImpl: wrapFetch(fake.fetch) } : {}),
+    ...clientOverrides,
   });
   return { fake, client, config, extension: createExtension({ config, client, cache: createCache(), userId }) };
+}
+
+/** Requests against the diagnostic endpoint, which is the only one never asked for on a good call. */
+function healthCalls(fake) {
+  return fake.state.calls.filter((call) => call.path === "/health");
 }
 
 test("the gateway session id is stable, prefixed, and safe for a url path", () => {
@@ -455,6 +466,272 @@ test("parse_error says whose fault it probably is", () => {
 
   assert.match(formatted.text, /likelier our parser than your query/u);
   assert.match(formatted.text, /repeating it is unlikely to change the answer/u);
+});
+
+/**
+ * `GET /health` as a diagnosis of a failure that is already being reported.
+ *
+ * The liveness gate stays on `GET /`, unchanged: a 503 is a documented *recovering* answer, and a gate
+ * that consulted it would record a failure during the one window the gateway is promising to come back —
+ * turning a self-healing blip into a hard outage. So this endpoint is only ever asked after something has
+ * already failed, which is also the only moment its numbers mean anything.
+ */
+const BROKEN_PAGE = { failSnapshot: true };
+
+/** The roadmap's own scenario: a gateway that is up and answering, with nothing behind it. */
+const NO_BROWSER = {
+  ok: true,
+  browserConnected: false,
+  browserRunning: false,
+  activeTabs: 0,
+  activeSessions: 1,
+  consecutiveFailures: 3,
+};
+
+test("a gateway that answers while a read fails reports its own state on the error", async (t) => {
+  const { fake, extension } = extensionFor(t, "pi-health-state", { ...BROKEN_PAGE, healthBody: NO_BROWSER });
+
+  const error = await extension.read({ url: "https://example.test/article" }).catch((e) => e);
+
+  assert.equal(error.code, "gateway_error", "the fault stays the one the gateway reported");
+  const health = error.details.gatewayHealth;
+  assert.equal(health.answered, true);
+  assert.equal(health.browserConnected, false);
+  assert.equal(health.browserRunning, false);
+  assert.equal(health.activeTabs, 0);
+  assert.equal(health.activeSessions, 1);
+  assert.equal(health.consecutiveFailures, 3);
+  assert.equal(healthCalls(fake).length, 1);
+});
+
+test("what the gateway said goes in details, and the reading of it in the text", async (t) => {
+  // The split item 1.4 shipped the tools for: a script takes the named fields off `details`, a model
+  // reads a line. Asserted against the same failure, because the two halves drifting apart is the defect.
+  const { extension } = extensionFor(t, "pi-health-rendered", { ...BROKEN_PAGE, healthBody: NO_BROWSER });
+
+  const error = await extension.read({ url: "https://example.test/article" }).catch((e) => e);
+  const formatted = formatError(error, ERROR_CONTEXT);
+
+  assert.match(formatted.text, /^gateway_error: gateway error 500: snapshot exploded$/mu, "the failure still leads, on its own line");
+  assert.match(formatted.text, /Gateway state after the failure: .*browserConnected=false/u);
+  assert.match(formatted.text, /activeTabs=0/u, "the count a model can tell the user about");
+  assert.equal(formatted.details.gatewayHealth.browserConnected, false, "and the same fact, unnarrated, for a script");
+});
+
+test("a call that works never asks the gateway how it is", async (t) => {
+  // The cost this feature must never incur: a second round trip on every success, for a number nobody
+  // read on the way past it.
+  const { fake, extension } = extensionFor(t, "pi-healthy");
+
+  await extension.search({ query: "camoufox" });
+  await extension.read({ url: "https://example.test/article" });
+
+  assert.equal(healthCalls(fake).length, 0, "neither tool pays for a diagnostic on a good call");
+});
+
+test("a refusal of our own does not go and ask the gateway about itself", async (t) => {
+  // `blocked_url` is decided before anything is sent, so a gateway question here would be answering a
+  // question nothing asked — and would make a policy refusal look like a gateway fault.
+  const { fake, extension } = extensionFor(t, "pi-refused");
+
+  const error = await extension.read({ url: "ftp://example.test/" }).catch((e) => e);
+
+  assert.equal(error.code, "blocked_url");
+  assert.equal(error.details?.gatewayHealth, undefined, "a refusal carries no gateway record at all");
+  assert.equal(healthCalls(fake).length, 0);
+});
+
+test("a gateway that cannot be reached is not asked the same question twice", async (t) => {
+  // The probe that produced `gateway_unreachable` already established that nothing answers, and a cached
+  // one re-throws before a tool runs at all — so dialling here would make some of these failures pay a
+  // second timeout and the rest none, which is worse than never dialling for either.
+  const { fake, extension } = extensionFor(t, "pi-unreachable", { unreachable: true });
+
+  const error = await extension.search({ query: "camoufox" }).catch((e) => e);
+
+  assert.equal(error.code, "gateway_unreachable");
+  assert.equal(healthCalls(fake).length, 0);
+});
+
+test("a cancelled call spends no further request on explaining itself", async (t) => {
+  const { fake, extension } = extensionFor(t, "pi-cancelled");
+  const cancelled = new AbortController();
+  cancelled.abort();
+
+  const error = await extension.search({ query: "camoufox" }, { signal: cancelled.signal }).catch((e) => e);
+
+  assert.equal(error.code, "aborted");
+  assert.equal(healthCalls(fake).length, 0, "a cancel is our own doing, and needs no diagnosis");
+});
+
+test("a call that timed out is diagnosed, and still reported as a timeout", async (t) => {
+  // The other code worth asking about: a gateway that hung may be a gateway with nothing to hand a page
+  // to. The code must not be rewritten by the asking, either — a timeout stays a timeout.
+  const { fake, extension } = extensionFor(t, "pi-slow", {
+    hangUrls: new Set(["https://slow.test/"]),
+    hangForMs: 400,
+    client: { timeoutMs: 40 },
+  });
+
+  const error = await extension.read({ url: "https://slow.test/" }).catch((e) => e);
+
+  assert.equal(error.code, "timeout", "the original code stands");
+  assert.equal(error.retryable, true, "including whether a retry is worth it");
+  assert.equal(error.details.gatewayHealth.answered, true, "and the gateway got to say what it was doing");
+  assert.equal(healthCalls(fake).length, 1);
+});
+
+test("a browser that closes our tab mid-read says whether it is still there at all", async (t) => {
+  // The failure mode the item exists for, and the one that reads worst without it: `tab_not_found` alone
+  // tells a model a tab vanished, which is a retry; a browser that has gone is not.
+  const { fake, extension } = extensionFor(t, "pi-tab-gone", {
+    pageContents: new Map([["https://thin.test/", "- heading \"still rendering\""]]),
+    dropsTabAfterSnapshot: true,
+    healthBody: NO_BROWSER,
+  });
+
+  const error = await extension.read({ url: "https://thin.test/" }).catch((e) => e);
+
+  assert.equal(error.code, "tab_not_found", "the second look is what failed, not the first");
+  assert.equal(error.details.gatewayHealth.browserConnected, false, "and the gateway says why");
+  assert.equal(healthCalls(fake).length, 1);
+});
+
+test("a page that reads as the browser refusing is diagnosed the same way", async (t) => {
+  // `navigation_failed` this side comes from the wall classifier, not from a refused navigation, so it is
+  // driven as a page: a 403-shaped tree is what produces this code in production.
+  const { fake, extension } = extensionFor(t, "pi-refused-page", {
+    pageContents: new Map([["https://denied.test/", "- heading\n- paragraph:\n  - text: 403 Forbidden"]]),
+    healthBody: NO_BROWSER,
+  });
+
+  const error = await extension.read({ url: "https://denied.test/" }).catch((e) => e);
+
+  assert.equal(error.code, "navigation_failed");
+  assert.equal(error.details.gatewayHealth.browserConnected, false);
+  assert.equal(healthCalls(fake).length, 1);
+});
+
+test("a gateway with no /health route gets its failure back exactly as it was sent", async (t) => {
+  // The case a diagnostic must never be able to reach: the thing it was called to explain has to arrive
+  // unchanged, or an optional extra has become the report.
+  const { fake, extension } = extensionFor(t, "pi-no-health", { ...BROKEN_PAGE, healthRoute: false });
+
+  const error = await extension.read({ url: "https://example.test/article" }).catch((e) => e);
+
+  assert.equal(error.code, "gateway_error");
+  assert.equal(error.message, "gateway error 500: snapshot exploded");
+  assert.equal(error.details.status, 500, "the original details keep their own keys");
+  assert.equal("gatewayHealth" in error.details, false, "and not even an empty key is added when nothing was learned");
+  assert.equal(healthCalls(fake).length, 1, "the route was asked for, and was not there");
+});
+
+test("a health check that never answers cannot replace the failure it was asked about", async (t) => {
+  const { extension } = extensionFor(t, "pi-health-silent", {
+    ...BROKEN_PAGE,
+    healthHangsForMs: 500,
+    client: { preflightTimeoutMs: 20 },
+  });
+
+  const error = await extension.read({ url: "https://example.test/article" }).catch((e) => e);
+
+  assert.equal(error.code, "gateway_error", "the code is still the snapshot's");
+  assert.equal(error.message, "gateway error 500: snapshot exploded", "and so is the message");
+  assert.equal(error.details.status, 500, "and so is the status it carried");
+  assert.deepEqual(error.details.gatewayHealth, { answered: false }, "the only addition is that nothing answered");
+});
+
+test("a diagnosis the caller walks away from attaches nothing", async (t) => {
+  // The failure this is annotating is already decided, so an abandoned diagnosis has to add nothing and
+  // change nothing — and it has to stop asking, rather than sit out its own deadline on a cancelled call.
+  const gaveUp = new AbortController();
+  const { fake, extension } = extensionFor(t, "pi-abandoned", {
+    ...BROKEN_PAGE,
+    healthHangsForMs: 5_000,
+    wrapFetch: (fetch) => (url, init) => {
+      if (String(url).endsWith("/health")) gaveUp.abort();
+      return fetch(url, init);
+    },
+  });
+
+  const error = await extension.read({ url: "https://example.test/article" }, { signal: gaveUp.signal }).catch((e) => e);
+
+  assert.equal(error.code, "gateway_error", "the failure it was asked about still arrives");
+  assert.equal(error.message, "gateway error 500: snapshot exploded", "unchanged");
+  assert.equal("gatewayHealth" in error.details, false, "and nothing is said about a state nobody waited for");
+  assert.equal(healthCalls(fake).length, 1, "one attempt, then it stopped asking");
+});
+
+test("one failed search pays one health request, however many engines were tried", async (t) => {
+  // Both engines fail at the same endpoint, so the chain runs twice and reports once. The diagnostic
+  // belongs to the report.
+  const { fake, extension } = extensionFor(t, "pi-chain", { ...BROKEN_PAGE, healthBody: NO_BROWSER });
+
+  const error = await extension.search({ query: "camoufox" }).catch((e) => e);
+
+  assert.equal(error.code, "gateway_error", "the first engine still leads, because it is the one about the query");
+  assert.equal(error.details.tried.length, 2, "both engines were attempted");
+  assert.equal(healthCalls(fake).length, 1, "and the gateway was asked about once");
+});
+
+test("nothing is said about gateway state when none was asked for", () => {
+  // A line rendered from an absent record is how an absent record starts reading like a reported one.
+  const formatted = formatError(new GatewayError("gateway_error", "gateway error 500: nope"), ERROR_CONTEXT);
+
+  assert.equal(/health|Gateway state/iu.test(formatted.text), false, `said something: ${formatted.text}`);
+});
+
+test("a gateway that answered is told apart from one that did not", () => {
+  // The distinction the whole item is made of, and it has to reach the message rather than stay a boolean.
+  const base = { details: { gatewayHealth: { answered: true, ok: true, browserConnected: false } } };
+  const answered = formatError(new GatewayError("timeout", "gateway did not respond within 30000ms", base), ERROR_CONTEXT);
+  const silent = formatError(
+    new GatewayError("timeout", "gateway did not respond within 30000ms", { details: { gatewayHealth: { answered: false } } }),
+    ERROR_CONTEXT,
+  );
+
+  assert.match(answered.text, /browserConnected=false/u);
+  assert.equal(/did not answer/iu.test(answered.text), false, "an answer must not also be called a silence");
+  assert.match(silent.text, /did not answer `GET \/health`/u);
+  assert.equal(/browserConnected/u.test(silent.text), false, "and a silence must not be filled in with state");
+});
+
+test("what is printed is what was reported, including when it was nothing", () => {
+  const recovering = formatError(
+    new GatewayError("navigation_failed", "the browser refused the page", {
+      details: { gatewayHealth: { answered: true, ok: false, recovering: true } },
+    }),
+    ERROR_CONTEXT,
+  );
+  const bare = formatError(
+    new GatewayError("navigation_failed", "the browser refused the page", { details: { gatewayHealth: { answered: true } } }),
+    ERROR_CONTEXT,
+  );
+
+  assert.match(recovering.text, /ok=false, recovering=true/u, "the 503's own two fields, and no others");
+  assert.equal(/browserConnected|activeTabs/u.test(recovering.text), false, "nothing is invented for a shape that lacks them");
+  assert.match(bare.text, /answered `GET \/health` without reporting any state/u);
+
+  // Read defensively, as the engine chain above is: a field that arrived the wrong shape is not a fact.
+  const mistyped = formatError(
+    new GatewayError("gateway_error", "gateway error 500: nope", {
+      details: { gatewayHealth: { answered: true, activeTabs: "0" } },
+    }),
+    ERROR_CONTEXT,
+  );
+  assert.equal(/activeTabs/u.test(mistyped.text), false, "a field of the wrong type is not printed as a fact");
+});
+
+test("a gateway-health record that is not a record prints nothing", () => {
+  // `details` travels through pi as whatever it is, and a half-shaped one must not print `=undefined`.
+  for (const malformed of ["up", 7, [], null]) {
+    const formatted = formatError(
+      new GatewayError("gateway_error", "gateway error 500: nope", { details: { gatewayHealth: malformed } }),
+      ERROR_CONTEXT,
+    );
+    assert.equal(/Gateway state/iu.test(formatted.text), false, `${JSON.stringify(malformed)} printed a line`);
+    assert.equal(/undefined/u.test(formatted.text), false, `${JSON.stringify(malformed)} printed a hole`);
+  }
 });
 
 test("a dead gateway costs one liveness probe per window, not one timeout per call", async (t) => {
