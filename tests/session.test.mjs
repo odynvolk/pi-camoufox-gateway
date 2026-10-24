@@ -478,7 +478,8 @@ test("parse_error says whose fault it probably is", () => {
  */
 const BROKEN_PAGE = { failSnapshot: true };
 
-/** The roadmap's own scenario: a gateway that is up and answering, with nothing behind it. */
+/** Every field the recorded contract declares for a healthy answer bar `engine`, which the render test below
+ *  adds back to prove a deliberately unsurfaced field also stays off the line. */
 const NO_BROWSER = {
   ok: true,
   browserConnected: false,
@@ -507,15 +508,25 @@ test("a gateway that answers while a read fails reports its own state on the err
 test("what the gateway said goes in details, and the reading of it in the text", async (t) => {
   // The split item 1.4 shipped the tools for: a script takes the named fields off `details`, a model
   // reads a line. Asserted against the same failure, because the two halves drifting apart is the defect.
-  const { extension } = extensionFor(t, "pi-health-rendered", { ...BROKEN_PAGE, healthBody: NO_BROWSER });
+  const { extension } = extensionFor(t, "pi-health-rendered", {
+    ...BROKEN_PAGE,
+    healthBody: { ...NO_BROWSER, engine: "camoufox" },
+  });
 
   const error = await extension.read({ url: "https://example.test/article" }).catch((e) => e);
   const formatted = formatError(error, ERROR_CONTEXT);
 
   assert.match(formatted.text, /^gateway_error: gateway error 500: snapshot exploded$/mu, "the failure still leads, on its own line");
-  assert.match(formatted.text, /Gateway state after the failure: .*browserConnected=false/u);
-  assert.match(formatted.text, /activeTabs=0/u, "the count a model can tell the user about");
-  assert.equal(formatted.details.gatewayHealth.browserConnected, false, "and the same fact, unnarrated, for a script");
+  // Derived off the record rather than hand-listed, because a hand-listed expectation is a third copy of
+  // the field set this test exists to guard — and it would be the copy that goes stale quietly.
+  const reported = Object.entries(formatted.details.gatewayHealth).filter(
+    ([key, value]) => key !== "answered" && (typeof value === "boolean" || typeof value === "number"),
+  );
+  assert.equal(reported.length, Object.keys(NO_BROWSER).length, "every fact the gateway sent reached the record");
+  const narrated = reported.map(([key, value]) => `${key}=${value}`).join(", ");
+  // One assertion for the whole line, so a dropped field, a reordered one and a lost lead each fail it.
+  assert.match(formatted.text, new RegExp(`Gateway state after the failure: ${narrated}`, "u"), `the line is the record, narrated: ${narrated}`);
+  assert.equal(/engine=/u.test(formatted.text), false, "the one declared field we leave off is left off the line too");
 });
 
 test("a call that works never asks the gateway how it is", async (t) => {

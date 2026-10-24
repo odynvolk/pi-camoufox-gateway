@@ -119,8 +119,22 @@ const DIAGNOSED_CODES: GatewayErrorCode[] = ["gateway_error", "timeout", "naviga
 /** Where a diagnosis is filed on `details`, nested so it cannot overwrite the failure's own `status`. */
 const HEALTH_DETAIL = "gatewayHealth";
 
-/** Fields of a diagnosis, in the order a reader should meet them: verdict first, then the counts. */
-const HEALTH_FACTS = ["ok", "recovering", "browserConnected", "browserRunning", "activeTabs", "activeSessions", "consecutiveFailures"] as const;
+/**
+ * The fields a diagnosis may print, in the order a reader should meet them: verdict first, then the counts.
+ *
+ * Typed as a total over the record, not a free list: a field `health()` reads and this does not name is read,
+ * cached on `details`, and never said out loud — the one place a model reads. A hand-listed set could only
+ * notice that after the fact.
+ */
+const HEALTH_FACTS = {
+  ok: true,
+  recovering: true,
+  browserConnected: true,
+  browserRunning: true,
+  activeTabs: true,
+  activeSessions: true,
+  consecutiveFailures: true,
+} as const satisfies Record<Exclude<keyof GatewayHealth, "answered">, true>;
 
 export function createExtension(deps: ExtensionDepsWithConfig): Extension {
   const { client, config, cache, userId } = deps;
@@ -311,9 +325,10 @@ function gatewayHealthLine(details: Record<string, unknown> | undefined): string
   const lead = "Gateway state after the failure:";
   if (health.answered !== true) return `${lead} unknown — the gateway did not answer \`GET /health\`.`;
 
-  const facts = HEALTH_FACTS.filter((key) => typeof health[key] === "boolean" || typeof health[key] === "number").map(
-    (key) => `${key}=${String(health[key])}`,
-  );
+  // Object key order is declaration order, so the declaration above is also the order they are met in.
+  const facts = Object.keys(HEALTH_FACTS)
+    .filter((key) => typeof health[key] === "boolean" || typeof health[key] === "number")
+    .map((key) => `${key}=${String(health[key])}`);
   if (facts.length === 0) return `${lead} the gateway answered \`GET /health\` without reporting any state.`;
   return `${lead} ${facts.join(", ")}.`;
 }
