@@ -615,6 +615,26 @@ test("the two width counts reach structuredContent, not just the prose", async (
   assertDeclaredBy(byName.camoufox_search.outputSchema, search.structuredContent, "a capped camoufox_search");
 });
 
+test("the time a search waited for its SERP reaches structuredContent, not just the prose", async (t) => {
+  // The same guard as the two width counts, and for the same reason: `assertDeclaredBy` cannot see an
+  // optional key no call ever produces, and this one is produced by a page that renders late.
+  withConfigFile(t, { gatewayUrl: "http://gateway.test:9377" });
+  const skeleton = `- heading "camoufox"\n- navigation:\n  - link "Allt" [e1]\n  - link "Webb" [e2]`;
+  const served = `${skeleton}\n- link "Camoufox" [e3]:\n  - /url: https://camoufox.com\n  - text: An anti-detect browser.`;
+  withFakeGateway(t, {
+    snapshotScripts: new Map([["https://www.google.com/search?q=late", [skeleton, served]]]),
+  });
+  const { byName } = registered();
+  const { ctx } = session("pi-slow-serp");
+
+  const search = await byName.camoufox_search.execute("id", { query: "late", n: 1 }, undefined, undefined, ctx);
+
+  assert.equal(search.isError, undefined, "a search that worked must not be reported as one that did not");
+  assert.equal(typeof search.structuredContent.settledInMs, "number", "the cost of the fetch is data, not only prose");
+  assert.match(search.content[0].text, /\(waited \d+ms for the page to render\)/u, "and the model is told the same fact");
+  assertDeclaredBy(byName.camoufox_search.outputSchema, search.structuredContent, "a slow camoufox_search");
+});
+
 test("a read says what it is doing while it does it", async (t) => {
   // A read can spend seconds waiting for a page to render, with nothing reaching pi's UI in between.
   // `onUpdate` was received and dropped; this is the plumbing, not the wording.

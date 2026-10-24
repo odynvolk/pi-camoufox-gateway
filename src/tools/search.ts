@@ -30,8 +30,8 @@ export interface SearchParams {
   onProgress?: (note: string) => void;
 }
 
-/** What goes into the cache: the facts, no rendering. */
-export type CachedSearch = Omit<SearchOutcome, "text" | "clampedTo" | "shortBy" | "pageCarried" | "fromCache">;
+/** What goes into the cache: the facts, no rendering, and no cost — see `settledInMs`. */
+export type CachedSearch = Omit<SearchOutcome, "text" | "clampedTo" | "shortBy" | "pageCarried" | "fromCache" | "settledInMs">;
 
 export interface SearchOutcome {
   query: string;
@@ -56,6 +56,13 @@ export interface SearchOutcome {
    * whole page. Nothing in this file may claim more than it returned.
    */
   pageCarried?: number;
+  /**
+   * Extra time the engines spent re-looking at a SERP that had not arrived.
+   *
+   * Absent when the first look answered, and absent on a cache hit: this is a cost, and a call that
+   * fetched nothing did not pay it.
+   */
+  settledInMs?: number;
   fromCache?: boolean;
   text: string;
 }
@@ -78,6 +85,7 @@ export function formatResults(outcome: {
   clampedTo?: number;
   shortBy?: number;
   pageCarried?: number;
+  settledInMs?: number;
   fromCache?: boolean;
 }): string {
   const lines: string[] = [];
@@ -118,6 +126,11 @@ export function formatResults(outcome: {
       : `${outcome.requested ?? outcome.results.length} asked for`;
     lines.push(`(the ${outcome.engine} page carried ${outcome.pageCarried} result(s), ${outcome.results.length} returned: ${why})`);
   }
+  // Time, not a verdict: the wait is already reflected in how long the call took, and what the model
+  // cannot tell from the result is that any of it was spent waiting rather than searching. No advice
+  // follows, because the budget is a constant this tool does not expose — a bigger one is not a lever
+  // the caller has.
+  if (outcome.settledInMs !== undefined) lines.push(`(waited ${outcome.settledInMs}ms for the page to render)`);
   if (outcome.fromCache) lines.push("(served from cache)");
   return lines.join("\n");
 }
@@ -179,13 +192,27 @@ export function searchTool(deps: SearchToolDeps) {
       );
     }
 
-    // `n` deliberately stays out of the key: the cached value is the whole engine page, sliced only
-    // when the outcome is shaped, so a cheap first call can never cap a later one.
+    // `n` deliberately stays out of the key: the stored value is never pre-sliced — the outcome slices it
+    // — so one page serves every ask for that query. What makes that safe is `shouldStore` below rather
+    // than the shape of the value: the engines stop at the first organic result, so a page they had to
+    // wait for is not known to be finished, and one result kept would answer every later ask until
+    // `cache.serpMs` expired.
+    //
+    // The gap that remains, and nothing at this seam closes it: a first look that already carries results
+    // and grows afterwards looks exactly like a finished page. Watching for that means re-looking at every
+    // search, measured at two extra snapshots and ~300ms on the plain path, for the same page.
     const key = `search:${query}:${activeEngines.map((e) => e.name).join(">")}:raw`;
 
     let fromCache = false;
     const cached = cache.get(key);
     if (cached) fromCache = true;
+
+    // Two facts the chain reports and a cache value cannot carry without becoming a second answer: what
+    // this chain waited, and whether the page that answered had been re-looked at. Both ride closures, as
+    // `read` carries its own settle cost — time is per call, and a caller that rode along on someone
+    // else's chain spent neither.
+    let settledInMs = 0;
+    let pagePolled = false;
 
     // A failure is never cached — `run` stores only on a resolved value — so the next call is free to
     // try the chain again, and the error keeps the single code it was given where it was caught.
@@ -196,8 +223,10 @@ export function searchTool(deps: SearchToolDeps) {
         signal: params.signal,
         ...(params.onProgress ? { onProgress: params.onProgress } : {}),
       });
+      settledInMs = chain.settledInMs ?? 0;
+      pagePolled = chain.pagePolled === true;
       return { query, engine: chain.engine, results: chain.results, tried: chain.tried };
-    }, config.cache.serpMs);
+    }, config.cache.serpMs, { shouldStore: () => !pagePolled });
 
     // Resolution happens after the cache and only for what will be shown: a wrapper costs one page
     // load each, so we never resolve urls the caller did not ask to see.
@@ -225,6 +254,7 @@ export function searchTool(deps: SearchToolDeps) {
       ...(clampedTo ? { clampedTo } : {}),
       ...(results.length < Math.min(requested, clamped) ? { shortBy: Math.min(requested, clamped) - results.length } : {}),
       ...(pageCarried === undefined ? {} : { pageCarried }),
+      ...(settledInMs > 0 ? { settledInMs } : {}),
       ...(fromCache ? { fromCache: true } : {}),
     };
     return { ...shaped, text: formatResults(shaped) };

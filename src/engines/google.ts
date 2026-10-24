@@ -7,7 +7,7 @@
  */
 
 import { GatewayError } from "../errors.ts";
-import { classifySerp } from "../snapshot.ts";
+import { settledSerpVerdict } from "./settle.ts";
 import type { Engine, EngineContext, EngineOutcome } from "./types.ts";
 
 const SEED_URL = "https://example.com/";
@@ -21,9 +21,7 @@ export function googleEngine(): Engine {
       const tab = await client.openTab({ userId, url: SEED_URL, signal });
       try {
         await client.navigateMacro({ userId, tabId: tab.tabId, macro: MACRO, query, signal });
-        const snapshot = await client.snapshot({ userId, tabId: tab.tabId, signal });
-
-        const verdict = classifySerp(snapshot, "google");
+        const verdict = await settledSerpVerdict(context, tab.tabId, "google");
         if (verdict.kind === "error") {
           throw new GatewayError(verdict.code, verdict.message, { details: verdict.details });
         }
@@ -31,7 +29,7 @@ export function googleEngine(): Engine {
         // The whole page, unsliced. One fact is worth keeping out of a constant: the macro takes only a
         // query, and Google's page is ten wide — more needs pagination we do not have. So asking for 20
         // buys a page of ~10 whatever `n` says, and `tools/search.ts` is where any further slice happens.
-        return { results: verdict.results };
+        return { results: verdict.results, ...(verdict.polled ? { polled: true } : {}) };
       } finally {
         await client.closeTabQuietly({ userId, tabId: tab.tabId });
       }

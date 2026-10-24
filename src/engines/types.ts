@@ -14,6 +14,15 @@ export interface EngineContext {
   signal?: AbortSignal;
   /** What this engine is about to do, for the tool UI. Optional because most callers have no UI. */
   onProgress?: (note: string) => void;
+  /**
+   * What this engine spent re-looking at a page that had not arrived, reported as it is spent.
+   *
+   * A callback rather than a field on `EngineOutcome`, because an engine that waited and then found no
+   * results leaves by throwing — and the time is still gone. The chain adds these up: a hop is paid on
+   * top of the wait that preceded it, so a search that reported only the answering engine's wait would
+   * print a number shorter than the one the model experienced.
+   */
+  onSettled?: (ms: number) => void;
 }
 
 export interface EngineOutcome {
@@ -28,6 +37,14 @@ export interface EngineOutcome {
    * a second, per-engine width next to the tool's one and let the two disagree in silence.
    */
   results: SearchResult[];
+  /**
+   * Set when this page took a re-look before it had a result in it.
+   *
+   * The stop rule is the first organic result, so a page that had to be waited for was only partly known
+   * at the moment we stopped — fine to hand back, not fine to keep for the next caller. A fact about the
+   * page rather than a duration, because how long something took does not say whether it finished.
+   */
+  polled?: true;
 }
 
 export interface Engine {

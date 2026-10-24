@@ -11,6 +11,7 @@ import { createCache } from "../src/cache.ts";
 import { searchTool } from "../src/tools/search.ts";
 import { readTool } from "../src/tools/read.ts";
 import { enginesFromConfig } from "../src/engines/chain.ts";
+import { SEARCH_SETTLE_POLL_MS } from "../src/engines/settle.ts";
 
 const BASE = "http://gateway.test:9377";
 
@@ -469,4 +470,106 @@ test("normalises the query for cache purposes", async (t) => {
   await tool.search({ query: "camoufox anti-detect" });
 
   assert.equal(fake.state.calls.length, calls);
+});
+
+// --- what a slow SERP cost ----------------------------------------------------------------------
+
+/**
+ * Two frames of the same page, engine-neutral on purpose: an engine that has drawn its own chrome and
+ * an engine that has drawn its results are the two states every adapter waits between.
+ */
+const SERP_SKELETON = `- heading "camoufox"\n- searchbox "Search" [e1]: camoufox\n- navigation:\n  - link "Allt" [e2]\n  - link "Webb" [e3]`;
+const SERP_WITH_RESULTS = `${SERP_SKELETON}\n- link "Camoufox: Introduction" [e9]:\n  - /url: https://camoufox.com\n  - text: An open source anti-detect browser.`;
+/** A page as wide as one call may return — what a caller asking `n: 10` is owed, once the render finishes. */
+const TEN_RESULTS_PAGE = Array.from(
+  { length: 10 },
+  (_unused, i) => `- link "Tall ${i + 1}" [e${i + 2}]:\n  - /url: https://example.test/t${i + 1}\n  - text: snippet ${i + 1}`,
+).join("\n");
+
+test("a search that waited for its SERP says how long it waited, and says nothing else", async (t) => {
+  const { tool } = setup(t, {
+    snapshotScripts: new Map([["https://www.google.com/search?q=late", [SERP_SKELETON, SERP_WITH_RESULTS]]]),
+  });
+
+  const out = await tool.search({ query: "late", n: 1 });
+
+  assert.equal(out.results.length, 1, "the re-look is what served this, so the wait is the story");
+  assert.equal(typeof out.settledInMs, "number", "the time is a fact about the call, not only about the page");
+
+  const notes = out.text.split("\n").filter((line) => line.startsWith("("));
+  assert.equal(notes.length, 1, `one conditional line, not one per surprise: ${JSON.stringify(notes)}`);
+  assert.match(notes[0], /^\(waited \d+ms for the page to render\)$/u, "the number, and no advice to give");
+});
+
+test("a search that needed no re-look says nothing about waiting", async (t) => {
+  // The other half of the note: a line that fires on every search is noise, and this item is about the
+  // wrong statement a thin page used to produce, not about narrating normal operation.
+  const { tool } = setup(t);
+
+  const out = await tool.search({ query: "camoufox" });
+
+  assert.equal(out.settledInMs, undefined, "nothing was polled, so nothing is reported as polled");
+  assert.equal(/\bwaited\b/u.test(out.text), false, "and the model is not told about a wait that did not happen");
+});
+
+test("a search served from cache reports no wait it did not pay", async (t) => {
+  // `settledInMs` is a cost, and the caching rule in this file is that a caller who rode along on
+  // someone else's work does not report having done it.
+  //
+  // The chain waited on google and failed there, so the page that was stored is the one duckduckgo
+  // answered with at a glance — which is what makes it storable at all. A page the engines had to wait
+  // for is not kept, and the test below is why.
+  const { fake, tool } = setup(t, {
+    pageContents: new Map([["https://www.google.com/search?q=late", SERP_SKELETON]]),
+  });
+
+  const first = await tool.search({ query: "late" });
+  assert.equal(first.engine, "duckduckgo", "the stored page came from the engine that answered at a glance");
+  const second = await tool.search({ query: "late" });
+
+  assert.equal(typeof first.settledInMs, "number", "the call that fetched the page paid for it");
+  assert.equal(second.fromCache, true);
+  assert.equal(second.settledInMs, undefined, "the call that fetched nothing claims no waiting");
+  assert.equal(/\bwaited\b/u.test(second.text), false);
+});
+
+test("a SERP caught at its first result answers this call and is not kept for the next", async (t) => {
+  // The engines stop at the first organic result, so a page caught between its chrome and its results is
+  // a page only partly known — and nothing later can tell it from a page that finished there. Returning
+  // it is honest, because `shortBy` says what came up short. Storing it under a key that deliberately
+  // ignores `n` is not: one result becomes the answer for every later ask, for the whole `cache.serpMs`.
+  const { fake, tool } = setup(t, {
+    snapshotScripts: new Map([["https://www.google.com/search?q=slow", [SERP_SKELETON, SERP_WITH_RESULTS]]]),
+  });
+
+  const narrow = await tool.search({ query: "slow", n: 1 });
+  assert.equal(narrow.results.length, 1, "stop-at-first is still what answers a search");
+
+  // The page has arrived since. Were the partial frame still stored, none of what follows would be read.
+  fake.state.snapshotScripts.set("https://www.google.com/search?q=slow", [TEN_RESULTS_PAGE]);
+  const before = fake.state.calls.length;
+
+  const wide = await tool.search({ query: "slow", n: 10 });
+
+  assert.notEqual(wide.fromCache, true, "a page we stopped looking at mid-render was not kept");
+  assert.ok(fake.state.calls.length > before, "the wider ask went back to the gateway instead of the frozen frame");
+  assert.equal(wide.results.length, 10, "and came back with a page");
+});
+
+test("the wait a search reports is the whole chain's, not just the engine that answered", async (t) => {
+  // Google renders chrome, never results, and costs two re-looks before the hop. DuckDuckGo needs one
+  // and serves. A hop is paid *after* the wait that preceded it, so the note that omits the first one
+  // is a number the model cannot reconcile with how long the call took.
+  const { tool } = setup(t, {
+    pageContents: new Map([["https://www.google.com/search?q=two-waits", SERP_SKELETON]]),
+    snapshotScripts: new Map([["https://duckduckgo.com/?q=two-waits", [SERP_SKELETON, SERP_WITH_RESULTS]]]),
+  });
+
+  const out = await tool.search({ query: "two-waits" });
+
+  assert.equal(out.engine, "duckduckgo", "the chain really did hop, or this measures nothing");
+  assert.ok(
+    out.settledInMs >= 3 * SEARCH_SETTLE_POLL_MS,
+    `${out.settledInMs}ms is under the three re-looks this chain made — a timer that oversleeps can only raise this`,
+  );
 });

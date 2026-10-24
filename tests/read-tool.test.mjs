@@ -7,7 +7,8 @@ import { withFakeGateway } from "./helpers/fake_gateway.mjs";
 import { testConfig } from "./helpers/config.mjs";
 import { createGatewayClient } from "../src/gateway.ts";
 import { createCache } from "../src/cache.ts";
-import { readTool, STABLE_ROUNDS } from "../src/tools/read.ts";
+import { readTool } from "../src/tools/read.ts";
+import { STABLE_ROUNDS } from "../src/settle.ts";
 import { assertHostAllowed, urlPolicyFromConfig } from "../src/net-policy.ts";
 
 const BASE = "http://gateway.test:9377";
@@ -533,6 +534,27 @@ test("a page that stops growing is not polled until the deadline", async (t) => 
   const snapshots = fake.state.calls.filter((c) => c.path.includes("/snapshot"));
   assert.equal(snapshots.length, 1 + STABLE_ROUNDS, "one look, then the confirmations that prove it is done");
   assert.equal(out.thinAfterWait, true, "the model must be told the page stayed thin");
+});
+
+test("a blank first snapshot is polled, not read as a page that answered blank", async (t) => {
+  // The one exception inside `wallWorthWaitingOn`, pinned from this caller's side. Both callers of the
+  // re-look machine now reach through that one function, so each has to hold it to its own test: a blank
+  // snapshot is the most obviously-still-rendering page there is, and `empty_page` is what it is called
+  // before anything has filled in.
+  const hydrated = `- heading "The real article" [level=1]\n${"  - text: body copy that only exists after the app boots. ".repeat(40)}`;
+  const { fake, tool } = setup(t, {
+    snapshotScripts: new Map([["https://blank.test/", ["", hydrated]]]),
+    config: { read: { settlePollMs: 10 } },
+  });
+
+  const out = await tool.read({ url: "https://blank.test/" });
+
+  assert.match(out.text, /The real article/u, "the re-look is what turned a blank page into one");
+  assert.equal(
+    fake.state.calls.filter((call) => call.path.includes("/snapshot")).length,
+    2,
+    "and it stopped when the page arrived, not when the budget ran out",
+  );
 });
 
 test("waitForSettleMs 0 reads a page with exactly one snapshot", async (t) => {
