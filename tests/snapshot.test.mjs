@@ -383,6 +383,10 @@ test("B.8 as filed: a recorded refusal is classified as one organic result, the 
   // The other half of the mechanism: nothing claims a wall, which is why the parser is reached at all.
   assert.equal(detectWall(recording), null, "B.8 depends on this: the wall check is blind to a refusal that carries a /url");
 
+  // `"google"` is the engine that served this page, not a claim about the host: no reddit adapter exists,
+  // and an engine name nothing knows falls through to google's rule anyway. Two of the item's three
+  // measurements are committed here — this verdict and the `detectWall` above. Its third, the same call as
+  // `"duckduckgo"`, is measured in the item and not asserted.
   const verdict = classifySerp(recording, "google");
   assert.equal(verdict.kind, "results", "B.8 is open, not fixed: a page refusing us is `results`. Red here means a classifier changed the verdict — retire it with the item, not to make the suite green.");
   assert.equal(verdict.results.length, 1, "B.8: the block page's one link is the only 'result' — 0 would mean it is no longer counted");
