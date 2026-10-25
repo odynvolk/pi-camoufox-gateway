@@ -380,8 +380,9 @@ test("B.8 as filed: a recorded refusal is classified as one organic result, the 
   );
   const ticket = "https://support.reddithelp.com/hc/en-us/requests/new?ticket_form_id=21879292693140";
 
-  // The other half of the mechanism: nothing claims a wall, which is why the parser is reached at all.
-  assert.equal(detectWall(recording), null, "B.8 depends on this: the wall check is blind to a refusal that carries a /url");
+  // The other half of the mechanism. The `/url` guard is not what misses this page: measured with it
+  // deleted, the page is still no wall, because it has neither a heading nor a retry affordance.
+  assert.equal(detectWall(recording), null, "B.8 depends on this: nothing claims a wall, so the parser is the thing that answers");
 
   // `"google"` is the engine that served this page, not a claim about the host: no reddit adapter exists,
   // and an engine name nothing knows falls through to google's rule anyway. Two of the item's three
