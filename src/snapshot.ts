@@ -232,14 +232,17 @@ function organicResults(blocks: LinkBlock[], engine: string): SearchResult[] {
  *
  * Measured against the recorded pages, not designed in the abstract: the one error page we have is
  * 378 chars, 6 blocks, 1 heading at level 1, 1 ref — a `Try Again` button — and zero `/url` lines, and
- * every other recorded page carries at least one `/url`. That last condition is the load-bearing one, so
- * it is worth being explicit about what it excludes: a refusal that renders a help article would carry
- * one and go undetected. No such page is recorded here, and loosening the rule to cover a hypothetical
- * one would trade a measured budget for an unmeasured one.
+ * every other recorded page that has anything on it carries at least one `/url`. That last condition is
+ * the load-bearing one, so be explicit about what it excludes, and about how narrow it is: a `/url`
+ * line, not a link — a page whose only links have no url child is still caught, measured. And a refusal
+ * carrying one is recorded: `serp-reddit-blocked.txt` (B.8) says we were blocked, links to a support
+ * desk, and is called no wall. Loosening the guard does not reach that page, which is measured too —
+ * with this line deleted it is still no wall, having neither a heading nor a retry affordance. So the
+ * guard stays, because it is what keeps a navigable page from being called a refusal.
  *
  * The thin end is the same trade, and it is louder: this rule is not width-gated, so it is what answers a
  * page still rendering, and a verdict here ends the settle wait rather than continuing it. Accepted on
- * measurement — every line-prefix of the 10 recorded pages checked against all three: only
+ * measurement — every line-prefix of the 11 recorded pages checked against all three: only
  * `page-network-error.txt` ever reaches them, and at its own last line. No recorded content page carries a
  * retry-vocabulary button at all. Pinned in `tests/read-tool.test.mjs`, so reversing it is a decision and
  * not a regression.
