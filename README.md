@@ -14,13 +14,18 @@ Searches through the browser and returns ranked titles, urls and snippets.
 
 - Google goes through the gateway's `@google_search` macro, which is what survives Google's consent
   interstitial. If Google walls us, DuckDuckGo answers, and the output lists which engines were tried.
-- **Every result set says which engine served it** — `(via google)` on the header, not only when
-  something failed. "Google served this" and "DuckDuckGo served this after Google walled" are different
-  claims about the same eight links, and the engine used to be named only in the second case, which left
-  the common one attributable to nothing. It was always in `details.engine`, but that is a field for a
-  script, not text a model reads.
-- Bing is not offered: through this gateway it returns a `Network Protocol Error` before results
-  render, so it would only ever waste a page load.
+  The gateway runs a fallback of its own inside one google call, before any call of ours starts, and that
+  hop is not in the list — one search is one request to us whatever the gateway navigated to get the page.
+- **The header names the engine the tool selected**, on every success and not only when something failed.
+  "Google served this" and "DuckDuckGo served this after Google walled" are different claims about the
+  same eight links, and a result set a model cannot attribute is one it cannot weigh. It was always in
+  `details.engine`, but that is a field for a script, not text a model reads. *Selected* is the exact word:
+  the gateway can serve a `@google_search` call from a different engine and reports that in a response
+  field nothing here reads, so `(via google)` is what was asked for, and the page can still be
+  DuckDuckGo's.
+- Bing is not offered: there is no adapter for it, and a Bing search page measured for this repo carried
+  no organic results at all — Bing's own navigation and footer, which no chrome rule in this repo
+  recognises, so every one of those links comes back as a result.
 - **`engine` is one of the two we ship, and the refusal says which way you missed.** A name we have no
   adapter for comes back as "unknown engine", naming the ones we do have; a real engine you switched off
   under `engines` comes back as "disabled in your config". One of those is a typo and the other is a
