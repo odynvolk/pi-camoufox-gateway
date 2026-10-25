@@ -585,7 +585,7 @@ test("a wall is classified without spending the settle budget on it", async (t) 
  *
  * `isBrowserRefusal` is not width-gated, so it is the branch that answers here — and a page still
  * rendering is exactly what `worthPollingAgain` exists to wait out, so this verdict ends the wait. Weighed
- * before it was accepted: sweeping every line-prefix of all 10 recorded pages for the three conditions,
+ * before it was accepted: sweeping every line-prefix of all 11 recorded pages for the three conditions,
  * only `page-network-error.txt` ever satisfies them, and it reaches them at its own last line. No
  * recorded content page passes through this shape on the way to being content — the first `/url` shows up
  * within 12 lines on every page that has one, and no recorded content page has a retry-vocabulary button
