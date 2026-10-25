@@ -556,6 +556,47 @@ test("a SERP caught at its first result answers this call and is not kept for th
   assert.equal(wide.results.length, 10, "and came back with a page");
 });
 
+/**
+ * B.8 as filed, at the far end of the chain: the refusal is not only served, it is kept.
+ *
+ * `shouldStore` reads `!pagePolled`, and a page that answers at its first look is never polled — so a
+ * refusal the classifier never saw is stored under a key that deliberately ignores `n` and served for
+ * `cache.serpMs`. The classifier case in `tests/snapshot.test.mjs` shows the wrong verdict; this shows
+ * what it costs, which is the half that decides the item's rank.
+ *
+ * Pinned as wrong, not as right. Two assertions carry it: the absence of a wait, and the absence of
+ * requests. A fix that makes a first look count as polled, or that refuses this page at the classifier,
+ * turns this red by design — retire it with the item rather than tuning it.
+ */
+test("B.8 as filed: a refusal served from the first look is cached, and the second query costs no request", async (t) => {
+  const { fake, tool } = setup(t, {
+    pageContents: new Map([
+      ["https://www.google.com/search?q=blocked", readFileSync(new URL("./fixtures/serp-reddit-blocked.txt", import.meta.url), "utf8")],
+    ]),
+  });
+
+  const first = await tool.search({ query: "blocked" });
+
+  assert.deepEqual(
+    first.tried,
+    [{ engine: "google", code: "ok", message: "served" }],
+    "B.8: the chain credits the block page as an engine answering, so no second engine is tried",
+  );
+  assert.equal(first.results.length, 1, "B.8: the one link on a refusal is the whole answer");
+  assert.match(first.results[0].url, /^https:\/\/support\.reddithelp\.com\//u, "B.8: and it is the support desk ticket form");
+  assert.equal(first.settledInMs, undefined, "nothing was re-looked at, which is exactly the fact `shouldStore` reads");
+
+  const before = fake.state.calls.length;
+  const second = await tool.search({ query: "blocked" });
+
+  assert.equal(
+    second.fromCache,
+    true,
+    "B.8 is open, not fixed: a refusal was kept as a cached answer. Red here means the store gate or the classifier changed — retire this with the item.",
+  );
+  assert.equal(fake.state.calls.length, before, "B.8: the second identical query costs 0 gateway calls, so nothing downstream can notice it");
+});
+
 test("the wait a search reports is the whole chain's, not just the engine that answered", async (t) => {
   // Google renders chrome, never results, and costs two re-looks before the hop. DuckDuckGo needs one
   // and serves. A hop is paid *after* the wait that preceded it, so the note that omits the first one
