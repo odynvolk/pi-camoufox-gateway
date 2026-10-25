@@ -14,8 +14,11 @@ Capability and user-visible behaviour only. Code-quality findings live in
 
 **Shipped items are deleted rather than ticked, and their numbers stay as gaps.** Nothing is renumbered:
 1.2 and the open questions below cite these labels, and a renumbered roadmap turns every one of those
-citations into a reference at the wrong item. So Tier 1 has no 1.3, 1.4 or 1.6, and Tier 2 has no 2.4 —
-its unshipped half became 2.6 rather than being deleted with the rest.
+citations into a reference at the wrong item. So Tier 1 has no 1.3, 1.4, 1.5 or 1.6, and Tier 2 has no
+2.4 — its unshipped half became 2.6 rather than being deleted with the rest. 1.5 is the one gap that did
+not ship: it closed on measurement, and what closed it is written up under "Deliberately leave alone"
+instead of being deleted with it, because the sentence it was founded on is still upstream and still
+true-sounding.
 
 Evidence base: a full functional profile of `src/`, plus the gateway's own recorded OpenAPI
 contract. "Reachable" below means *the gateway does this today and we simply don't call it* — a
@@ -93,32 +96,6 @@ expression template, **or** ask upstream for first-class region scoping.
 > ⚠️ Never expose raw `expression`. A validated CSS `region` only, and **refuse selectors matching
 > form controls** — a selector can reach `input[value]` and `document.cookie`, which turns a read
 > tool into a credential reader.
-
-### 1.5 Add a second engine that returns JSON: `@reddit_search`
-
-Per the gateway README's "Search Macros" section:
-
-> Reddit macros return JSON directly (no HTML parsing needed): `@reddit_search` — search all of
-> Reddit, returns JSON with 25 results.
-> — https://github.com/jo-inc/camofox-browser
-
-This is worth more than it looks, for two independent reasons:
-
-1. **The parser is the fragile part of this system.** Every Google/DuckDuckGo markup drift costs a
-   fixture re-record (`scripts/record-fixtures.py`, an out-of-band Python step). A JSON engine
-   deletes an entire failure class.
-2. **It breaks a ceiling we currently treat as structural.** `@google_search` takes only a `query`
-   and Google's page is 10 wide, so `n > 10` is unreachable, not merely unimplemented
-   (`src/engines/google.ts`, `src/tools/search.ts`). 25 results, no pagination work.
-
-Also gives the fallback chain a second engine actually worth falling back to — DuckDuckGo's stated
-reason for existing is Google-wall fallback (`src/engines/duckduckgo.ts`), yet nothing verifies it as a
-first choice.
-
-**Scope:** small — one adapter plus a JSON branch; needs a "macro returns JSON" convention.
-**Reachable:** yes — `/tabs/{id}/navigate` already accepts `{macro, query}` and we already call it.
-Two caveats: no endpoint lists the macros, so engine names stay compile-time constants (consistent
-with `ENGINE_NAMES`); and it needs the same seed-tab dance Google does.
 
 ## Tier 2 — clear value, a real cost or caveat
 
@@ -273,6 +250,63 @@ timid.
   precisely for "I want to read internal things" — an allowlist turns a working tool into a
   silently-empty one in the common case. Honest counter-argument: playwright-mcp ships both and
   documents that neither is a security boundary.
+- **A second engine that returns JSON — this was 1.5, and its premise was the thing that failed.**
+  Upstream still says *"Reddit macros return JSON directly (no HTML parsing needed)"*, which reads like a
+  transport and is a description of a web page. Anyone who finds that sentence again will reopen the
+  item, so the measurements that closed it stay here rather than in a commit message. Two things close
+  it, and neither is difficulty: the premise is false — a macro is a url template, and "returns JSON
+  directly" describes the page a browser goes to, not anything delivered to us — and the source refuses
+  us. The three paragraphs after those two are the distinction and the price: the mechanism does work,
+  and what it delivers is not the document.
+
+  **A macro is a url template, not a delivery.** Upstream's
+  [macro table](https://github.com/jo-inc/camofox-browser/blob/master/lib/macros.js) is 14 arrow functions
+  each returning one template string; `@reddit_search` is `https://www.reddit.com/search.json?q=…&limit=25`.
+  Checked on the live gateway, not read off the README: navigating the macro leaves the tab at exactly
+  that url, and what we then read is still `GET /tabs/{id}/snapshot?format=text` — the same accessibility
+  tree as any other page. "Returns JSON directly" says nothing about what reaches us, and "directly" is
+  doing the misleading work: we are never the client of that request.
+
+  **The source refuses us, consistently.** Two unrelated queries through the macro return the same 265
+  chars, byte for byte, recorded at `tests/fixtures/serp-reddit-blocked.txt`: *You've been blocked by
+  network security.*, and one link to Reddit's ticket form. What that page is classified as is a separate
+  defect, filed in [2026-10-18-code.md](./2026-10-18-code.md) as B.8 — it reports a successful search
+  with one result, and gets cached as one.
+
+  **The mechanism is real, and it is not "no parsing".** A JSON document does render as something we can
+  read: `https://api.github.com/repos/jo-inc/camofox-browser` comes back as **one** `text:` node, **0**
+  refs, 7 437 snapshot chars — the document as a JSON-quoted string. It round-trips through **two**
+  `json.loads` calls: the node, then the body, 86 keys. So this is recorded as *not reachable and not
+  worth it*, not as impossible — anyone tempted to re-test it will find it works, and should stop at the
+  next two paragraphs instead.
+
+  **The node is a rendering, not the response — and that is the failure class this would add.** It is the
+  browser's *rendered* text — whitespace runs collapsed — then quoted, not the response bytes. Measured
+  byte for byte against a curl copy of the same document, and against a page built to show it,
+  `https://httpbin.org/response-headers?x=a%20%20b`: a body saying `"x": "a  b"` arrives as
+  `\"x\": \"a b\"`. That is a silent content change inside a string value, and a JSON engine would ship it
+  as data. Parsing is not deleted either: a11y-tree parsing is traded for unwrapping an escaped string,
+  which is the same class of work with a different shape.
+
+  **One page wide is the whole reachable width, because of how snapshots are cut.** Measured on a pinned,
+  deterministic body — 299 839 raw chars,
+  `https://cdn.jsdelivr.net/npm/language-subtag-registry@0.4.2/data/json/index.json`: one snapshot returns
+  **79 915** chars, `truncated: true`, `hasMore: true`, `nextOffset: 74 800`, `totalChars: 299 848`, and
+  `json.loads` **fails** on it. A second body — 1 116 505 raw chars, 3.7× wider — returns **79 916**, so
+  the delivered size is a gateway chunk and not a function of the response — an earlier pass measured
+  79 884 off a 427 737-char body with the same `nextOffset` and the same failed parse, before the
+  endpoints were pinned.
+
+  And a truncated call is not a slice. Each one is `rendered[offset : offset + 74 800]`, a marker line
+  while `hasMore` is true, and then the **last 5 000 rendered chars** — every span verified against a
+  reconstructed copy of the page, byte for byte. So a single call is two non-adjacent spans around a
+  220 048-char hole, that tail comes back on *every* call including the last, and the parse cannot succeed
+  whatever a cut looks like. Reassembly is possible and is a second job: those offsets are in rendered
+  chars, so the first 74 800 of them carry 65 611 chars of body, and the whole page took 4 calls. Which is
+  where 1.5's second argument ended up. It promised 25 results with no pagination work; a snapshot is
+  74 800 chars wide in the only coordinates a snapshot has, and 299 839 raw chars of body arrive as
+  299 848 of them — so the pagination this item was meant to avoid is precisely what a page that size
+  costs.
 
 ---
 
