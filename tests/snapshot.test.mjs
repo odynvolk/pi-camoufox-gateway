@@ -355,3 +355,37 @@ test("a wide browser error page is a tree we could not read, not an empty query"
   assert.equal(code(thinBrowserError), "navigation_failed", "thin, the same words are the browser's own refusal");
   assert.equal(code(wideBrowserError), "parse_error", "too wide for phrase evidence and nothing link-shaped, so the parser is on trial");
 });
+
+/**
+ * B.8 — this one pins a wrong answer, on purpose, and is expected to pass today.
+ *
+ * `tests/fixtures/serp-reddit-blocked.txt` is a refusal recorded from the live gateway: its text says we
+ * were blocked, and its only link is Reddit's support-desk ticket form. That link is off-engine, and
+ * `isChrome` decides chrome by host alone, so the block page classifies as a successful search with one
+ * organic result — the ticket form. Filed in
+ * `docs/improvements/2026-10-18-code.md` → `### B.8 A page that says we were blocked`, which also records
+ * why it is worse than B.6: `results` is terminal for the chain, and a result on the first look leaves
+ * `polled` false, so the search cache keeps the refusal for `serpMs`.
+ *
+ * Asserted as behaviour, not as intent. Nothing here says this is right — an unasserted fixture is dead
+ * weight, and the point of pinning the current answer is that a fix has to change it deliberately rather
+ * than discover it. If a red line here is the first you have heard of it, read the item before touching
+ * this case: the verdict is the thing under test, and every assertion below is a claim a fix must
+ * contradict on purpose.
+ */
+test("B.8 as filed: a recorded refusal is classified as one organic result, the ticket form", () => {
+  const recording = fixture(
+    "serp-reddit-blocked.txt",
+    "https://www.reddit.com/search.json?q=camoufox%20anti-detect%20browser&limit=25",
+  );
+  const ticket = "https://support.reddithelp.com/hc/en-us/requests/new?ticket_form_id=21879292693140";
+
+  // The other half of the mechanism: nothing claims a wall, which is why the parser is reached at all.
+  assert.equal(detectWall(recording), null, "B.8 depends on this: the wall check is blind to a refusal that carries a /url");
+
+  const verdict = classifySerp(recording, "google");
+  assert.equal(verdict.kind, "results", "B.8 is open, not fixed: a page refusing us is `results`. Red here means a classifier changed the verdict — retire it with the item, not to make the suite green.");
+  assert.equal(verdict.results.length, 1, "B.8: the block page's one link is the only 'result' — 0 would mean it is no longer counted");
+  assert.equal(verdict.results[0].url, ticket, "B.8: the result is the support-desk ticket form, and naming it is what makes a fix say so out loud");
+  assert.equal(verdict.results[0].title, "File a ticket", "B.8: the title is the refusal's own affordance, kept because it is the evidence");
+});
