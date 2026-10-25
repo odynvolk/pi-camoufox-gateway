@@ -1,0 +1,435 @@
+- link "DuckDuckGo home" [e1]:
+  - /url: /
+  - text: DuckDuckGo
+- combobox "Search privately" [e2]: expressen
+- button "Search" [e3]:
+  - img
+- link "Protection. Privacy. Peace of mind." [e4]:
+  - /url: /compare-privacy
+- button "Open menu" [e5]:
+  - text: Open menu
+  - img
+- navigation:
+  - list:
+    - listitem [e6]:
+      - link "All" [e7]:
+        - /url: /?q=expressen&ia=web
+        - strong:
+          - img
+          - text: All
+    - listitem [e8]:
+      - link "Images" [e9]:
+        - /url: /?q=expressen&ia=images&iax=images
+        - strong: Images
+    - listitem [e10]:
+      - link "Videos" [e11]:
+        - /url: /?q=expressen&ia=videos&iax=videos
+        - strong: Videos
+    - listitem [e12]:
+      - link "News" [e13]:
+        - /url: /?q=expressen&ia=news&iar=news
+        - strong: News
+    - listitem [e14]:
+      - button "More" [e15]:
+        - strong: More
+  - list:
+    - listitem [e16]:
+      - link "Search Assist" [e17]:
+        - /url: /?q=expressen&ia=web&assist=true
+    - listitem [e18]:
+      - link "Duck.ai" [e19]:
+        - /url: /?q=expressen&ia=chat&entry=serp
+        - img
+        - text: Duck.ai
+    - listitem [e20]:
+      - button "Search Settings ✀" [e21]:
+        - img
+        - text: Search Settings ✀
+- navigation:
+  - button "Private" [e22]:
+    - strong: Private
+  - switch "Filter by the selected region" [e23]
+  - button "Sweden" [e24]:
+    - strong: Sweden
+  - 'button "Safe search: moderate"':
+    - strong: "Safe search: moderate"
+  - button "Any time" [e25]:
+    - strong: Any time
+- list:
+  - listitem [e26]:
+    - article:
+      - button [e27]:
+        - img
+      - link "Search domain expressen.se" [e28]:
+        - /url: /?q=expressen+site:www.expressen.se
+        - img
+      - paragraph: Expressen
+      - link "https://www.expressen.se" [e29]:
+        - /url: https://www.expressen.se/
+        - paragraph: https://www.expressen.se
+      - heading "Expressen - Nyheter - senaste nyheterna i Sverige och världen" [level=2]:
+        - link "Expressen - Nyheter - senaste nyheterna i Sverige och världen" [e30]:
+          - /url: https://www.expressen.se/
+      - text: Sveriges bästa nyhetssajt med nyheter, sport och nöje!
+      - list:
+        - listitem [e31]:
+          - link "Nyheter Håll dig uppdaterad med de senaste nyheterna från Expressen." [e32]:
+            - /url: https://www.expressen.se/nyheter/senaste-nytt/
+            - heading "Nyheter" [level=3]
+            - paragraph: Håll dig uppdaterad med de senaste nyheterna från Expressen.
+        - listitem [e33]:
+          - link "Sport Senaste nyheterna om fotboll, hockey och annan sport. Vi bevakar alla de stora sporthändelserna. Följ liverapportering från turneringar och matcher med Expressen." [e34]:
+            - /url: https://www.expressen.se/sport/
+            - heading "Sport" [level=3]
+            - paragraph: Senaste nyheterna om fotboll, hockey och annan sport. Vi bevakar alla de stora sporthändelserna. Följ liverapportering från turneringar och matcher med Expressen.
+        - listitem [e35]:
+          - link "Nöje Senaste nöjesnyheterna - kändisnytt och underhållning dygnet runt. Största händelserna inom musik, konserterna, film, tv och streaming på Sveriges bästa nöjessajt." [e36]:
+            - /url: https://www.expressen.se/noje/
+            - heading "Nöje" [level=3]
+            - paragraph: Senaste nöjesnyheterna - kändisnytt och underhållning dygnet runt. Största händelserna inom musik, konserterna, film, tv och streaming på Sveriges bästa nöjessajt.
+        - listitem [e37]:
+          - link "Ekonomi Expressen Ekonomi gör ekonomin greppbar, näringslivet begripligt och hjälper dig fatta rätt beslut för plånboken." [e38]:
+            - /url: https://www.expressen.se/ekonomi/
+            - heading "Ekonomi" [level=3]
+            - paragraph: Expressen Ekonomi gör ekonomin greppbar, näringslivet begripligt och hjälper dig fatta rätt beslut för plånboken.
+        - listitem [e39]:
+          - link "Premium Expressen Premium - få mer av det bästa från Expressen för bara 69 kronor i månaden. Här kan du se de senaste artiklarna från Premium." [e40]:
+            - /url: https://www.expressen.se/premium/
+            - heading "Premium" [level=3]
+            - paragraph: Expressen Premium - få mer av det bästa från Expressen för bara 69 kronor i månaden. Här kan du se de senaste artiklarna från Premium.
+        - listitem [e41]:
+          - link "Play Politik, nyheter, nöje och sport - här samlar vi allt på samma ställe." [e42]:
+            - /url: https://www.expressen.se/nyheter/tv-start/
+            - heading "Play" [level=3]
+            - paragraph: Politik, nyheter, nöje och sport - här samlar vi allt på samma ställe.
+  - listitem [e43]:
+    - article:
+      - button [e44]:
+        - img
+      - link "Search domain expressen.se" [e45]:
+        - /url: /?q=expressen+site:www.expressen.se
+        - img
+      - paragraph: Expressen
+      - link "https://www.expressen.se › nyheter › senaste-nytt" [e46]:
+        - /url: https://www.expressen.se/nyheter/senaste-nytt/
+        - paragraph: https://www.expressen.se › nyheter › senaste-nytt
+      - heading "Senaste nytt - nyheter idag från Expressen" [level=2]:
+        - link "Senaste nytt - nyheter idag från Expressen" [e47]:
+          - /url: https://www.expressen.se/nyheter/senaste-nytt/
+      - text: Håll dig uppdaterad med de senaste nyheterna från Expressen.
+  - listitem [e48]:
+    - article:
+      - button [e49]:
+        - img
+      - link "Search domain aftonbladet.se" [e50]:
+        - /url: /?q=expressen+site:www.aftonbladet.se
+        - img
+      - paragraph: Aftonbladet
+      - link "https://www.aftonbladet.se › tagg › expressen" [e51]:
+        - /url: https://www.aftonbladet.se/tagg/expressen
+        - paragraph: https://www.aftonbladet.se › tagg › expressen
+      - heading "Expressen - Senaste nyheterna - Aftonbladet" [level=2]:
+        - link "Expressen - Senaste nyheterna - Aftonbladet" [e52]:
+          - /url: https://www.aftonbladet.se/tagg/expressen
+      - text: Det senaste om Expressen - nyheter, artiklar, video och poddar från Aftonbladet.
+  - listitem [e53]:
+    - article:
+      - button [e54]:
+        - img
+      - link "Search domain livesport.expressen.se" [e55]:
+        - /url: /?q=expressen+site:livesport.expressen.se
+        - img
+      - paragraph: Expressen Livesport
+      - link "https://livesport.expressen.se › sv" [e56]:
+        - /url: https://livesport.expressen.se/sv/
+        - paragraph: https://livesport.expressen.se › sv
+      - heading "Expressen Livesport" [level=2]:
+        - link "Expressen Livesport" [e57]:
+          - /url: https://livesport.expressen.se/sv/
+      - img "Expressen Livesport"
+      - img
+      - text: 2:23:04 Expressen Livesport är en streamingtjänst för sport. På Expressen Livesport sänder vi ligor och tävlingar så som Elitserien i bandy, Elitettan, mängder med försäsongshockey, SBL Herr samt flertalet skidtävlingar. Det går i efterhand att se samtliga matcher och tävlingar som repriser. Du kan ta del av sändningarna via din webbläsare, castat till din tv, eller via vår smarttv-app.
+  - listitem [e58]:
+    - article:
+      - button [e59]:
+        - img
+      - link "Search domain sv.wikipedia.org" [e60]:
+        - /url: /?q=expressen+site:sv.wikipedia.org
+        - img
+      - paragraph: Wikipedia
+      - link "https://sv.wikipedia.org › wiki › Expressen" [e61]:
+        - /url: https://sv.wikipedia.org/wiki/Expressen
+        - paragraph: https://sv.wikipedia.org › wiki › Expressen
+      - heading "Expressen - Wikipedia" [level=2]:
+        - link "Expressen - Wikipedia" [e62]:
+          - /url: https://sv.wikipedia.org/wiki/Expressen
+      - text: Expressen är en obunden liberal dagstidning som grundades 1944 och ingår i Bonnierkoncernen. Tidningen har också en webbplats, Expressen.se, och redaktioner i flera länder.
+  - listitem [e63]:
+    - article:
+      - button [e64]:
+        - img
+      - link "Search domain en.wikipedia.org" [e65]:
+        - /url: /?q=expressen+site:en.wikipedia.org
+        - img
+      - paragraph: Wikipedia
+      - link "https://en.wikipedia.org › wiki › Expressen" [e66]:
+        - /url: https://en.wikipedia.org/wiki/Expressen
+        - paragraph: https://en.wikipedia.org › wiki › Expressen
+      - heading "Expressen - Wikipedia" [level=2]:
+        - link "Expressen - Wikipedia" [e67]:
+          - /url: https://en.wikipedia.org/wiki/Expressen
+      - text: Expressen (The Express) is one of two nationwide evening newspapers in Sweden. Describing itself as independent liberal, Expressen was founded in 1944. [1] The newspaper awards the culture prize Expressens Heffaklump for children's and youth culture.
+  - listitem [e68]:
+    - article:
+      - button [e69]:
+        - img
+      - link "Search domain livesport.expressen.se" [e70]:
+        - /url: /?q=expressen+site:livesport.expressen.se
+        - img
+      - paragraph: Expressen Livesport
+      - link "https://livesport.expressen.se › sv › live" [e71]:
+        - /url: https://livesport.expressen.se/sv/live
+        - paragraph: https://livesport.expressen.se › sv › live
+      - heading "Livesändningar på Expressen Livesport" [level=2]:
+        - link "Livesändningar på Expressen Livesport" [e72]:
+          - /url: https://livesport.expressen.se/sv/live
+      - text: Expressen Livesport är en streamingtjänst för sport. På Expressen Livesport sänder vi ligor och tävlingar så som Elitserien i bandy, SBL Herr, mängder med försäsongshockey, SSL herr och SSL Dam samt flertalet skidtävlingar. Det går i efterhand att se samtliga matcher och tävlingar som repriser. Du kan ta del av sändningarna via din webbläsare, castat till din tv, eller via vår ...
+  - listitem [e73]:
+    - article:
+      - button [e74]:
+        - img
+      - link "Search domain expressen.se" [e75]:
+        - /url: /?q=expressen+site:www.expressen.se
+        - img
+      - paragraph: Expressen
+      - link "https://www.expressen.se › sport" [e76]:
+        - /url: https://www.expressen.se/sport/
+        - paragraph: https://www.expressen.se › sport
+      - heading "Sport - Senaste nyheter och sport idag - Expressen" [level=2]:
+        - link "Sport - Senaste nyheter och sport idag - Expressen" [e77]:
+          - /url: https://www.expressen.se/sport/
+      - text: Senaste nyheterna om fotboll, hockey och annan sport. Vi bevakar alla de stora sporthändelserna. Följ liverapportering från turneringar och matcher med Expressen.
+  - listitem [e78]:
+    - article:
+      - button [e79]:
+        - img
+      - link "Search domain expressen.se" [e80]:
+        - /url: /?q=expressen+site:www.expressen.se
+        - img
+      - paragraph: Expressen
+      - link "https://www.expressen.se › nyheter › sverige" [e81]:
+        - /url: https://www.expressen.se/nyheter/sverige/
+        - paragraph: https://www.expressen.se › nyheter › sverige
+      - heading "Nyheter Sverige - senaste inrikesnyheterna dygnet runt - Expressen" [level=2]:
+        - link "Nyheter Sverige - senaste inrikesnyheterna dygnet runt - Expressen" [e82]:
+          - /url: https://www.expressen.se/nyheter/sverige/
+      - text: Få de senaste nyheterna från Sverige. Här finns allt om politik, ekonomi, krim, väder och samhälle. Håll dig informerad om vad som händer i landet.
+  - listitem [e83]:
+    - article:
+      - button [e84]:
+        - img
+      - link "Search domain expressen.se" [e85]:
+        - /url: /?q=expressen+site:www.expressen.se
+        - img
+      - paragraph: Expressen
+      - link "https://www.expressen.se › nyheter › expressen-direkt" [e86]:
+        - /url: https://www.expressen.se/nyheter/expressen-direkt/
+        - paragraph: https://www.expressen.se › nyheter › expressen-direkt
+      - heading "Expressen Direkt - senaste nytt i korthet" [level=2]:
+        - link "Expressen Direkt - senaste nytt i korthet" [e87]:
+          - /url: https://www.expressen.se/nyheter/expressen-direkt/
+      - text: Senaste nytt i korthet - dygnet runt. Har du ett nyhetstips? Kontakta Expressen på tipsa@expressen.se eller skicka SMS/MMS till 0790-643 643
+  - listitem [e88]:
+    - text: Generate answer for
+    - strong: expressen
+    - button "Learn more about Search Assist and Explore More" [e89]
+    - button "Change Search Assist settings" [e90]
+    - button "Assist" [e91]: Search Assist
+- button "More results" [e92]
+- list:
+  - listitem [e93]:
+    - link "More Images" [e94]:
+      - /url: /?q=Expressen%20Nationwide%20Swedish%20evening%20newspaper&ia=images&iax=images
+      - img
+      - text: More Images
+    - link "Expressen" [e95]:
+      - /url: https://en.wikipedia.org/wiki/Expressen
+      - heading "Expressen" [level=2]
+    - text: Nationwide Swedish evening newspaper
+    - link "expressen.se" [e96]:
+      - /url: https://www.expressen.se/
+    - text: Expressen is one of two nationwide evening newspapers in Sweden. Describing itself as independent liberal, Expressen was founded in 1944. The newspaper awards the culture prize Expressens Heffaklump for children's and youth culture....
+    - link "Continued in Wikipedia" [e97]:
+      - /url: https://en.wikipedia.org/wiki/Expressen
+    - term: Type
+    - definition: Daily newspaper
+    - term: Format
+    - definition: Tabloid
+    - term: Owner(s)
+    - definition: Bonnier AB
+    - link "Website" [e98]:
+      - /url: https://www.expressen.se/
+      - img
+      - text: Website
+    - link "Wikipedia" [e99]:
+      - /url: https://en.wikipedia.org/wiki/Expressen
+      - img
+      - text: Wikipedia
+    - link "Instagram" [e100]:
+      - /url: https://instagram.com/expressen
+      - img
+      - text: Instagram
+    - link "Facebook" [e101]:
+      - /url: https://facebook.com/expressen
+      - img
+      - text: Facebook
+    - link "YouTube" [e102]:
+      - /url: https://youtube.com/channel/UCfCk_ylzLy6nz2NpW25DY5w
+      - img
+      - text: YouTube
+    - img
+    - text: "Source:"
+    - link "Wikipedia" [e103]:
+      - /url: https://en.wikipedia.org/wiki/Expressen
+    - text: • Was this helpful?
+    - button "Positive feedback" [e104]:
+      - img
+    - button "Negative feedback" [e105]:
+      - img
+- list:
+  - button "Close menu" [e106]:
+    - text: Close menu
+    - img
+  - list:
+    - listitem [e107]: Search
+    - listitem [e108]:
+      - link "Homepage" [e109]:
+        - /url: https://start.duckduckgo.com/
+    - listitem [e110]:
+      - link "Themes" [e111]:
+        - /url: /settings#appearance
+    - listitem [e112]:
+      - link "Settings" [e113]:
+        - /url: /settings
+  - list:
+    - listitem [e114]: Share Feedback
+    - listitem [e115]:
+      - button "Positive feedback" [e116]:
+        - img
+      - button "Negative feedback" [e117]:
+        - img
+  - list:
+    - listitem [e118]: Downloads
+    - listitem [e119]:
+      - link "iOS Browser" [e120]:
+        - /url: https://apps.apple.com/app/duckduckgo-private-browser/id663592361?platform=iphone&pt=866401&mt=8&ct=serp-atb-serp
+    - listitem [e121]:
+      - link "Android Browser" [e122]:
+        - /url: https://play.google.com/store/apps/details?id=com.duckduckgo.mobile.android&referrer=utm_campaign%3Dserp-atb-serp%26origin%3Dfunnel_playstore_searchresults
+    - listitem [e123]:
+      - link "Mac Browser" [e124]:
+        - /url: /mac?origin=funnel_browser_searchresults
+    - listitem [e125]:
+      - link "Windows Browser" [e126]:
+        - /url: /windows?origin=funnel_browser_searchresults
+    - listitem [e127]:
+      - link "Browser Extensions" [e128]:
+        - /url: /duckduckgo-help-pages/desktop/adding-duckduckgo-to-your-browser/
+  - list:
+    - listitem [e129]: More From DuckDuckGo
+    - listitem [e130]
+    - listitem [e131]:
+      - link "DuckDuckGo Subscription" [e132]:
+        - /url: /pro?origin=funnel_pro_searchresults
+    - listitem [e133]:
+      - link "Duck.ai" [e134]:
+        - /url: https://duck.ai
+    - listitem [e135]:
+      - link "Email Protection" [e136]:
+        - /url: /email
+    - listitem [e137]:
+      - link "Newsletter" [e138]:
+        - /url: /newsletter
+    - listitem [e139]:
+      - link "Blog" [e140]:
+        - /url: /blog
+    - listitem [e141]:
+      - link "Podcast" [e142]:
+        - /url: https://insideduckduckgo.substack.com/?showWelcome=true
+    - listitem [e143]:
+      - link "Collaborations" [e144]:
+        - /url: /collaborations
+  - list:
+    - listitem [e145]: Learn More
+    - listitem [e146]:
+      - link "What’s New" [e147]:
+        - /url: /updates
+    - listitem [e148]:
+      - link "Compare Privacy" [e149]:
+        - /url: /compare-privacy
+    - listitem [e150]:
+      - link "About Our Browser" [e151]:
+        - /url: /app
+    - listitem [e152]:
+      - link "About DuckDuckGo" [e153]:
+        - /url: /about
+  - list:
+    - listitem [e154]: Other Resources
+    - listitem [e155]:
+      - link "Help" [e156]:
+        - /url: /duckduckgo-help-pages
+    - listitem [e157]:
+      - link "Community" [e158]:
+        - /url: https://www.reddit.com/r/duckduckgo/
+    - listitem [e159]:
+      - link "Careers" [e160]:
+        - /url: /careers
+    - listitem [e161]:
+      - link "Privacy Policy" [e162]:
+        - /url: /privacy
+    - listitem [e163]:
+      - link "Terms of Service" [e164]:
+        - /url: /terms
+    - listitem [e165]:
+      - link "Press Kit" [e166]:
+        - /url: /press
+    - listitem [e167]:
+      - link "Advertise on Search" [e168]:
+        - /url: /duckduckgo-help-pages/company/advertise-on-duckduckgo-search
+- img
+- heading "See What’s DuckDuckNew" [level=3]
+- paragraph: Explore DuckDuckGo’s latest product updates.
+- link "Learn More" [e169]:
+  - /url: https://duckduckgo.com/updates
+- heading "Learn More" [level=3]
+- list:
+  - listitem [e170]:
+    - link "What's New" [e171]:
+      - /url: https://duckduckgo.com/updates
+  - listitem [e172]:
+    - link "Compare Privacy" [e173]:
+      - /url: https://duckduckgo.com/compare-privacy
+  - listitem [e174]:
+    - link "Search Shortcuts" [e175]:
+      - /url: https://duckduckgo.com/bangs
+  - listitem [e176]:
+    - link "Help Pages" [e177]:
+      - /url: https://duckduckgo.com/duckduckgo-help-pages/
+- heading "Get More" [level=3]
+- list:
+  - listitem [e178]:
+    - link "Subscription" [e179]:
+      - /url: https://duckduckgo.com/pro
+  - listitem [e180]:
+    - link "Email Protection" [e181]:
+      - /url: https://duckduckgo.com/email
+  - listitem [e182]:
+    - link "Podcast" [e183]:
+      - /url: https://insideduckduckgo.substack.com/?showWelcome=true
+    - text: "&"
+    - link "Newsletter" [e184]:
+      - /url: https://duckduckgo.com/newsletter
+  - listitem [e185]:
+    - link "Collaborations" [e186]:
+      - /url: https://duckduckgo.com/collaborations
+- button "Share Feedback" [e187]
