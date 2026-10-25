@@ -47,6 +47,12 @@ got has almost no content and a recognizable host or heading. Searching for voca
 document that rendered fine can only produce false positives, and the failure is asymmetric: a false
 wall denies the user a successful read, while a missed wall merely returns weird text.
 
+That asymmetry is a fact about a *read*, and it does not carry to a SERP. There a missed wall is a
+terminal verdict and a stored one: a refusal served as one organic result, then kept for the whole
+`cache.serpMs`. The item records it as
+`docs/improvements/2026-10-18-code.md` → `This one answers confidently and ends the search`. Weigh a
+classifier change against that, not against this sentence.
+
 # Prevention
 
 - Any keyword classifier over fetched text must be gated on size or position, and must state its
