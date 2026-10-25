@@ -403,8 +403,9 @@ test("B.8 as filed: a recorded refusal is classified as one organic result, the 
  * no organic google result, and reports which engine answered in `searchEngine`/`fallbackFrom` — two
  * fields `NavigateResult` does not carry. So the page reaches `classifySerp` under the name we asked for,
  * and the only question `isChrome` can ask — is this the engine's own host — is asked of the wrong engine.
- * Filed in `docs/improvements/2026-10-18-code.md` → `### B.9`, with the gateway-side mechanism and the
- * live response quoted there.
+ * Filed in `docs/improvements/2026-10-18-code.md` →
+ * `### B.9 The gateway reports which engine answered`, with the gateway-side mechanism and the live
+ * response quoted there.
  *
  * This pins `classifySerp`, which is the seam the two engine names reach; the missing `searchEngine` read
  * is one call site earlier and no assertion here can see it, because reading it is production code and
