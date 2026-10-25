@@ -233,11 +233,12 @@ function organicResults(blocks: LinkBlock[], engine: string): SearchResult[] {
  * Measured against the recorded pages, not designed in the abstract: the one error page we have is
  * 378 chars, 6 blocks, 1 heading at level 1, 1 ref — a `Try Again` button — and zero `/url` lines, and
  * every other recorded page that has anything on it carries at least one `/url`. That last condition is
- * the load-bearing one, so be explicit about what it excludes: any page carrying a link is invisible to
- * this rule, and a refusal that does is recorded — `serp-reddit-blocked.txt` (B.8) says we were blocked,
- * links to a support desk, and is called no wall. Loosening the guard does not reach it, measured: with
- * it deleted that page is still no wall, having neither a heading nor a retry affordance. It stays
- * because it is what stops a page with links from being refused at all — B.8 needs evidence of its own.
+ * the load-bearing one, so be explicit about what it excludes, and about how narrow it is: a `/url`
+ * line, not a link — a page whose only links have no url child is still caught, measured. And a refusal
+ * carrying one is recorded: `serp-reddit-blocked.txt` (B.8) says we were blocked, links to a support
+ * desk, and is called no wall. Loosening the guard does not reach that page, which is measured too —
+ * with this line deleted it is still no wall, having neither a heading nor a retry affordance. So the
+ * guard stays, because it is what keeps a navigable page from being called a refusal.
  *
  * The thin end is the same trade, and it is louder: this rule is not width-gated, so it is what answers a
  * page still rendering, and a verdict here ends the settle wait rather than continuing it. Accepted on
