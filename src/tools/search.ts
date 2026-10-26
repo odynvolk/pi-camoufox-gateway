@@ -89,10 +89,11 @@ export function formatResults(outcome: {
   fromCache?: boolean;
 }): string {
   const lines: string[] = [];
-  // Name the engine that answered, on every success: "google served this" and "duckduckgo served this
+  // Name the engine we selected, on every success: "google served this" and "duckduckgo served this
   // after google walled" are different claims about the same links, and a model cannot weigh a result
-  // set it cannot attribute. `details.engine` is not the answer — it is a field for a script, not text
-  // the model reads. The `tried` enumeration stays conditional: nothing fell back, nothing to enumerate.
+  // set it cannot attribute. Selected, not answered: B.9 is a google call whose page came back from
+  // DuckDuckGo. `details.engine` is not the answer — it is a field for a script, not text the model
+  // reads. The `tried` enumeration stays conditional: nothing fell back, nothing to enumerate.
   const via = ` (via ${outcome.engine}${
     outcome.tried.length > 1 ? `; tried ${outcome.tried.map((s) => `${s.engine}:${s.code}`).join(", ")}` : ""
   })`;
