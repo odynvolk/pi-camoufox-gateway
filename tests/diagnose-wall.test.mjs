@@ -1,7 +1,7 @@
 /**
  * The diagnosis script's own teardown, which is the whole reason it is importable.
  *
- * `diagnose-wall.mjs` used to run at import time with a hardcoded `userId`, so nothing could assert
+ * `scripts/diagnose-wall.mjs` used to run at import time with a hardcoded `userId`, so nothing could assert
  * what it left behind — and it left a third, hand-named session namespace in the gateway's tab list,
  * plus a tab whenever the read failed. Both are asserted here: one against a stub client, one against
  * the fake gateway's authoritative tab set.
