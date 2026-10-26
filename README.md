@@ -14,8 +14,10 @@ Searches through the browser and returns ranked titles, urls and snippets.
 
 - Google goes through the gateway's `@google_search` macro, which is what survives Google's consent
   interstitial. If Google walls us, DuckDuckGo answers, and the output lists which engines were tried.
-  The gateway runs a fallback of its own inside one google call, before any call of ours starts, and that
-  hop is not in the list — one search is one request to us whatever the gateway navigated to get the page.
+  The gateway can re-navigate to another engine before it hands us an answer, and the list does not
+  follow it: `tried` records one step per engine we asked for, never what the gateway visited on the way.
+  A page of nothing from that detour still costs our own second hop, which may re-ask an engine the
+  gateway already tried.
 - **The header names the engine the tool selected**, on every success and not only when something failed.
   "Google served this" and "DuckDuckGo served this after Google walled" are different claims about the
   same eight links, and a result set a model cannot attribute is one it cannot weigh. It was always in
