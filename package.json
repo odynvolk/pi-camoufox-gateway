@@ -1,6 +1,6 @@
 {
   "name": "pi-camoufox-gateway",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "private": false,
   "description": "Let pi search the web and read pages through a camoufox gateway",
   "homepage": "https://github.com/odynvolk/pi-camoufox-gateway#readme",
@@ -38,6 +38,7 @@
   "files": [
     "src",
     "README.md",
+    "CHANGELOG.md",
     "config.example.json"
   ],
   "scripts": {
