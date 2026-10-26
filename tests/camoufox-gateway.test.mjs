@@ -200,7 +200,7 @@ test("every parameter is described before anything dereferences it", () => {
 test("a numeric parameter declares the type the tool actually accepts", () => {
   // Nothing in this repo validates tool arguments — pi checks none, and there is no `Value.Check` on
   // ours — so the declared `type` and `description` are the only signal a model gets before it calls.
-  // A `Number` offering a fraction, a negative, or a string is a promise `tools/read.ts` breaks, which is
+  // A `Number` offering a fraction, a negative, or a string is a promise `src/tools/read.ts` breaks, which is
   // the reason `n` is already an `Integer`; these two were left behind by that ruling.
   const { byName } = registered();
   const read = byName.camoufox_read.parameters.properties;
@@ -461,7 +461,7 @@ test("the fresh parameter points at the setting rather than a copy of its value"
 });
 
 test("the n schema offers only whole numbers, because the tool refuses anything else", () => {
-  // `tools/search.ts` rejects a fractional count, so a `Type.Number` here would advertise a value the
+  // `src/tools/search.ts` rejects a fractional count, so a `Type.Number` here would advertise a value the
   // code then refuses — a schema advertising an input the tool rejects is the same defect as a
   // description quoting a number a user's config can contradict.
   assert.equal(registered().byName.camoufox_search.parameters.properties.n.type, "integer");

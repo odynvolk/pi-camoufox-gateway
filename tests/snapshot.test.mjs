@@ -394,3 +394,67 @@ test("B.8 as filed: a recorded refusal is classified as one organic result, the 
   assert.equal(verdict.results[0].url, ticket, "B.8: the result is the support-desk ticket form, and naming it is what makes a fix say so out loud");
   assert.equal(verdict.results[0].title, "File a ticket", "B.8: the title is the refusal's own affordance, kept because it is the evidence");
 });
+
+/**
+ * B.9 — a wrong answer pinned on purpose, expected to pass today, retired with the item.
+ *
+ * `tests/fixtures/serp-google-answered-by-duckduckgo.txt` is a DuckDuckGo results page we asked Google
+ * for. The gateway re-navigates to DuckDuckGo inside one `@google_search` call when its own probe finds
+ * no organic google result, and reports which engine answered in `searchEngine`/`fallbackFrom` — two
+ * fields `NavigateResult` does not carry. So the page reaches `classifySerp` under the name we asked for,
+ * and the only question `isChrome` can ask — is this the engine's own host — is asked of the wrong engine.
+ * Filed in `docs/improvements/2026-10-18-code.md` → `### B.9 The gateway reports which engine answered`,
+ * with the gateway-side mechanism and the live response quoted there.
+ *
+ * This pins `classifySerp`, which is the seam the two engine names reach; the missing `searchEngine` read
+ * is one call site earlier and no assertion here can see it, because reading it is production code and
+ * this branch writes none.
+ *
+ * Divergence is the assertion, not either count, so both directions are committed: DuckDuckGo's own footer
+ * becomes results under `"google"`, and one `play.google.com` link stops being a result under
+ * `"duckduckgo"`. Excluding `duckduckgo.com` from the google branch is the mutation that reddens this and
+ * leaves `serp-google.txt`, `serp-duckduckgo.txt` and the B.8 case green — measured.
+ */
+test('B.9 as filed: one recorded page, 30 results as "google" and 22 as "duckduckgo"', () => {
+  const recording = fixture("serp-google-answered-by-duckduckgo.txt", "https://duckduckgo.com/?q=expressen&ia=web");
+
+  // DuckDuckGo's footer, verbatim from the recording. Under the engine we asked for, every one of them is
+  // an unaffiliated organic result, because none of them is on a google host.
+  const footer = [
+    "https://start.duckduckgo.com/",
+    "https://duckduckgo.com/updates",
+    "https://duckduckgo.com/compare-privacy",
+    "https://duckduckgo.com/bangs",
+    "https://duckduckgo.com/duckduckgo-help-pages/",
+    "https://duckduckgo.com/pro",
+    "https://duckduckgo.com/email",
+    "https://duckduckgo.com/newsletter",
+    "https://duckduckgo.com/collaborations",
+  ];
+
+  const asked = classifySerp(recording, "google");
+  const answered = classifySerp(recording, "duckduckgo");
+
+  // Both are `results`, which is the half a11y-tree reading cannot see: a verdict of `results` is terminal
+  // for `src/engines/chain.ts`, so neither of these falls through to a second engine.
+  assert.equal(asked.kind, "results", "B.9: the substituted page is not an error, it is a page of results");
+  assert.equal(answered.kind, "results", "B.9: and the same page read as the engine that served it");
+
+  if (asked.kind !== "results" || answered.kind !== "results") return;
+  const askedUrls = new Set(asked.results.map((result) => result.url));
+  const answeredUrls = new Set(answered.results.map((result) => result.url));
+
+  assert.equal(asked.results.length, 30, 'B.9: 30 as "google". Red with the 9 below means chrome stopped being results — retire this case with the item, do not retune the number.');
+  assert.equal(answered.results.length, 22, 'B.9: 22 as "duckduckgo", 8 fewer. Red here means the two engines stopped disagreeing, which is the fix.');
+
+  for (const url of footer) {
+    assert.ok(askedUrls.has(url), `B.9: ${url} is served as a result by the engine name we asked for`);
+    assert.ok(!answeredUrls.has(url), `B.9: and the same url is chrome under the engine that answered`);
+  }
+
+  // The other direction, which is what makes this a rule and not one host name: `play.google.com` is a
+  // google host, so the google branch's host rule calls it chrome and the duckduckgo branch does not.
+  const playStore = [...answered.results].find((result) => result.url.startsWith("https://play.google.com/"));
+  assert.ok(playStore, "B.9: the recording carries a play.google.com result");
+  assert.equal(askedUrls.has(playStore.url), false, 'B.9: and it is dropped as chrome under "google" — the two rules disagree in both directions');
+});

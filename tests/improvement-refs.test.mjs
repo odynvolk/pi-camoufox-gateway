@@ -8,15 +8,31 @@
  * ref names a *fragment* instead: it survives any commit that adds a line, and breaks on a rename,
  * which is the one a reader can do something about.
  *
- * Only the docs with open items are held to this. `docs/solutions/` and `docs/plans/archive/` record
- * what was true when written, and editing history to keep a test green is its own finding.
+ * Only the docs with open items are held to this, plus every test file. A citation in a test is the same
+ * claim about code as one in a doc, and a test title is also what a doc cites — so a rename orphans both
+ * and only one of them was checked: measured on the day this was widened, two citations into
+ * improvement-doc headings sat in `tests/snapshot.test.mjs` and the gate could see one of them, because
+ * the other broke across a line and the ref pattern cannot read across one. `docs/solutions/` and
+ * `docs/plans/archive/` stay out: they record what was true when written, and editing history to keep a
+ * test green is its own finding.
  */
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 
 const DOCS = ["docs/improvements/2026-10-18-code.md", "docs/improvements/2026-10-18-functionality.md"];
+/**
+ * Everything scanned. The test half is derived, not listed — a hand-kept set of files is a count, and a
+ * count is the thing this repo keeps having to re-measure: a new test file would join the suite un-checked
+ * the moment this list went stale, silently, which is the exact failure the set exists to prevent.
+ */
+const SOURCES = [
+  ...DOCS,
+  ...readdirSync("tests")
+    .filter((name) => name.endsWith(".test.mjs"))
+    .map((name) => `tests/${name}`),
+];
 
 const FILE = String.raw`[\w./-]+\.(?:ts|mts|js|mjs|json|md)`;
 /** A ref: a file, then a fragment that must still be findable inside it. */
@@ -29,7 +45,7 @@ const LINE_REF = new RegExp("`(" + FILE + "):\\d[^`]*`", "gu");
 /**
  * Where a ref written as a bare basename — which is how the older prose phrases them — is allowed to
  * live. A ref that *names* a directory is honoured exactly as written and never rescued from here:
- * falling back on `src/engine/chain.ts` would find the real `src/engines/chain.ts` and report a typo as
+ * falling back on a name one letter off would find the real `src/engines/chain.ts` and report a typo as
  * a passing ref, which is a ref that is wrong and looks right.
  */
 const ROOTS = ["", "src/", "src/tools/", "src/engines/", "tests/", "tests/fixtures/", "docs/"];
@@ -39,10 +55,10 @@ function resolveRef(path) {
   return ROOTS.map((root) => `${root}${path}`).find((candidate) => existsSync(candidate));
 }
 
-/** Refs across every held doc, de-duplicated so one mistake is reported once. */
+/** Refs across every scanned file, de-duplicated so one mistake is reported once. */
 function refsIn(pattern) {
   const found = new Map();
-  for (const doc of DOCS) {
+  for (const doc of SOURCES) {
     for (const match of readFileSync(doc, "utf8").matchAll(pattern)) {
       found.set(match[0], { doc, whole: match[0], path: match[1], fragment: match[2] });
     }
@@ -50,7 +66,7 @@ function refsIn(pattern) {
   return [...found.values()];
 }
 
-test("no improvement-doc ref points at a line number", () => {
+test("no ref points at a line number", () => {
   // The regression this exists for. Re-adding one re-imports the defect: a ref that is silently wrong
   // looks exactly like a ref that is right, and the number has nothing to say about which it is.
   const numbered = refsIn(LINE_REF).map((ref) => `${ref.doc}: ${ref.whole}`);
@@ -75,7 +91,7 @@ test("every anchored ref still names code that is there", () => {
     }
   }
 
-  assert.deepEqual(broken, [], "stale refs in the improvement docs");
+  assert.deepEqual(broken, [], "stale refs across the scanned set — the improvement docs and every test file");
 });
 
 test("a file named without an anchor still resolves", () => {
