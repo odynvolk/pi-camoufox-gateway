@@ -25,9 +25,11 @@ Searches through the browser and returns ranked titles, urls and snippets.
   the gateway can serve a `@google_search` call from a different engine and reports that in a response
   field nothing here reads, so `(via google)` is what was asked for, and the page can still be
   DuckDuckGo's.
-- Bing is not offered: there is no adapter for it, and a Bing search page measured for this repo carried
-  no organic results at all — Bing's own navigation and footer, which no chrome rule in this repo
-  recognises, so every one of those links comes back as a result.
+- Bing is not offered: there is no adapter for it, and a Bing page that arrives anyway does not filter
+  cleanly either. Chrome is decided by host, against the engine a search asked for, so no `bing.com` link
+  is ever dropped as chrome under either name we ship. The one Bing case pinned here is the harder
+  failure: 378 chars of Camoufox's own `Network Protocol Error`, answered `navigation_failed` at a Bing
+  url.
 - **`engine` is one of the two we ship, and the refusal says which way you missed.** A name we have no
   adapter for comes back as "unknown engine", naming the ones we do have; a real engine you switched off
   under `engines` comes back as "disabled in your config". One of those is a typo and the other is a
