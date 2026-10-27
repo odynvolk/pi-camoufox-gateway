@@ -28,7 +28,7 @@ function callsFor(fake, suffix) {
 
 test("google opens the tab at the SERP url and nothing else", async (t) => {
   // The macro is gone, and this is the sequence that replaced it. Measured on the live gateway
-  // (2026-10-27): `POST /tabs/open` at the search url answers in ~270ms with a Google SERP, while
+  // (2026-10-27): `POST /tabs/open` at the search url answers in 268 ms with a Google SERP, while
   // `POST /tabs/:id/navigate` with `@google_search` spends ~31s and hands back a DuckDuckGo page —
   // upstream's organic-results check rejects `google.com/goto?url=` links by host name, so it always
   // concludes "no organic results" and substitutes DuckDuckGo. One open is both the fast path and the

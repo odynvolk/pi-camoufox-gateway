@@ -6,7 +6,7 @@
  * but `POST /tabs/:id/navigate` runs upstream's organic-results check, and that check rejects any `h3`
  * link on a `google.` host while Google now serves organics as `google.com/goto?url=…`. Measured on the
  * live gateway (2026-10-27): the macro call spends ~31s and comes back a DuckDuckGo page; opening the
- * same url answers in ~270ms with 9–10 Google results, on every query tried. A check we cannot pass is
+ * same url answers in 268 ms with 9–10 Google results, on every query tried. A check we cannot pass is
  * not a service, it is a delay.
  *
  * The consent interstitial the macro was kept for is still handled — `detectWall` calls it, and the chain

@@ -12,29 +12,35 @@ talks to it over HTTP.
 
 Searches through the browser and returns ranked titles, urls and snippets.
 
-- Google goes through the gateway's `@google_search` macro, which is what survives Google's consent
-  interstitial. If Google walls us, DuckDuckGo answers, and the output lists which engines were tried.
-  The gateway can re-navigate to another engine before it hands us an answer, and the list does not
-  follow it: `tried` records one step per engine we asked for, never what the gateway visited on the way.
-  A page of nothing from that detour still costs our own second hop, which may re-ask an engine the
-  gateway already tried.
-- **The header names the engine the tool selected**, on every success and not only when something failed.
+- **Google's results page is opened directly**: `POST /tabs/open` at
+  `https://www.google.com/search?q=…`, which is the same url the gateway's `@google_search` macro expands
+  to. The macro went because the endpoint behind it cannot pass its own check — `camofox-browser` decides
+  "did Google serve results" by requiring a heading link on a **non**-google host, and Google now serves
+  organics as `google.com/goto?url=…`. Measured on the live gateway (2026-10-27): that call spent
+  **31,285 ms** and came back a DuckDuckGo page; opening the same url answered in **268 ms** with 9–10
+  Google results on every query tried, cold and warm, including CJK. If Google walls us, DuckDuckGo
+  answers, and the output lists which engines were tried.
+- **A search that is slow on one engine still gets its second engine.** A timeout is not a verdict on the
+  whole search; only an outcome the next engine would meet as well — gateway unreachable, credentials
+  refused, the address guard refusing before anyone dialled — ends it. A hung snapshot costs one request
+  deadline, not two.
+- **The header names the engine that served the page**, on every success and not only when something failed.
   "Google served this" and "DuckDuckGo served this after Google walled" are different claims about the
   same eight links, and a result set a model cannot attribute is one it cannot weigh. It was always in
-  `details.engine`, but that is a field for a script, not text a model reads. *Selected* is the exact word:
-  the gateway can serve a `@google_search` call from a different engine and reports that in a response
-  field nothing here reads, so `(via google)` is what was asked for, and the page can still be
-  DuckDuckGo's.
-- Bing is not offered: there is no adapter for it, and a Bing page that arrives anyway does not filter
-  cleanly either. Chrome is decided by host, against the engine a search asked for, so no `bing.com` link
-  is ever dropped as chrome under either name we ship. The one Bing case pinned here is the harder
-  failure: 378 chars of Camoufox's own `Network Protocol Error`, answered `navigation_failed` at a Bing
-  url.
+  `details.engine`, but that is a field for a script, not text a model reads. *Served* is the exact word
+  now, and not by convention: a page is only credited to the engine whose own host it sits on, so
+  `(via google)` can no longer be printed over a DuckDuckGo page. That combination comes back as
+  `empty_results` from google, duckduckgo is asked, and credits itself.
+- Bing is not offered: there is no adapter for it. A Bing page that arrived anyway used to be read as
+  whichever engine we had asked for — chrome is filtered by host, and no `bing.com` link is that engine's.
+  It is now refused before it is parsed, by the same rule as above, so the mis-filter is not reachable and
+  the engine that was asked never claims it. The one Bing case still pinned here is the harder failure: 378
+  chars of Camoufox's own `Network Protocol Error`, answered `navigation_failed` at a Bing url.
 - **`engine` is one of the two we ship, and the refusal says which way you missed.** A name we have no
   adapter for comes back as "unknown engine", naming the ones we do have; a real engine you switched off
   under `engines` comes back as "disabled in your config". One of those is a typo and the other is a
   setting, so they are not merged into a single "not available".
-- `n` is clamped to 10. The macro takes only a query, so a longer list is not reachable — which is why
+- `n` is clamped to 10. That is Google's page width, and there is no pagination to ask for — which is why
   `search.maxResults` is refused above it rather than silently rounded down on every call. It has to be a
   whole number too: `n: 2.5` used to slice to 2 rows and report nothing, because `slice` floors silently.
 - **The output counts what it threw away.** A page that carried more than this call returned says so, and
@@ -247,7 +253,7 @@ gateway says it is coming back would be a worse outage than the one being diagno
 | `gateway_unauthorized` | gateway rejected `apiKey` |
 | `gateway_error` | the gateway answered with a failure, or answered with something unreadable |
 | `consent_wall` | Google served consent/CAPTCHA, not results |
-| `empty_results` | clean page, zero organic results |
+| `empty_results` | clean page, zero organic results — or a page hosted somewhere the engine we asked does not own, which is reported instead of credited (`details.substituted` says which) |
 | `empty_page` / `navigation_failed` | nothing rendered / browser error page |
 | `parse_error` | the accessibility tree changed shape, so it is likelier our parser than your query. The chain tries the other engine before reporting it, and the output names each engine it tried and with what |
 | `extraction_empty` | schema refs matched nothing on this page |
@@ -257,7 +263,7 @@ gateway says it is coming back would be a worse outage than the one being diagno
 | `blocked_url` | not an http(s) url |
 | `tab_not_found` | the tab was closed under us (session teardown or a stray sweep) |
 | `unsupported` | bad input or an engine we have no adapter for — nothing was fetched. Includes a `schema` with the wrong `type`, or a property with no `x-ref` |
-| `timeout` / `aborted` | deadline hit / tool call cancelled |
+| `timeout` / `aborted` | deadline hit / tool call cancelled. A `timeout` is one engine's answer and not the search's: the chain asks the next engine |
 
 ## What this does not do
 

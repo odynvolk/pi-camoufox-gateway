@@ -5,6 +5,44 @@ items (`A.2`, `B.5`, `D.1`, `E.3`, …) are the open findings in
 [`docs/improvements/2026-10-18-functionality.md`](./docs/improvements/2026-10-18-functionality.md) and
 [`docs/improvements/2026-10-18-code.md`](./docs/improvements/2026-10-18-code.md).
 
+## [Unreleased]
+
+### Fixed
+
+- **Google answers for Google, in 268 ms instead of 31 s.** `camoufox_search` with `engine: google`
+  returned DuckDuckGo links — or nothing at all, once the request timed out twice. The engine ran the
+  gateway's `@google_search` macro, and `POST /tabs/{tabId}/navigate` behind it runs upstream's
+  organic-results check, which accepts a heading link only when it is *not* on a `google.` host. Google
+  serves organics as `google.com/goto?url=…`, so that check can never pass: upstream waits out its 5 s,
+  declares "no organic results", and substitutes DuckDuckGo for `@google_search` alone. Measured live on
+  2026-10-27: macro **31,285 ms** → `duckduckgo.com/?q=goa`; `POST /tabs/open` at the same SERP url
+  **268 ms** → 9–10 Google results on every query tried, cold, warm, without `hl`/`gl`, and in CJK. The
+  macro expanded to the url we now build ourselves, so it carried no capability — only that check
+  (`docs/plans/2026-10-27-google-direct-open-serp.md`).
+- **A page is credited to the engine that hosts it.** A Google call whose page came back from DuckDuckGo
+  printed `(via google)` over 30 links, 9 of them DuckDuckGo's own footer — because chrome is filtered by
+  the host of the engine we *asked* for, and the chain credits from `Engine.name`. `classifySerp` now asks
+  `engineOwnsUrl` before it parses anything: a page the asked engine does not host is `empty_results` with
+  `details.substituted: true`, the chain runs the engine that does host it, and that engine credits
+  itself. Closes `B.9`, and the half of `B.8` that reported a refusal as one successful result; the pin on
+  the substituted page was converted into the regression that asserts the right answer, on the same
+  recording.
+- **A slow engine costs a hop, not the search.** `timeout` was terminal for the engine chain, so one
+  engine that was merely slow ended everything with
+  `tried: [{"engine":"google","code":"timeout"}]` and duckduckgo never being asked. It is not on that list
+  now — `gateway_unreachable`, `gateway_unauthorized`, `host_blocked` and `private_network` still are,
+  because those are outcomes the next engine would meet too. And `snapshot` no longer retries a request
+  that already spent its whole deadline: one hung snapshot cost 2 × `timeoutMs` before the chain was told
+  anything had failed.
+
+### Changed
+
+- **No gateway macros, and one endpoint fewer.** `navigateMacro`, `NavigateResult` and `ENDPOINTS.navigate`
+  are deleted rather than left unused: `POST /tabs/{tabId}/navigate` is the endpoint that runs the check
+  and the substitution above, and it is only unreachable while nothing can call it. The client now
+  consumes 9 of the gateway's 36 endpoints and none of its 14 search macros — recounted from `ENDPOINTS`
+  and the recorded contract, not inherited from the last count.
+
 ## [0.2.0] - 2026-10-26
 
 Everything merged after v0.1.1 — PRs #4 through #20, 18 commits, and the suite went from 111 passing

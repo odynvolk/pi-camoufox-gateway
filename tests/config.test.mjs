@@ -230,8 +230,9 @@ test("settings that cannot both be true are refused, naming both keys", (t) => {
 
 test("search.maxResults above what one engine page holds is refused at load", (t) => {
   // The runtime clamped it silently, so a config saying 25 meant every call came back with 10 and a
-  // line blaming the engine page. The limit is structural — the macro takes a query and has no
-  // pagination — so a larger number is not a setting, and refusing it beats honouring it differently.
+  // line blaming the engine page. The limit is structural — one results page, and the gateway has no
+  // pagination to ask for — so a larger number is not a setting, and refusing it beats honouring it
+  // differently.
   const over = withConfigFile(JSON.stringify({ search: { maxResults: 25 } }), t);
   assert.throws(
     () => loadConfig({ configPath: over, env: {} }),

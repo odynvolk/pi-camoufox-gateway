@@ -15,8 +15,10 @@ Canonical vocabulary for this repo. Not a spec — see `docs/brainstorms/` and `
 - **SERP** — search engine results page.
 - **goto URL** — a `google.com/goto?url=CAES…` wrapper. Not locally decodable; it becomes the real
   URL only when we navigate to it.
-- **Engine adapter** — the module that turns a query into results for one engine
-  (Google via the `@google_search` macro; DuckDuckGo via direct navigation).
+- **Engine adapter** — the module that turns a query into results for one engine. Both open a tab at
+  their own results url (`POST /tabs/open`); neither uses a gateway macro. An adapter is credited with a
+  page only when that page's host is its own — `engineOwnsUrl` in `snapshot.ts` — because chrome is
+  filtered by the engine's host list and the credit is taken from `Engine.name`.
 - **Wall** — a consent or CAPTCHA interstitial. Distinct from "no results" and from a timeout; the
   model is told which one it hit.
 - **Settle** — re-snapshotting a page that came back thinner than `read.settleMinChars` until it
