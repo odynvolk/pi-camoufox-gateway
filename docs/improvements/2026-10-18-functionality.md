@@ -26,15 +26,16 @@ stronger claim than "needs upstream work", and worth keeping the two separate.
 
 ## The finding that reframes the roadmap
 
-**The gateway exposes 36 endpoints and 14 search macros. This client consumes 9 endpoints and 1
-macro.**
+**The gateway exposes 36 endpoints and 14 search macros. This client consumes 9 endpoints and no
+macros.**
 
-Verified at `68d1e14`:
+Verified at `68d1e14` for the endpoints, and at `2197c7c` for the macros — which is what the macro row
+below records: the client builds its own search urls now:
 
 | Claim | Evidence |
 | --- | --- |
 | 9 of 36 endpoints | `ENDPOINTS` — `src/gateway.ts` |
-| 1 of 14 macros | `const MACRO = "@google_search"` — `src/engines/google.ts` |
+| 0 of 14 macros | `const SEARCH_URL` — `src/engines/google.ts` opens the results page directly; see [2026-10-27-google-direct-open-serp.md](../plans/2026-10-27-google-direct-open-serp.md) |
 | `trace` / `sessionKey` / `listItemId` / `includeScreenshot` never sent | 0 occurrences anywhere in `src/` |
 | Gateway surface is 36 paths, v1.14.0 | `tests/fixtures/openapi.json` (recorded from the live gateway) |
 

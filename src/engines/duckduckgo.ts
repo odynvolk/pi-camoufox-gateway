@@ -1,6 +1,7 @@
 /**
- * DuckDuckGo: no macro, so this engine navigates once and reads the page. It exists as the fallback
- * for when Google answers with a consent interstitial, so it must not need any of Google's machinery.
+ * DuckDuckGo: open a tab at the query url and read the page — the same shape `google.ts` now takes.
+ * It exists as the fallback for when Google answers with a consent interstitial, so it must not need any
+ * of Google's machinery.
  */
 
 import { GatewayError } from "../errors.ts";

@@ -26,7 +26,13 @@ function callsFor(fake, suffix) {
   return fake.state.calls.filter((c) => c.path.includes(suffix));
 }
 
-test("google goes open -> navigate(macro) -> snapshot and nothing else", async (t) => {
+test("google opens the tab at the SERP url and nothing else", async (t) => {
+  // The macro is gone, and this is the sequence that replaced it. Measured on the live gateway
+  // (2026-10-27): `POST /tabs/open` at the search url answers in ~270ms with a Google SERP, while
+  // `POST /tabs/:id/navigate` with `@google_search` spends ~31s and hands back a DuckDuckGo page —
+  // upstream's organic-results check rejects `google.com/goto?url=` links by host name, so it always
+  // concludes "no organic results" and substitutes DuckDuckGo. One open is both the fast path and the
+  // honest one.
   const { fake, client } = setup(t);
 
   const outcome = await googleEngine().search("camoufox", { client, userId: "u1" });
@@ -38,16 +44,15 @@ test("google goes open -> navigate(macro) -> snapshot and nothing else", async (
   const sequence = fake.state.calls
     .filter((c) => c.path !== "/")
     .map((c) => `${c.method} ${c.path.split("?")[0].replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gu, ":tab")}`);
-  assert.deepEqual(sequence, [
-    "POST /tabs/open",
-    "POST /tabs/:tab/navigate",
-    "GET /tabs/:tab/snapshot",
-    "DELETE /tabs/:tab",
-  ]);
+  assert.deepEqual(sequence, ["POST /tabs/open", "GET /tabs/:tab/snapshot", "DELETE /tabs/:tab"]);
 
-  const navigate = callsFor(fake, "/navigate")[0];
-  assert.equal(navigate.body.macro, "@google_search");
-  assert.equal(navigate.body.query, "camoufox");
+  const opened = fake.state.calls.find((c) => c.path === "/tabs/open");
+  assert.equal(
+    opened.body.url,
+    "https://www.google.com/search?q=camoufox",
+    "the engine asks for the SERP itself, query encoded",
+  );
+  assert.equal(callsFor(fake, "/navigate").length, 0, "no macro hop, and no second navigation to time out on");
 });
 
 test("google leaves no tab open when it finishes", async (t) => {
@@ -92,7 +97,7 @@ test("an adapter hands back the whole page, unsliced", async (t) => {
   const outcome = await googleEngine().search("camoufox", { client, userId: "u1" });
 
   assert.equal(outcome.results.length, 12, "twelve links on the page, twelve handed back — one width, and it is not here");
-  assert.equal(callsFor(fake, "/navigate").length, 1, "and still one navigation, whatever the count");
+  assert.equal(callsFor(fake, "/navigate").length, 0, "and the count was bought with the one open, not a navigation");
 });
 
 test("a page we cannot read as a results list is parse_error, not empty_results", async (t) => {
@@ -448,8 +453,9 @@ test("an abort that lands during a search's settle sleep ends it and closes the 
 test("a SERP that answers on the first look costs exactly the requests it always cost", async (t) => {
   const google = setup(t);
   await googleEngine().search("camoufox", { client: google.client, userId: "u1" });
-  // Open the seed tab, run the macro, one look, close. Anything else is a re-look nobody asked for.
-  assert.equal(google.fake.state.calls.filter((call) => call.path !== "/").length, 4);
+  // Open at the SERP, one look, close. Anything else is a re-look nobody asked for — and the request
+  // this dropped, the macro hop, is the one that measured 31s against the real gateway.
+  assert.equal(google.fake.state.calls.filter((call) => call.path !== "/").length, 3);
 
   const duckduckgo = setup(t);
   await duckduckgoEngine().search("camoufox", { client: duckduckgo.client, userId: "u1" });
