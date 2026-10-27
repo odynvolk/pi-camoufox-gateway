@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 
-import { classifySerp, detectWall, extractText, parseSerp } from "../src/snapshot.ts";
+import { classifySerp, detectWall, engineOwnsUrl, extractText, parseSerp } from "../src/snapshot.ts";
 
 /** Every recorded page, so a budget check picks up a fixture the moment one is added. */
 const FIXTURES = readdirSync(new URL("./fixtures/", import.meta.url), { withFileTypes: true })
@@ -357,104 +357,96 @@ test("a wide browser error page is a tree we could not read, not an empty query"
 });
 
 /**
- * B.8 — this one pins a wrong answer, on purpose, and is expected to pass today.
+ * B.8 — half closed, and the half that is not is the first assertion below.
  *
  * `tests/fixtures/serp-reddit-blocked.txt` is a refusal recorded from the live gateway: its text says we
- * were blocked, and its only link is Reddit's support-desk ticket form. That link is off-engine, and
- * `isChrome` decides chrome by host alone, so the block page classifies as a successful search with one
- * organic result — the ticket form. Filed in
- * `docs/improvements/2026-10-18-code.md` → `### B.8 A page that says we were blocked`, which also records
- * why it is worse than B.6: `results` is terminal for the chain, and a result on the first look leaves
- * `polled` false, so the search cache keeps the refusal for `serpMs`.
+ * were blocked, and its only link is Reddit's support-desk ticket form. What used to be reported was a
+ * successful search with one organic result — the ticket form — because `isChrome` decides chrome by the
+ * host of the engine we *asked* for, and a support desk is never that host. `engineOwnsUrl` now refuses
+ * the page before any of that is asked, so the model is told no engine served it and the chain hops.
  *
- * Asserted as behaviour, not as intent. Nothing here says this is right — an unasserted fixture is dead
- * weight, and the point of pinning the current answer is that a fix has to change it deliberately rather
- * than discover it. If a red line here is the first you have heard of it, read the item before touching
- * this case: the verdict is the thing under test, and every assertion below is a claim a fix must
- * contradict on purpose.
+ * What stays open, filed in
+ * `docs/improvements/2026-10-18-code.md` → `### B.8 A page that says we were blocked`: this page is
+ * **still not detected as a wall**. `detectWall` misses it on its first structural condition — no
+ * `heading` line at all — and neither phrase list carries "blocked by network security". So the refusal
+ * is reported as "the engine served nothing", which is honest, and not as "we were refused", which is
+ * what the item is still asking for. That line below is the surviving defect, asserted so a fix has to
+ * contradict it on purpose rather than discover it.
  */
-test("B.8 as filed: a recorded refusal is classified as one organic result, the ticket form", () => {
+test("B.8's open half: a recorded refusal is no longer anyone's results, and is still not called a wall", () => {
   const recording = fixture(
     "serp-reddit-blocked.txt",
     "https://www.reddit.com/search.json?q=camoufox%20anti-detect%20browser&limit=25",
   );
-  const ticket = "https://support.reddithelp.com/hc/en-us/requests/new?ticket_form_id=21879292693140";
 
-  // The other half of the mechanism. The `/url` guard is not what misses this page: measured with it
-  // deleted, the page is still no wall, because it has neither a heading nor a retry affordance.
-  assert.equal(detectWall(recording), null, "B.8 depends on this: nothing claims a wall, so the parser is the thing that answers");
+  // The still-open half. A foreign-host refusal with no heading and no retry affordance is not a wall as
+  // far as this repo can tell, whatever its own text says about network security.
+  assert.equal(detectWall(recording), null, "B.8 is still open: nothing here claims a wall, and the item is about that");
 
-  // `"google"` is the engine that served this page, not a claim about the host: no reddit adapter exists,
-  // and an engine name nothing knows falls through to google's rule anyway. Two of the item's three
-  // measurements are committed here — this verdict and the `detectWall` above. Its third, the same call as
-  // `"duckduckgo"`, is measured in the item and not asserted.
+  // The half the ownership rule covers. There is no longer a result to name, which is why this case no
+  // longer asserts the ticket form's url and title — behaviour moved under it, not an assertion relaxed.
   const verdict = classifySerp(recording, "google");
-  assert.equal(verdict.kind, "results", "B.8 is open, not fixed: a page refusing us is `results`. Red here means a classifier changed the verdict — retire it with the item, not to make the suite green.");
-  assert.equal(verdict.results.length, 1, "B.8: the block page's one link is the only 'result' — 0 would mean it is no longer counted");
-  assert.equal(verdict.results[0].url, ticket, "B.8: the result is the support-desk ticket form, and naming it is what makes a fix say so out loud");
-  assert.equal(verdict.results[0].title, "File a ticket", "B.8: the title is the refusal's own affordance, kept because it is the evidence");
+  assert.equal(verdict.kind, "error", "a page google does not host is not google's results, ticket form or no ticket form");
+  assert.equal(verdict.code, "empty_results", "the code the chain hops on, so the next engine gets the query");
+  assert.equal(verdict.details.substituted, true, "and a reader can tell this from a query that came up empty");
 });
 
 /**
- * B.9 — a wrong answer pinned on purpose, expected to pass today, retired with the item.
+ * The ownership rule, on the page that motivated it.
  *
- * `tests/fixtures/serp-google-answered-by-duckduckgo.txt` is a DuckDuckGo results page we asked Google
- * for. The gateway re-navigates to DuckDuckGo inside one `@google_search` call when its own probe finds
- * no organic google result, and reports which engine answered in `searchEngine`/`fallbackFrom` — two
- * fields `NavigateResult` does not carry. So the page reaches `classifySerp` under the name we asked for,
- * and the only question `isChrome` can ask — is this the engine's own host — is asked of the wrong engine.
- * Filed in `docs/improvements/2026-10-18-code.md` → `### B.9 The gateway reports which engine answered`,
- * with the gateway-side mechanism and the live response quoted there.
+ * `tests/fixtures/serp-google-answered-by-duckduckgo.txt` was recorded off the gateway's `@google_search`
+ * macro — a path this client no longer calls, since `src/engines/google.ts` opens the results page
+ * directly (see `docs/plans/2026-10-27-google-direct-open-serp.md`). Upstream's own probe put a
+ * DuckDuckGo page there, inside the one call. The recording is kept because a page arriving from an
+ * engine nobody asked for is exactly what the guard below exists for, and it is the only recording of one
+ * this repo has.
  *
- * This pins `classifySerp`, which is the seam the two engine names reach; the missing `searchEngine` read
- * is one call site earlier and no assertion here can see it, because reading it is production code and
- * this branch writes none.
- *
- * Divergence is the assertion, not either count, so both directions are committed: DuckDuckGo's own footer
- * becomes results under `"google"`, and one `play.google.com` link stops being a result under
- * `"duckduckgo"`. Excluding `duckduckgo.com` from the google branch is the mutation that reddens this and
- * leaves `serp-google.txt`, `serp-duckduckgo.txt` and the B.8 case green — measured.
+ * Both directions are asserted, because one of them is satisfiable by a rule that refuses every page: the
+ * engine we asked for must not be able to claim it, and the engine that actually served it must still read
+ * it whole — 22 results, the count it produced before the rule existed.
  */
-test('B.9 as filed: one recorded page, 30 results as "google" and 22 as "duckduckgo"', () => {
+test("a page the asked engine does not own is never credited as its results", () => {
   const recording = fixture("serp-google-answered-by-duckduckgo.txt", "https://duckduckgo.com/?q=expressen&ia=web");
 
-  // DuckDuckGo's footer, verbatim from the recording. Under the engine we asked for, every one of them is
-  // an unaffiliated organic result, because none of them is on a google host.
-  const footer = [
-    "https://start.duckduckgo.com/",
-    "https://duckduckgo.com/updates",
-    "https://duckduckgo.com/compare-privacy",
-    "https://duckduckgo.com/bangs",
-    "https://duckduckgo.com/duckduckgo-help-pages/",
-    "https://duckduckgo.com/pro",
-    "https://duckduckgo.com/email",
-    "https://duckduckgo.com/newsletter",
-    "https://duckduckgo.com/collaborations",
-  ];
-
   const asked = classifySerp(recording, "google");
+  assert.equal(asked.kind, "error", "google may not credit a page it did not serve");
+  assert.equal(
+    asked.code,
+    "empty_results",
+    "deliberately not terminal: the chain runs the engine that did serve it and credits itself from Engine.name",
+  );
+  assert.equal(asked.details.substituted, true, "a substituted page has to be tellable apart from an empty query");
+  assert.match(asked.message, /^google /u, "names the engine we asked for");
+  assert.match(asked.message, /duckduckgo\.com/u, "and the destination the page is actually at");
+
   const answered = classifySerp(recording, "duckduckgo");
+  assert.equal(answered.kind, "results", "the engine that served the page still reads it");
+  assert.equal(answered.results.length, 22, "the whole page — the count it gave before the rule existed");
 
-  // Both are `results`, which is the half a11y-tree reading cannot see: a verdict of `results` is terminal
-  // for `src/engines/chain.ts`, so neither of these falls through to a second engine.
-  assert.equal(asked.kind, "results", "B.9: the substituted page is not an error, it is a page of results");
-  assert.equal(answered.kind, "results", "B.9: and the same page read as the engine that served it");
+  // And the happy path is not collateral: a page the engine does host is untouched by any of this.
+  const owned = classifySerp(fixture("serp-google.txt", "https://www.google.com/search?q=camoufox"), "google");
+  assert.equal(owned.kind, "results", "google still reads google's own page");
+});
 
-  if (asked.kind !== "results" || answered.kind !== "results") return;
-  const askedUrls = new Set(asked.results.map((result) => result.url));
-  const answeredUrls = new Set(answered.results.map((result) => result.url));
+test("engineOwnsUrl answers where a page is, and invents nothing when it cannot", () => {
+  // The rule the classifier asks before it parses. Both apex forms are pinned because a subdomain-only
+  // pattern silently disowns the url we actually open: `https://duckduckgo.com/?q=…` is DuckDuckGo.
+  assert.equal(engineOwnsUrl("google", "https://www.google.com/search?q=camoufox"), true);
+  assert.equal(engineOwnsUrl("google", "https://www.google.com/goto?url=CAES"), true);
+  assert.equal(engineOwnsUrl("google", "https://consent.google.com/ml?continue=x"), true);
+  assert.equal(engineOwnsUrl("google", "https://www.google.co.uk/search?q=camoufox"), true, "a google TLD is still google");
+  assert.equal(engineOwnsUrl("duckduckgo", "https://duckduckgo.com/?q=camoufox"), true, "the apex host is the one we open at");
+  assert.equal(engineOwnsUrl("duckduckgo", "https://html.duckduckgo.com/html/?q=camoufox"), true);
 
-  assert.equal(asked.results.length, 30, 'B.9: 30 as "google". Red with the 9 below means chrome stopped being results — retire this case with the item, do not retune the number.');
-  assert.equal(answered.results.length, 22, 'B.9: 22 as "duckduckgo", 8 fewer. Red here means the two engines stopped disagreeing, which is the fix.');
+  // The refusals, one per direction, plus the near-miss host that a `includes` would have accepted.
+  assert.equal(engineOwnsUrl("google", "https://duckduckgo.com/?q=camoufox"), false);
+  assert.equal(engineOwnsUrl("duckduckgo", "https://www.google.com/search?q=camoufox"), false);
+  assert.equal(engineOwnsUrl("google", "https://notgoogle.com/search"), false);
+  assert.equal(engineOwnsUrl("duckduckgo", "https://duckduckgo.com.evil.test/?q=camoufox"), false);
 
-  for (const url of footer) {
-    assert.ok(askedUrls.has(url), `B.9: ${url} is served as a result by the engine name we asked for`);
-    assert.ok(!answeredUrls.has(url), `B.9: and the same url is chrome under the engine that answered`);
-  }
-
-  // The other direction, which is what makes this a rule and not one host name: `play.google.com` is a
-  // google host, so the google branch's host rule calls it chrome and the duckduckgo branch does not.
-  const playStore = [...answered.results].find((result) => result.url.startsWith("https://play.google.com/"));
-  assert.ok(playStore, "B.9: the recording carries a play.google.com result");
-  assert.equal(askedUrls.has(playStore.url), false, 'B.9: and it is dropped as chrome under "google" — the two rules disagree in both directions');
+  // Two silences, both answered by not inventing a rule: an engine we do not ship, and a url we cannot
+  // place. Refusing either would be an engine blaming a page it has no opinion about.
+  assert.equal(engineOwnsUrl("bing", "https://www.bing.com/search?q=camoufox"), true);
+  assert.equal(engineOwnsUrl("google", ""), true, "a gateway that will not say is not evidence the page is foreign");
+  assert.equal(engineOwnsUrl("google", "not a url"), true);
 });

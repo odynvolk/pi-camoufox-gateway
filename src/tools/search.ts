@@ -91,9 +91,11 @@ export function formatResults(outcome: {
   const lines: string[] = [];
   // Name the engine we selected, on every success: "google served this" and "duckduckgo served this
   // after google walled" are different claims about the same links, and a model cannot weigh a result
-  // set it cannot attribute. Selected, not answered: B.9 is a google call whose page came back from
-  // DuckDuckGo. `details.engine` is not the answer — it is a field for a script, not text the model
-  // reads. The `tried` enumeration stays conditional: nothing fell back, nothing to enumerate.
+  // set it cannot attribute. Selected, and since the ownership rule also answered: `classifySerp` refuses
+  // a page whose host the selected engine does not own, so this name can only ever be attached to a page
+  // that engine's own address says it served. `details.engine` is not the answer — it is a field for a
+  // script, not text the model reads. The `tried` enumeration stays conditional: nothing fell back,
+  // nothing to enumerate.
   const via = ` (via ${outcome.engine}${
     outcome.tried.length > 1 ? `; tried ${outcome.tried.map((s) => `${s.engine}:${s.code}`).join(", ")}` : ""
   })`;

@@ -279,6 +279,41 @@ function assertNoOrganics(text, engine, label) {
   );
 }
 
+test("a google tab that ends up on duckduckgo is credited to duckduckgo, not to google", async (t) => {
+  // The engine is decided by where the page is, not by who asked. Measured before this rule existed: one
+  // recorded DuckDuckGo page classified under "google" returned 30 results where the same page returns 22
+  // as duckduckgo — 9 of the extra 10 are DuckDuckGo's own footer, because `isChrome` filters chrome by
+  // the host of the engine we *asked* for. Crediting from `Engine.name` is only honest while the page is
+  // that engine's, which is the fact this case pins.
+  const { fake, client } = setup(t, {
+    redirects: new Map([["https://www.google.com/search?q=camoufox", "https://duckduckgo.com/?q=camoufox"]]),
+    pageContents: new Map([["https://duckduckgo.com/?q=camoufox", DUCKDUCKGO_SERP]]),
+    // The recorded page is wider than the fake's snapshot window, so without this the count below is a
+    // fact about the fake rather than about the fixture.
+    snapshotLimit: 40_000,
+  });
+
+  const outcome = await searchWithFallback("camoufox", [googleEngine(), duckduckgoEngine()], { client, userId: "u1" });
+
+  assert.deepEqual(outcome.tried.map((step) => step.engine), ["google", "duckduckgo"], "google was not skipped: it was refused, and then duckduckgo ran");
+  assert.equal(outcome.tried[0].code, "empty_results", "the code the chain hops on — a refused page may not end the search");
+  assert.equal(outcome.engine, "duckduckgo", "credited to the engine that served the page");
+  assert.equal(outcome.results.length, 19, "the recorded page's nineteen results, and none of duckduckgo's footer");
+  assert.equal(
+    outcome.results.every((result) => !/\/\/([^/]*\.)?duckduckgo\.com/u.test(result.url)),
+    true,
+    "no duckduckgo chrome reached the model, which is what the wrong-engine filter used to let through",
+  );
+  // The price of the refusal, pinned rather than described: a page that is not the asked engine's can
+  // never become its results, and the settle loop does not know that — it re-looks until the page stops
+  // changing, which is the same bounded cost B.6's blind page pays.
+  assert.equal(
+    callsFor(fake, "/snapshot").length,
+    1 + STABLE_ROUNDS + 1,
+    "three looks at a page google will never own, then one at duckduckgo's own",
+  );
+});
+
 test("a google page still rendering on the first look is re-looked, not reported as one with no results", async (t) => {
   assertNoOrganics(GOOGLE_SKELETON, "google", "the chrome-only frame");
 

@@ -331,10 +331,41 @@ export type SerpVerdict =
   | { kind: "error"; code: GatewayErrorCode; message: string; details: Record<string, unknown> };
 
 /**
- * One SERP snapshot, one verdict: wall, results, or — with nothing organic to hand back — why not.
+ * Did the engine we asked for serve this page?
  *
- * The two axes of the last branch are read here, not inferred from call order: how wide the page is,
- * and whether anything in it had the shape of a link at all. Both engines used to repeat the sequence
+ * Two things downstream are per-engine and only true of a page that engine served: `isChrome`, which
+ * filters an engine's own UI by host, and the credit `src/engines/chain.ts` hands out from `Engine.name`.
+ * Measured on `tests/fixtures/serp-google-answered-by-duckduckgo.txt` — a DuckDuckGo results page, asked
+ * for as google: **30** results as `"google"`, **22** as `"duckduckgo"`. Nine of them are DuckDuckGo's own
+ * footer links, which google's host rule has no way to call chrome, and one `play.google.com` link moves
+ * the other way — so eight of them reached the model as organic results under a header saying
+ * `(via google)`.
+ *
+ * Answers `true` for anything it cannot judge: an engine we do not ship, an unparseable url, a gateway
+ * that reports no destination. Each of those is a silence, and reading a silence as "not ours" fails a
+ * search closed on evidence nobody has.
+ */
+export function engineOwnsUrl(engine: string, url: string): boolean {
+  let host: string;
+  try {
+    host = new URL(url).hostname;
+  } catch {
+    return true;
+  }
+  // `(^|\.)`, not `\.`: both engines are opened at their apex host, and a subdomain-only pattern would
+  // disown `https://duckduckgo.com/?q=…` — the url `src/engines/duckduckgo.ts` opens on every call.
+  if (engine === "google") return /(^|\.)google\.[a-z.]+$/iu.test(host);
+  if (engine === "duckduckgo") return /(^|\.)duckduckgo\.com$/iu.test(host);
+  return true;
+}
+
+/**
+ * One SERP snapshot, one verdict: a wall, a page some other engine served, results, or — with nothing
+ * organic to hand back — why not.
+ *
+ * The order is the answer, and it lives here rather than in call order: host and phrase evidence first,
+ * then ownership, then the parse. The last branch reads two axes itself — how wide the page is, and
+ * whether anything in it had the shape of a link at all. Both engines used to repeat the sequence
  * themselves, which made the *meaning* of `PARSEABLE_MIN_CHARS` an emergent property of that order —
  * swap two calls and a wall-shaped page reports `empty_results`, or a thin one blames our parser. Now
  * one call site holds the order, and the branches are asserted together in `tests/snapshot.test.mjs`.
@@ -352,6 +383,21 @@ export function classifySerp(snapshot: SnapshotLike, engine: string): SerpVerdic
       code: wall,
       message: `${engine} did not serve results (got ${url})`,
       details: { url, engine },
+    };
+  }
+
+  // Where the page is, asked before what is on it. `empty_results` is the code deliberately: it is not in
+  // `chain.ts`'s `TERMINAL_CODES`, so the chain runs the engine that does host this page and is credited
+  // by its own `Engine.name` — which is the only way a substituted page can be attributed without letting
+  // a field in the payload pick who gets the credit, and the only way it is never chrome-filtered by the
+  // wrong engine's host list. Runs after `detectWall` because a consent interstitial is a named event, and
+  // naming it beats reporting a page we declined to read.
+  if (!engineOwnsUrl(engine, url)) {
+    return {
+      kind: "error",
+      code: "empty_results",
+      message: `${engine} did not serve this page — the tab is at ${url}`,
+      details: { url, engine, substituted: true },
     };
   }
 
