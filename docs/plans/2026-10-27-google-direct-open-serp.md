@@ -2,8 +2,9 @@
 
 Branch: `fix/google-serp-direct-open`
 Date: 2026-10-27
-Status: implemented — U1–U5 are on the branch and the offline gates are green; the live gate below is the
-one check still to run against a real gateway before this ships
+Status: implemented and live-verified. U1–U5 plus nine review findings are on the branch; offline gates and
+`test:live` are green against a real gateway (camofox-browser 1.18.1). One defect surfaced during the live
+gate and is deliberately **not** fixed here — see *Known remaining defect*.
 
 ## Problem
 
@@ -145,6 +146,16 @@ Tests (`tests/engines.test.mjs`, `tests/gateway.test.mjs`):
   `http://192.168.8.110:9377` — `live: search returns real results` must now report organics whose hosts
   are not `duckduckgo.com` when `engine: google`.
 - No tab leaks (the suite's own backstop).
+
+## Known remaining defect (found by the live gate, not fixed here)
+
+A query with genuinely no results costs ~10.9 s and reports `empty_results` as *"google's results page was
+still rendering … so it is not known whether it had results"* — while the settle loop's own `samePage`
+comparison had found its two frames byte-identical. `STABLE_ROUNDS = 2` needs three looks, and the 600 ms
+budget only admits a third look when a `/snapshot` answers in under ~450 ms; the gateway's are ~5 s.
+Measured, tabulated, and written up at
+`.context/compound-engineering/findings/2026-10-28T00-10-00-000Z-finding-settle-stalled-at-deadline.md`.
+Left alone because `snapshotSettled` is shared with `tools/read.ts`, so the fix moves read's behaviour too.
 
 ## Explicitly out of scope
 
