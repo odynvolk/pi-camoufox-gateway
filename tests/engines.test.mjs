@@ -360,6 +360,31 @@ test("a google tab that ends up on duckduckgo is credited to duckduckgo, not to 
   );
 });
 
+test("a page the asked engine cannot own is reported as a substitution, whatever it was doing while we looked", async (t) => {
+  // Rotating text is the provocation, because it is exactly the shape that keeps the settle loop alive: a
+  // page that never answers stable runs to the budget, and the budget's line is "its results page was still
+  // rendering, so it is not known whether it had results". That is a claim about *whether results arrived*,
+  // and it cannot be made about a page this engine never served. Where the page is is decided from its
+  // address on the first look and no frame afterwards contradicts it, so it is the one verdict the wait may
+  // not downgrade — the model reads one message, and it must be the one about which page we got.
+  const { fake, client } = setup(t, {
+    redirects: new Map([["https://www.google.com/search?q=camoufox", "https://duckduckgo.com/?q=camoufox"]]),
+    snapshotScripts: new Map([["https://duckduckgo.com/?q=camoufox", ROTATING_FRAMES]]),
+  });
+
+  const error = await googleEngine().search("camoufox", { client, userId: "u1" }).catch((e) => e);
+
+  assert.equal(error.code, "empty_results", "the code the chain hops on, so a foreign page never ends the search");
+  assert.equal(error.details.substituted, true, "and a reader can tell this from a query that came up empty");
+  assert.match(error.message, /^google did not serve this page/u, "names the engine we asked for");
+  assert.match(error.message, /duckduckgo\.com/u, "and the destination that actually served it");
+  assert.doesNotMatch(
+    error.message,
+    /still rendering/u,
+    `"${error.message}" makes the wait's claim about a page that was never this engine's to render`,
+  );
+});
+
 test("a google page still rendering on the first look is re-looked, not reported as one with no results", async (t) => {
   assertNoOrganics(GOOGLE_SKELETON, "google", "the chrome-only frame");
 

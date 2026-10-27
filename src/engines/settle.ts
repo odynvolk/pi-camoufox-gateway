@@ -68,6 +68,16 @@ export function serpWorthAnotherLook(snapshot: SnapshotLike, engine: EngineName)
  */
 function undecidedVerdict(verdict: SerpVerdict, engine: EngineName): SerpVerdict {
   if (verdict.kind === "results") return verdict;
+  // The ownership verdict is about *which page we got*, and the address decides it on the first frame: no
+  // amount of waiting makes a foreign host the asked engine's results page. So this loop may downgrade
+  // "there were no results" — that page might still have been on its way — and may not downgrade this one.
+  //
+  // Unreachable today, and kept against one specific edit. `serpWorthAnotherLook` (in `./settle.ts`) stops
+  // the wait on the first frame `engineOwnsUrl` refuses, so no substituted frame is ever the frame the
+  // budget ran out on. Narrow that predicate — "stop only on walls" is the plausible revision — and this
+  // branch is live again, telling a model a page was still rendering when it had in fact never been ours.
+  // The two functions are one rule; `tests/engines.test.mjs` pins that they stay the same rule.
+  if (verdict.details.substituted === true) return verdict;
   return {
     ...verdict,
     message: `${engine}'s results page was still rendering when the ${SEARCH_SETTLE_MS}ms wait ran out, so it is not known whether it had results`,
