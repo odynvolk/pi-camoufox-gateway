@@ -8,7 +8,7 @@
 
 import type { EngineName } from "../config.ts";
 import type { GatewayClient } from "../gateway.ts";
-import { classifySerp, detectWall, wallWorthWaitingOn, type SerpVerdict, type SnapshotLike } from "../snapshot.ts";
+import { classifySerp, detectWall, engineOwnsUrl, wallWorthWaitingOn, type SerpVerdict, type SnapshotLike } from "../snapshot.ts";
 import { snapshotSettled } from "../settle.ts";
 import type { EngineContext } from "./types.ts";
 
@@ -31,8 +31,15 @@ export const SEARCH_SETTLE_POLL_MS = 150;
  * signal already computed — `classifySerp` has decided whether any organic result is there — so a
  * character threshold here would only add a number that disagrees with the classifier below it.
  *
- * Two branches matter:
+ * Three branches matter:
  *
+ * - A page the asked engine does not host ends the wait. Its address decided that on the first frame, and
+ *   no frame afterwards contradicts it, which makes it the same kind of named event as a wall rather than
+ *   the "not yet" case this loop exists for. The counter-case is real — a page can move after the tab
+ *   opened, so ownership is the one verdict a later frame could reverse — and it is answered where it is
+ *   genuinely undecided: `engineOwnsUrl` declines to judge a destination it cannot read, which is what a tab
+ *   between two addresses reports. Waiting three looks at a page that has named its host buys latency and
+ *   says nothing new, which is `wallWorthWaitingOn`'s argument, repeated for the other named event.
  * - A wall ends the wait, with the one exception `wallWorthWaitingOn` states — the same exception read
  *   applies to its own predicate, because "a blank page is a page that has not started" is not a fact
  *   two callers may disagree about.
@@ -43,6 +50,11 @@ export const SEARCH_SETTLE_POLL_MS = 150;
  *   after `STABLE_ROUNDS` identical looks, because a page that has stopped changing is something the
  *   loop can actually see. Measured cost of that page: 3 snapshots, 2 sleeps of `SEARCH_SETTLE_POLL_MS`.
  *
+ * The first two are the same rule `classifySerp` applies when it refuses a page, and the two must stay one
+ * rule: a frame the loop will still re-look at must never be a frame the classifier called a substitution,
+ * or the budget's "still rendering" line gets said about a page that was never ours. `tests/engines.test.mjs`
+ * asserts that across every recording rather than trusting the wording.
+ *
  * The narrower predicate — look again only while the page has no link blocks — would skip that cost by
  * never re-looking at a page whose chrome had already rendered. Measured against the recorded pages it
  * skips the case this is for: the chrome-only prefix of `serp-google.txt` is 5 link blocks with no
@@ -51,6 +63,7 @@ export const SEARCH_SETTLE_POLL_MS = 150;
  */
 export function serpWorthAnotherLook(snapshot: SnapshotLike, engine: EngineName): boolean {
   if (classifySerp(snapshot, engine).kind === "results") return false;
+  if (!engineOwnsUrl(engine, snapshot.url ?? "")) return false;
   return wallWorthWaitingOn(detectWall(snapshot));
 }
 

@@ -1,7 +1,7 @@
 import "./helpers/fetch_guard.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 
 import { withFakeGateway } from "./helpers/fake_gateway.mjs";
 import { createGatewayClient } from "../src/gateway.ts";
@@ -9,8 +9,8 @@ import { GatewayError } from "../src/errors.ts";
 import { enginesFromConfig, searchWithFallback } from "../src/engines/chain.ts";
 import { googleEngine } from "../src/engines/google.ts";
 import { duckduckgoEngine } from "../src/engines/duckduckgo.ts";
-import { SEARCH_SETTLE_MS, SEARCH_SETTLE_POLL_MS } from "../src/engines/settle.ts";
-import { engineOwnsUrl, parseSerp } from "../src/snapshot.ts";
+import { classifySerp, engineOwnsUrl, parseSerp } from "../src/snapshot.ts";
+import { SEARCH_SETTLE_MS, SEARCH_SETTLE_POLL_MS, serpWorthAnotherLook } from "../src/engines/settle.ts";
 import { STABLE_ROUNDS } from "../src/settle.ts";
 import { DEFAULT_CONFIG } from "../src/config.ts";
 
@@ -350,13 +350,14 @@ test("a google tab that ends up on duckduckgo is credited to duckduckgo, not to 
     true,
     "no duckduckgo chrome reached the model, which is what the wrong-engine filter used to let through",
   );
-  // The price of the refusal, pinned rather than described: a page that is not the asked engine's can
-  // never become its results, and the settle loop does not know that — it re-looks until the page stops
-  // changing, which is the same bounded cost B.6's blind page pays.
+  // The price of the refusal, pinned rather than described: a page whose host the asked engine does not own
+  // can never become its results, which is a fact about the address and not about the page still arriving,
+  // so it is answered on the first look — the same reason `wallWorthWaitingOn` ends the wait on a wall. B.6's
+  // blind page is the contrast: that one cannot be told from "not yet", and it does pay the stability looks.
   assert.equal(
     callsFor(fake, "/snapshot").length,
-    1 + STABLE_ROUNDS + 1,
-    "three looks at a page google will never own, then one at duckduckgo's own",
+    2,
+    "one look named a page google can never own, and google paid for no more at it — then one at duckduckgo's own",
   );
 });
 
@@ -383,6 +384,9 @@ test("a page the asked engine cannot own is reported as a substitution, whatever
     /still rendering/u,
     `"${error.message}" makes the wait's claim about a page that was never this engine's to render`,
   );
+  // The cost of deciding it, measured rather than hoped: rotation is what would have kept the loop alive,
+  // and it does not, because the question the loop now asks is answered before the second look.
+  assert.equal(callsFor(fake, "/snapshot").length, 1, "one look was enough to know this page cannot be google's");
 });
 
 test("a google page still rendering on the first look is re-looked, not reported as one with no results", async (t) => {
@@ -514,6 +518,59 @@ test("a page that never stops changing costs the search budget and nothing more"
     callsFor(fake, "/snapshot").length <= 1 + Math.ceil(SEARCH_SETTLE_MS / SEARCH_SETTLE_POLL_MS),
     `${callsFor(fake, "/snapshot").length} snapshots is more re-look than one engine's budget can buy`,
   );
+});
+
+/**
+ * Every recording, so this section's coupling check picks up a page the moment one is added — a hand-named
+ * list is a count, and a count is the thing that goes stale quietly.
+ */
+const RECORDED_PAGES = readdirSync(new URL("./fixtures/", import.meta.url), { withFileTypes: true })
+  .filter((entry) => entry.isFile() && entry.name.endsWith(".txt"))
+  .map((entry) => entry.name)
+  .sort();
+
+/**
+ * The destinations a snapshot can be reported at: both engines' own hosts, a look-alike, a stranger's, and
+ * the two silences — no destination, and one a tab has not taken yet.
+ */
+const REPORTED_URLS = [
+  "https://www.google.com/search?q=camoufox",
+  "https://duckduckgo.com/?q=camoufox",
+  "https://www.google.com.evil.test/search?q=camoufox",
+  "https://example.test/",
+  "about:blank",
+  "",
+];
+
+test("the settle loop never keeps looking at a page the classifier says this engine cannot own", () => {
+  // The two ask one question — `classifySerp` to refuse the page, `serpWorthAnotherLook` to stop waiting on
+  // it — and they must keep answering it identically. Their agreement is what makes `undecidedVerdict`'s
+  // substituted branch dead: a frame the loop is still willing to re-look at is never a frame the classifier
+  // called a substitution. Narrow the predicate on one side alone — "stop only on walls" is the plausible
+  // revision — and the loop runs its budget out on a page that was never ours and reports it as still
+  // rendering. So assert the rule, not the branch, across every recording: the shapes where the two could
+  // drift apart (a wall, a blank page, a page this parser is blind to) are exactly what a single case misses.
+  for (const name of RECORDED_PAGES) {
+    const text = fixture(name);
+    for (const engine of ["google", "duckduckgo"]) {
+      for (const url of REPORTED_URLS) {
+        const snapshot = { url, text };
+        const verdict = classifySerp(snapshot, engine);
+        const substituted = verdict.kind === "error" && verdict.details.substituted === true;
+        assert.equal(
+          substituted && serpWorthAnotherLook(snapshot, engine),
+          false,
+          `${name} read as ${engine} at ${url || "(no destination)"}: refused as a substitution, and re-looked at anyway`,
+        );
+      }
+    }
+  }
+
+  // Named explicitly because it is the recording the ownership rule was written for: a DuckDuckGo page
+  // asked for as google, at the url it was taken at.
+  const substituted = { url: "https://duckduckgo.com/?q=expressen&ia=web", text: fixture("serp-google-answered-by-duckduckgo.txt") };
+  assert.equal(classifySerp(substituted, "google").details.substituted, true, "the classifier refuses it — the premise below is nothing without this");
+  assert.equal(serpWorthAnotherLook(substituted, "google"), false, "and the loop does not spend a look on it");
 });
 
 test("the search settle budget is its own, and smaller than the one a read may spend", () => {
