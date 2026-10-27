@@ -289,6 +289,18 @@ export class GatewayClient {
   }
 
   /**
+   * The deadline this client puts on one request.
+   *
+   * Public because a caller that sequences several requests needs to bound the *sequence*, and the number
+   * that decides one request's patience is the only honest unit for that: `engines/chain.ts` budgets the
+   * walk in these. Read it rather than copying the config value, which is what lets a test lower one number
+   * and have every bound above it move with it.
+   */
+  get requestDeadlineMs(): number {
+    return this.timeoutMs;
+  }
+
+  /**
    * Cheap liveness check — the windows and the sharing are `LivenessCache`'s; this is the wiring.
    *
    * The one thing worth repeating at the call site: a status answered from here is never the authority

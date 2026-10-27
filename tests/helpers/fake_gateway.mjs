@@ -52,6 +52,7 @@ export function createFakeGateway(options = {}) {
     dropsTabAfterSnapshot: false, // the browser closes the tab under us after the first look
     tabsReportUrl: true, // false: neither endpoint will say, so the location is genuinely unknown
     waitHangsForMs: 0, // the gateway holds /wait past our per-request deadline, ignoring its own timeout
+    snapshotHangsForMs: 0, // the gateway holds /snapshot the same way: a page that never finishes rendering
     healthRoute: true, // false simulates a gateway older than GET /health
     healthStatus: 200, // 503 is the documented "unhealthy or recovering" answer
     healthBody: undefined, // anything: answers /health with exactly this, for shapes we must interpret
@@ -238,6 +239,7 @@ export function createFakeGateway(options = {}) {
 
       if (method === "GET" && sub === "/snapshot") {
         if (state.failSnapshot) return json({ error: "snapshot exploded" }, 500);
+        if (state.snapshotHangsForMs) await sleep(state.snapshotHangsForMs);
         // A page can move after we opened it (meta refresh, `location.href`), which is the case the
         // pre-flight url check cannot see.
         const jumped = state.redirectAfterOpen.get(tab.url);

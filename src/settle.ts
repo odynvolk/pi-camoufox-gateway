@@ -32,10 +32,26 @@ function samePage(left: SnapshotResult, right: SnapshotResult): boolean {
   return left.text === right.text && left.totalChars === right.totalChars && left.refsCount === right.refsCount;
 }
 
+/**
+ * What a wait that ended early is called.
+ *
+ * A signal that aborted with a `GatewayError` as its reason is not somebody cancelling the call: that is how
+ * `engines/chain.ts` ends a search that spent its whole budget, and reading the reason as a cancel would
+ * tell the model "the search was cancelled" when what happened was that our own clock ran out. Surfacing the
+ * reason verbatim is what `gateway.ts`'s `abortError` already does for the same reason, and the two must
+ * agree — one deadline should not have two vocabularies depending on whether it fired during a request or
+ * during the sleep between two.
+ */
+function cancellation(signal: AbortSignal | undefined, cancelledMessage: string): GatewayError {
+  const reason = signal?.reason;
+  if (reason instanceof GatewayError) return reason;
+  return new GatewayError("aborted", cancelledMessage);
+}
+
 function delay(ms: number, signal: AbortSignal | undefined, cancelledMessage: string): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {
-      reject(new GatewayError("aborted", cancelledMessage));
+      reject(cancellation(signal, cancelledMessage));
       return;
     }
     const timer = setTimeout(() => {
@@ -44,7 +60,7 @@ function delay(ms: number, signal: AbortSignal | undefined, cancelledMessage: st
     }, ms);
     function onAbort() {
       clearTimeout(timer);
-      reject(new GatewayError("aborted", cancelledMessage));
+      reject(cancellation(signal, cancelledMessage));
     }
     signal?.addEventListener("abort", onAbort, { once: true });
   });
@@ -65,7 +81,12 @@ export interface SettleOptions {
   /** The window to keep asking for, so a continuation read never re-looks at a different page. */
   offset?: number;
   signal?: AbortSignal;
-  /** What a cancel during a wait is called, in the words this caller's caller reads. */
+  /**
+   * What a cancel during a wait is called, in the words this caller's caller reads.
+   *
+   * A caller's own cancel only: a signal that aborted with a `GatewayError` as its reason keeps that error,
+   * because a deadline of ours firing is not this caller's word to say.
+   */
   cancelledMessage: string;
 }
 
