@@ -2,17 +2,13 @@
  * In-process fake of the camofox-browser gateway.
  *
  * It implements only the endpoints this extension uses, with the real API's observed behaviour:
- * http/https-only tabs, navigate that does not auto-create a tab, a macro path for Google, and
- * snapshot pagination that reports totalChars/hasMore/nextOffset.
+ * http/https-only tabs, an open that reports where the tab ended up (or stays silent about it, which is
+ * its own case), and snapshot pagination that reports totalChars/hasMore/nextOffset.
  *
  * Tests get a `fetch` implementation to install, plus a call log for assertions.
  */
 
 import { trackTabLeaks } from "./tab_leaks.mjs";
-
-const MACROS = {
-  "@google_search": (query) => `https://www.google.com/search?q=${encodeURIComponent(query)}`,
-};
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -208,6 +204,9 @@ export function createFakeGateway(options = {}) {
         return json({ error: "Blocked URL: this host is refused by the gateway (only http/https allowed)" }, 400);
       }
       const tabId = crypto.randomUUID();
+      // The consent wall is modelled here because this is where a search engine is asked for: an engine
+      // opens at its own results url and never navigates anywhere, so a wall has to be what the open lands
+      // on. `googleHost` keeps it a Google-shaped answer — duckduckgo gets its page whatever the user is.
       const googleHost = /^https?:\/\/(www\.)?google\./u.test(body.url);
       const url =
         state.consentWallOn?.has(body.userId) && googleHost
@@ -235,34 +234,6 @@ export function createFakeGateway(options = {}) {
       if (method === "DELETE" && !sub) {
         tabsOf(userId).delete(tabId);
         return json({ ok: true });
-      }
-
-      // `refsAvailable` / `googleSerp` are what the real gateway was observed sending here (the 2026-10-09
-      // probe record in `docs/brainstorms/2026-10-09-pi-camoufox-gateway.md` → Verified facts about the
-      // gateway), and are deliberately unmodelled: the recorded contract declares no fields on a navigate
-      // answer, and nothing reads these. They stay to prove we ignore what we do not model — not to be
-      // "completed" by adding them back to `NavigateResult`.
-      if (method === "POST" && sub === "/navigate") {
-        if (body.macro) {
-          const template = MACROS[body.macro];
-          if (!template) return json({ error: `Unknown macro ${body.macro}` }, 400);
-          const target = template(body.query ?? "");
-          if (state.consentWallOn?.has(body.userId)) {
-            // The macro ran, and Google answered with the interstitial instead of a results page.
-            tab.url = `https://consent.google.com/ml?continue=${encodeURIComponent(target)}`;
-            return json({ ok: true, tabId, url: tab.url, refsAvailable: false });
-          }
-          tab.url = target;
-          tab.title = tab.url;
-          return json({ ok: true, tabId, url: tab.url, refsAvailable: false, googleSerp: true });
-        }
-        if (!body?.url || !/^https?:\/\//.test(body.url)) {
-          return json({ error: "Blocked URL scheme (only http/https allowed)" }, 400);
-        }
-        tab.url = resolveTarget(body.url);
-        // Some gateways answer `/tabs/open` with an id only, which is the case `openTab`'s destination
-        // re-check cannot see: it gets back the url we asked for, so it compares a string with itself.
-        return json({ ok: true, tabId, refsAvailable: true, ...(state.openReportsUrl ? { url: tab.url } : {}) });
       }
 
       if (method === "GET" && sub === "/snapshot") {

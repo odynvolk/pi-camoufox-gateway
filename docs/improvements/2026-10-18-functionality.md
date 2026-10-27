@@ -29,8 +29,9 @@ stronger claim than "needs upstream work", and worth keeping the two separate.
 **The gateway exposes 36 endpoints and 14 search macros. This client consumes 9 endpoints and no
 macros.**
 
-Verified at `68d1e14` for the endpoints, and at `2197c7c` for the macros — which is what the macro row
-below records: the client builds its own search urls now:
+Recounted against `ENDPOINTS` and `tests/fixtures/openapi.json` when the navigate endpoint went away, not
+copied forward from the last count — the endpoint half was last taken at `68d1e14`, and a number this
+doc's own argument rests on is worth re-measuring rather than inheriting:
 
 | Claim | Evidence |
 | --- | --- |

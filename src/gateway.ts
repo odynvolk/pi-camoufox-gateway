@@ -61,10 +61,6 @@ export interface OpenTabResult {
   title?: string;
 }
 
-export interface NavigateResult {
-  url: string;
-}
-
 export interface SnapshotResult {
   url: string;
   text: string;
@@ -173,7 +169,6 @@ export const ENDPOINTS = {
   health: { method: "GET", path: "/health" },
   openTab: { method: "POST", path: "/tabs/open" },
   listTabs: { method: "GET", path: "/tabs" },
-  navigate: { method: "POST", path: "/tabs/{tabId}/navigate" },
   snapshot: { method: "GET", path: "/tabs/{tabId}/snapshot" },
   wait: { method: "POST", path: "/tabs/{tabId}/wait" },
   extract: { method: "POST", path: "/tabs/{tabId}/extract" },
@@ -471,21 +466,6 @@ export class GatewayClient {
     return closed;
   }
 
-  async navigateMacro(params: {
-    userId: string;
-    tabId: string;
-    macro: string;
-    query: string;
-    signal?: AbortSignal;
-  }): Promise<NavigateResult> {
-    const body = await this.requestJson<Record<string, unknown>>("POST", endpointPath("navigate", { tabId: params.tabId }), {
-      userId: params.userId,
-      body: { userId: params.userId, macro: params.macro, query: params.query },
-      signal: params.signal,
-    });
-    return this.asNavigateResult(body);
-  }
-
   async snapshot(params: {
     userId: string;
     tabId: string;
@@ -655,18 +635,6 @@ export class GatewayClient {
     for (const [tabId, userId] of [...this.liveTabs.entries()]) {
       if (userId === params.userId) this.liveTabs.delete(tabId);
     }
-  }
-
-  /**
-   * Reads one field. Navigate's recorded 200 (`tests/fixtures/openapi.json`) declares no properties, so it
-   * argues nothing about the fields we skip — it neither promises them nor denies them.
-   *
-   * Never sees a `{ "ok": false }` body: `perform()` rejects those first, classifying them by the gateway's message.
-   */
-  private asNavigateResult(body: Record<string, unknown>): NavigateResult {
-    return {
-      url: typeof body.url === "string" ? body.url : "",
-    };
   }
 
   private url(path: string, query?: RequestOptions["query"]): string {
