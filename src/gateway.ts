@@ -476,6 +476,11 @@ export class GatewayClient {
       userId: params.userId,
       query: { userId: params.userId, format: "text", ...(params.offset ? { offset: params.offset } : {}) },
       signal: params.signal,
+      // It is a GET, so repeating it is safe — and safety was never the reason to repeat it. A timeout has
+      // already spent the entire `timeoutMs`, and every caller of this pays it per engine before a hop: a
+      // hung snapshot used to cost the deadline twice before the chain was told anything had failed. Only
+      // a request that never landed is worth sending again.
+      retry: "connect-only",
     });
     const text = typeof body.snapshot === "string" ? body.snapshot : "";
     const totalChars = typeof body.totalChars === "number" ? body.totalChars : text.length;

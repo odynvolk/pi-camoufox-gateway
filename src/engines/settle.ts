@@ -60,9 +60,11 @@ export function serpWorthAnotherLook(snapshot: SnapshotLike, engine: EngineName)
  * `classifySerp`'s error messages are claims about what the engine had. A frame taken while the page was
  * still growing is not evidence for one: the loop only reaches its deadline while another look is still
  * wanted, and a page that had answered stable and empty already stopped it. The *code* has to stay
- * whatever the last frame looked like, because `chain.ts` hops on `empty_results` and stops on `timeout`
- * — so the correction goes in the message, which is the line the model reads first and the one
- * `structuredTried` hands a script.
+ * whatever the last frame looked like. `timeout` is what the transport says when a request missed its own
+ * deadline, and a page that had not finished rendering is not that event — borrowing the code would report
+ * a gateway that never answered when what happened was a page that never arrived. The *code* also decides
+ * the fallback, so a rewrite would move the hop too. The correction therefore goes in the message, which
+ * is the line the model reads first and the one `structuredTried` hands a script.
  */
 function undecidedVerdict(verdict: SerpVerdict, engine: EngineName): SerpVerdict {
   if (verdict.kind === "results") return verdict;

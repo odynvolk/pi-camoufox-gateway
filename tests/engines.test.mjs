@@ -194,7 +194,10 @@ test("a link-less page inside the wall window is parse_error, empty_results is r
 test("every terminal code stops the chain before the next engine is tried", async (t) => {
   const { client } = setup(t);
 
-  for (const code of ["gateway_unreachable", "gateway_unauthorized", "timeout", "host_blocked"]) {
+  // `timeout` is not in this list, and the case below is why. Everything here is an outcome where the
+  // next engine would meet the same wall: the gateway is down, it refused our credentials, or the address
+  // guard said no before anyone dialled.
+  for (const code of ["gateway_unreachable", "gateway_unauthorized", "host_blocked", "private_network"]) {
     let secondRan = false;
     const first = {
       name: "first",
@@ -216,6 +219,29 @@ test("every terminal code stops the chain before the next engine is tried", asyn
     assert.equal(secondRan, false, `${code} must not reach the next engine`);
     assert.equal(error.details.tried.length, 1, `${code} must stop after one step`);
   }
+});
+
+test("one slow engine may not abort the whole search", async (t) => {
+  // A gateway that is up and slow on one engine is the case this chain exists for; a gateway that is
+  // *down* is still terminal through `gateway_unreachable`, which the case above keeps. Reported with the
+  // timeout still terminal: one slow google cost 2 × 30s (a retryable timeout spends the retry budget)
+  // and the call came back `tried: [{"engine":"google","code":"timeout"}]` with duckduckgo never asked.
+  const { client } = setup(t);
+  const slow = {
+    name: "google",
+    search: async () => {
+      throw new GatewayError("timeout", "gateway did not respond within 30000ms", { retryable: true });
+    },
+  };
+
+  const outcome = await searchWithFallback("camoufox", [slow, duckduckgoEngine()], { client, userId: "u1" });
+
+  assert.equal(outcome.engine, "duckduckgo", "the engine that answered, not the one that was slow");
+  assert.deepEqual(
+    outcome.tried.map((step) => `${step.engine}:${step.code}`),
+    ["google:timeout", "duckduckgo:ok"],
+    "the slow engine is still recorded — a hop that hides which engine was slow is a lie by omission",
+  );
 });
 
 test("an engine that throws something bare is our fault, not the gateway's", async (t) => {
@@ -425,8 +451,10 @@ test("a page that never stops changing costs the search budget and nothing more"
   const error = await googleEngine().search("camoufox", { client, userId: "u1" }).catch((e) => e);
 
   assert.equal(error.code, "empty_results");
-  // The code has to stay: `chain.ts` hops on `empty_results` and stops on `timeout`, and a page that
-  // never stopped changing is not a reason to give up on the next engine. The *message* is the other
+  // The code has to stay whatever the last page looked like: `empty_results` is what the chain hops on,
+  // and borrowing the transport's `timeout` here would report a request that missed its deadline when what
+  // actually happened was a page that never finished arriving — and a page that never stopped changing is
+  // no reason to give up on the next engine either. The *message* is the other
   // half, and it is what the model reads first — this is the one case where the branch cannot say the
   // query came up empty, only that our waiting came up short.
   assert.doesNotMatch(

@@ -22,11 +22,18 @@ const BY_NAME: Record<string, () => Engine> = {
  * Outcomes where trying a different engine is pointless. `host_blocked`/`private_network` are
  * defensive: the url policy raises them at tab-open time, and no engine navigates anywhere those
  * apply — but a policy refusal must not walk the chain either.
+ *
+ * `timeout` is not here, and is not an oversight. Every code on this list is one the next engine would
+ * meet too — the gateway is down, it refused our credentials, the guard refused the address. A timeout
+ * says only that *this* engine was still working when our deadline ran out, which is the exact situation
+ * the chain exists to survive: a gateway that is up and slow on google should cost us a hop, not a
+ * search. A gateway that is actually down is still caught here, by `gateway_unreachable` — the distinction
+ * is between a service that is slow and a service that is not there, and it is one the transport already
+ * makes for us.
  */
 const TERMINAL_CODES: GatewayErrorCode[] = [
   "gateway_unreachable",
   "gateway_unauthorized",
-  "timeout",
   "host_blocked",
   "private_network",
 ];

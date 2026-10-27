@@ -710,17 +710,57 @@ test("maps 404 tab not found distinctly from transport failures", async (t) => {
   assert.match(error.message, /nope/u);
 });
 
+/**
+ * The documented retry budget, asserted on a call that still spends it.
+ *
+ * This ran on `snapshot` until `snapshot` went `connect-only`: the claim is about the budget, not about
+ * the endpoint, so it moved rather than being dropped. `extract` is a POST on the default retry policy —
+ * idempotent enough to repeat, and the one body-carrying call left that a 5xx may re-send.
+ */
 test("retries a 5xx exactly once before failing", async (t) => {
   const { fake, client } = clientWith(t);
-  fake.state.failures.set("GET /tabs/tab-1/snapshot", 5);
+  fake.state.failures.set("POST /tabs/tab-1/extract", 5);
 
   const error = await client
-    .snapshot({ userId: "u1", tabId: "tab-1" })
+    .extract({ userId: "u1", tabId: "tab-1", schema: { type: "object", properties: {} } })
     .catch((e) => e);
 
   expectError(error, "gateway_error");
-  const attempts = fake.state.calls.filter((c) => c.path.startsWith("/tabs/tab-1/snapshot")).length;
+  const attempts = fake.state.calls.filter((c) => c.path.startsWith("/tabs/tab-1/extract")).length;
   assert.equal(attempts, 2);
+});
+
+test("a snapshot is not retried once the gateway has answered", async (t) => {
+  // `snapshot` is `connect-only`: a GET, so repeating it is safe — and safety was never the reason to
+  // repeat it. A 5xx means the gateway is there and said no; a second one buys the same answer and the
+  // latency twice over, which on the search path is paid per engine before the hop.
+  const { fake, client } = clientWith(t);
+  fake.state.failures.set("GET /tabs/tab-1/snapshot", 5);
+
+  const error = await client.snapshot({ userId: "u1", tabId: "tab-1" }).catch((e) => e);
+
+  expectError(error, "gateway_error");
+  const attempts = fake.state.calls.filter((c) => c.path.startsWith("/tabs/tab-1/snapshot")).length;
+  assert.equal(attempts, 1);
+});
+
+test("a snapshot that times out is issued once, not twice", async () => {
+  // The case that made this a bug rather than a preference: a hung snapshot already spent the whole
+  // `timeoutMs`, and `retry: "always"` handed the deadline to it a second time. Measured against the
+  // live gateway at the shipped 30s, one engine cost 60s of nothing before the chain saw a failure.
+  // Only a request that never landed is worth repeating; a timeout is the opposite of that.
+  let requests = 0;
+  const client = createGatewayClient({
+    baseUrl: BASE,
+    timeoutMs: 20,
+    fetchImpl: () => {
+      requests += 1;
+      return new Promise(() => {});
+    },
+  });
+
+  expectError(await client.snapshot({ userId: "u1", tabId: "tab-1" }).catch((e) => e), "timeout");
+  assert.equal(requests, 1, "one deadline per snapshot, whatever the budget allows for a request that never landed");
 });
 
 test("opening a tab is not retried once the gateway has answered", async (t) => {
