@@ -274,11 +274,15 @@ timid.
   network security.*, and one link to Reddit's ticket form. What that page was classified as is a separate
   defect, filed in [2026-10-18-code.md](./2026-10-18-code.md) as B.8 — it reported a successful search
   with one result, and got cached as one. Half of that is closed since
-  [2026-10-27-google-direct-open-serp.md](../plans/2026-10-27-google-direct-open-serp.md): the navigation
-  left the tab on `reddit.com`, a host no engine we ship owns, so the page is now refused before it is
-  parsed rather than read as one ticket-form result. What is open is the rest of the item's class — the
-  same 265 chars served at a url the asked engine *does* own still report as one result, and nothing calls
-  any of it a wall.
+  [2026-10-27-google-direct-open-serp.md](../plans/2026-10-27-google-direct-open-serp.md), and the words
+  that carry the closing are *at the url it was taken at*: measured against this recording at
+  `www.reddit.com`, a host no engine we ship owns, the page is now refused before it is parsed rather than
+  read as one ticket-form result. Nothing navigated it there. The recording came through `@reddit_search`,
+  one of the 14 macros this client never calls, and for the shipped client the page is reachable only in
+  tests — where `tests/search-tool.test.mjs` → `B.8 as filed: a refusal served from the first look is cached, and the second query costs no request` serves it at a *google* url, which the ownership rule has no
+  objection to. That case is the item's open half, and it is why the closed half is stated with its url:
+  the same 265 chars served at a url the asked engine *does* own still report as one result, and nothing
+  calls any of it a wall.
 
   **The mechanism is real, and it is not "no parsing".** A JSON document does render as something we can
   read: `https://api.github.com/repos/jo-inc/camofox-browser` comes back as **one** `text:` node, **0**

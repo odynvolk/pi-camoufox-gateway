@@ -1,8 +1,9 @@
 # Plan: Google must answer for Google
 
-Branch: `fix/google-direct-open-serp`
+Branch: `fix/google-serp-direct-open`
 Date: 2026-10-27
-Status: ready for implementation
+Status: implemented — U1–U5 are on the branch and the offline gates are green; the live gate below is the
+one check still to run against a real gateway before this ships
 
 ## Problem
 
