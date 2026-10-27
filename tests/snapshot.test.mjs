@@ -435,6 +435,9 @@ test("engineOwnsUrl answers where a page is, and invents nothing when it cannot"
   assert.equal(engineOwnsUrl("google", "https://www.google.com/goto?url=CAES"), true);
   assert.equal(engineOwnsUrl("google", "https://consent.google.com/ml?continue=x"), true);
   assert.equal(engineOwnsUrl("google", "https://www.google.co.uk/search?q=camoufox"), true, "a google TLD is still google");
+  assert.equal(engineOwnsUrl("google", "https://www.google.com.br/search?q=camoufox"), true, "and a two-label one is too");
+  assert.equal(engineOwnsUrl("google", "https://google.xn--p1ai/search"), true, "google.рф is google, punycode and all");
+  assert.equal(engineOwnsUrl("google", "https://evil.google.com/"), true, "a genuine subdomain is still google's own page");
   assert.equal(engineOwnsUrl("duckduckgo", "https://duckduckgo.com/?q=camoufox"), true, "the apex host is the one we open at");
   assert.equal(engineOwnsUrl("duckduckgo", "https://html.duckduckgo.com/html/?q=camoufox"), true);
 
@@ -444,9 +447,23 @@ test("engineOwnsUrl answers where a page is, and invents nothing when it cannot"
   assert.equal(engineOwnsUrl("google", "https://notgoogle.com/search"), false);
   assert.equal(engineOwnsUrl("duckduckgo", "https://duckduckgo.com.evil.test/?q=camoufox"), false);
 
+  // The same near-miss on the google side, which is the direction the duckduckgo row above does not
+  // cover: a suffix pattern that admits dots accepts a host whose registrable domain is `evil.test`, and
+  // the credit and the chrome filter below it both follow the answer. Pinned in both spellings because
+  // the subdomain form is the one a look-alike registration actually uses.
+  assert.equal(engineOwnsUrl("google", "https://www.google.com.evil.test/search"), false, "three labels after google is not google's domain");
+  assert.equal(engineOwnsUrl("google", "https://google.com.evil.test/search"), false, "and the apex spelling is the same host");
+  assert.equal(engineOwnsUrl("google", "https://www.google/search"), false, "a host with no TLD is somebody's LAN name, not google's domain");
+
   // Two silences, both answered by not inventing a rule: an engine we do not ship, and a url we cannot
   // place. Refusing either would be an engine blaming a page it has no opinion about.
   assert.equal(engineOwnsUrl("bing", "https://www.bing.com/search?q=camoufox"), true);
   assert.equal(engineOwnsUrl("google", ""), true, "a gateway that will not say is not evidence the page is foreign");
   assert.equal(engineOwnsUrl("google", "not a url"), true);
+  // A host with no scheme in front of it is not a place: `new URL` refuses the string, so the rule never
+  // sees a host to judge. `duckduckgo.com` *as a host* is DuckDuckGo's own — asserted above — and this row
+  // is here to keep the two apart, because a caller that handed us the one without its scheme gets the
+  // silence answer, which is `true` and not a verdict about the host.
+  assert.equal(engineOwnsUrl("duckduckgo", "duckduckgo.com/"), true, "unparseable, so unjudged — the fail-open the docstring promises");
+  assert.equal(engineOwnsUrl("google", "about:blank"), true, "a tab between two addresses has taken neither, which is a silence and not a foreign host");
 });

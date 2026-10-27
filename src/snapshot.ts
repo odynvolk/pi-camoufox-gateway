@@ -341,9 +341,9 @@ export type SerpVerdict =
  * the other way — so eight of them reached the model as organic results under a header saying
  * `(via google)`.
  *
- * Answers `true` for anything it cannot judge: an engine we do not ship, an unparseable url, a gateway
- * that reports no destination. Each of those is a silence, and reading a silence as "not ours" fails a
- * search closed on evidence nobody has.
+ * Answers `true` for anything it cannot judge: an engine we do not ship, an unparseable url, a host with
+ * no labels in it, a gateway that reports no destination. Each of those is a silence, and reading a
+ * silence as "not ours" fails a search closed on evidence nobody has.
  */
 export function engineOwnsUrl(engine: string, url: string): boolean {
   let host: string;
@@ -352,11 +352,37 @@ export function engineOwnsUrl(engine: string, url: string): boolean {
   } catch {
     return true;
   }
-  // `(^|\.)`, not `\.`: both engines are opened at their apex host, and a subdomain-only pattern would
-  // disown `https://duckduckgo.com/?q=…` — the url `src/engines/duckduckgo.ts` opens on every call.
-  if (engine === "google") return /(^|\.)google\.[a-z.]+$/iu.test(host);
-  if (engine === "duckduckgo") return /(^|\.)duckduckgo\.com$/iu.test(host);
+  // A host with nothing in it is the same silence as an unparseable url: `about:blank` is where a tab sits
+  // mid-navigation, and an address it has not taken yet is nobody's host.
+  if (!host) return true;
+  if (engine === "google") return hostIsEngineDomain(host, "google", 2);
+  if (engine === "duckduckgo") return hostIsEngineDomain(host, "duckduckgo", 1);
   return true;
+}
+
+/** A tail label that can belong to a real domain: an alphabetic TLD, or a punycode one. */
+const DOMAIN_LABEL = /^(?:[a-z]+|xn--[a-z0-9-]+)$/u;
+
+/**
+ * Does this host sit under `<label>.<tld>` (or `<label>.<tld>.<cc>`), at any subdomain depth?
+ *
+ * Labels, counted, rather than a suffix pattern: `[a-z.]+$` admits dots, so a character class cannot
+ * count labels, and the pattern this replaced read `www.google.com.evil.test` — a host whose registrable
+ * domain is `evil.test` — as Google's. Counting is also what keeps the domains that are real: `google.co.uk`
+ * and `google.com.br` carry two labels after the engine's, and no country-code domain carries more than
+ * two. Requiring each of them to be alphabetic or punycode is what refuses `google.xn--p1ai`'s neighbours
+ * rather than `google.xn--p1ai` itself, which is google.рф and is google.
+ *
+ * At least one tail label is required: `www.google` is a hostname on somebody's LAN, not Google's domain.
+ * The last matching label wins, so the tail counted is the registrable one.
+ */
+function hostIsEngineDomain(host: string, label: string, maxTail: number): boolean {
+  const parts = host.split(".");
+  const at = parts.lastIndexOf(label);
+  if (at === -1) return false;
+  const tail = parts.slice(at + 1);
+  if (tail.length === 0 || tail.length > maxTail) return false;
+  return tail.every((part) => DOMAIN_LABEL.test(part));
 }
 
 /**
