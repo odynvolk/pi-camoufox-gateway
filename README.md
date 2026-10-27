@@ -23,14 +23,19 @@ Searches through the browser and returns ranked titles, urls and snippets.
 - **A search that is slow on one engine still gets its second engine.** A timeout is not a verdict on the
   whole search; only an outcome the next engine would meet as well — gateway unreachable, credentials
   refused, the address guard refusing before anyone dialled — ends it. A hung snapshot costs one request
-  deadline, not two.
+  deadline, not two. The chain has a budget of its own on top of that — two request deadlines, however many
+  engines it walks — so a gateway that is up and answering nothing costs two deadlines rather than four, and
+  the answer says which of the two ran out.
 - **The header names the engine that served the page**, on every success and not only when something failed.
   "Google served this" and "DuckDuckGo served this after Google walled" are different claims about the
   same eight links, and a result set a model cannot attribute is one it cannot weigh. It was always in
   `details.engine`, but that is a field for a script, not text a model reads. *Served* is the exact word
   now, and not by convention: a page is only credited to the engine whose own host it sits on, so
   `(via google)` can no longer be printed over a DuckDuckGo page. That combination comes back as
-  `empty_results` from google, duckduckgo is asked, and credits itself.
+  `empty_results` from google, duckduckgo is asked, and credits itself. *Host it sits on* is the gateway's
+  answer and not our own guess: the rule reads the destination the gateway reports, and a gateway that
+  reports none is answered as "owned" rather than refused on evidence nobody has — the address guard is what
+  stops that case under the shipped policy, refusing with `destination_unreported` before any of it is read.
 - Bing is not offered: there is no adapter for it. A Bing page that arrived anyway used to be read as
   whichever engine we had asked for — chrome is filtered by host, and no `bing.com` link is that engine's.
   It is now refused before it is parsed, by the same rule as above, so the mis-filter is not reachable and
