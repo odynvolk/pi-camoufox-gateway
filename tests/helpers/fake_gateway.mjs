@@ -2,8 +2,9 @@
  * In-process fake of the camofox-browser gateway.
  *
  * It implements only the endpoints this extension uses, with the real API's observed behaviour:
- * http/https-only tabs, an open that reports where the tab ended up (or stays silent about it, which is
- * its own case), and snapshot pagination that reports totalChars/hasMore/nextOffset.
+ * http/https-only tabs, an open that reports where the tab ended up, a `/snapshot` and a `/tabs` list that
+ * can each stay silent about it (which is its own case), and snapshot pagination that reports
+ * totalChars/hasMore/nextOffset.
  *
  * Tests get a `fetch` implementation to install, plus a call log for assertions.
  */
@@ -47,7 +48,6 @@ export function createFakeGateway(options = {}) {
     waitError: null, // string: the gateway refused the wait, e.g. "Invalid selector"
     waitBody: undefined, // anything: answers /wait with exactly this, for shapes we must interpret
     waitReject: null, // { status, message }: answer /wait with an error at that status
-    openReportsUrl: true, // false simulates a gateway that never reports where a tab ended up
     snapshotReportsUrl: true, // false: `/snapshot` stays silent about where the page is
     dropsTabAfterSnapshot: false, // the browser closes the tab under us after the first look
     tabsReportUrl: true, // false: neither endpoint will say, so the location is genuinely unknown

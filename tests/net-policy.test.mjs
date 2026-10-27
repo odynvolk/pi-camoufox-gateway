@@ -209,18 +209,18 @@ test("a redirect into a blocked host is refused the same way", async (t) => {
 });
 
 test("a destination only the snapshot reports is still refused", async (t) => {
-  // The hole `openTab`'s re-check cannot cover: a gateway that reports no url at open is handed back the
-  // url we asked for, so that check compares a string with itself. A page that moves after the tab is
-  // open appears only in `/snapshot` — which is also the only destination check the search engines and
-  // `resolve` could ever get, because they do not do it themselves.
+  // The hole `openTab`'s re-check cannot cover, and it is not a gateway that will not say: at open the tab
+  // genuinely is at the url we asked for, because the move happens after that. So that check compares a
+  // string with itself whatever the gateway answers, and the destination it actually reached turns up only
+  // in `/snapshot` — which is also the only destination check the search engines and `resolve` could ever
+  // get, because they do not do it themselves.
   withFakeGateway(t, {
-    openReportsUrl: false,
     redirectAfterOpen: new Map([["https://public.test/x", "http://169.254.169.254/latest/meta-data/"]]),
   });
   const client = createGatewayClient({ baseUrl: BASE, timeoutMs: 2000, urlPolicy: OPEN });
 
   const tab = await client.openTab({ userId: "u1", url: "https://public.test/x" });
-  assert.equal(tab.url, "https://public.test/x", "the fallback is the url we asked for, which proves nothing");
+  assert.equal(tab.url, "https://public.test/x", "the destination open reports is the one we asked for, which proves nothing");
 
   const error = await client.snapshot({ userId: "u1", tabId: tab.tabId }).catch((e) => e);
 
@@ -232,7 +232,6 @@ test("a destination only the snapshot reports is still refused", async (t) => {
 
 test("blockedHosts is applied to the snapshot destination as well", async (t) => {
   withFakeGateway(t, {
-    openReportsUrl: false,
     redirectAfterOpen: new Map([["https://public.test/x", "https://internal.test/admin"]]),
   });
   const client = createGatewayClient({
