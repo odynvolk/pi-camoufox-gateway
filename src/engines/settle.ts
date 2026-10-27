@@ -38,7 +38,7 @@ export const SEARCH_SETTLE_POLL_MS = 150;
  *   the "not yet" case this loop exists for. The counter-case is real — a page can move after the tab
  *   opened, so ownership is the one verdict a later frame could reverse — and it is answered where it is
  *   genuinely undecided: `engineOwnsUrl` declines to judge a destination it cannot read, which is what a tab
- *   between two addresses reports. Waiting three looks at a page that has named its host buys latency and
+ *   between two addresses reports. Waiting three looks on a page that has named its host costs latency and
  *   says nothing new, which is `wallWorthWaitingOn`'s argument, repeated for the other named event.
  * - A wall ends the wait, with the one exception `wallWorthWaitingOn` states — the same exception read
  *   applies to its own predicate, because "a blank page is a page that has not started" is not a fact
@@ -50,10 +50,10 @@ export const SEARCH_SETTLE_POLL_MS = 150;
  *   after `STABLE_ROUNDS` identical looks, because a page that has stopped changing is something the
  *   loop can actually see. Measured cost of that page: 3 snapshots, 2 sleeps of `SEARCH_SETTLE_POLL_MS`.
  *
- * The first two are the same rule `classifySerp` applies when it refuses a page, and the two must stay one
- * rule: a frame the loop will still re-look at must never be a frame the classifier called a substitution,
- * or the budget's "still rendering" line gets said about a page that was never ours. `tests/engines.test.mjs`
- * asserts that across every recording rather than trusting the wording.
+ * The first two are the same two rules `classifySerp` applies when it refuses a page, and each side must
+ * keep answering the way the other does: a frame the loop will still re-look at must never be a frame the
+ * classifier called a substitution, or the budget's "still rendering" line gets said about a page that was
+ * never ours. `tests/engines.test.mjs` asserts that across every recording rather than trusting the wording.
  *
  * The narrower predicate — look again only while the page has no link blocks — would skip that cost by
  * never re-looking at a page whose chrome had already rendered. Measured against the recorded pages it
@@ -85,11 +85,11 @@ function undecidedVerdict(verdict: SerpVerdict, engine: EngineName): SerpVerdict
   // amount of waiting makes a foreign host the asked engine's results page. So this loop may downgrade
   // "there were no results" — that page might still have been on its way — and may not downgrade this one.
   //
-  // Unreachable today, and kept against one specific edit. `serpWorthAnotherLook` (in `./settle.ts`) stops
-  // the wait on the first frame `engineOwnsUrl` refuses, so no substituted frame is ever the frame the
-  // budget ran out on. Narrow that predicate — "stop only on walls" is the plausible revision — and this
-  // branch is live again, telling a model a page was still rendering when it had in fact never been ours.
-  // The two functions are one rule; `tests/engines.test.mjs` pins that they stay the same rule.
+  // Unreachable today, and kept against one specific edit. `serpWorthAnotherLook`, above, stops the wait on
+  // the first frame `engineOwnsUrl` refuses, so no substituted frame is ever the frame the budget runs out
+  // on. Narrow that predicate — "stop only on walls" is the plausible revision — and this branch is live
+  // again, telling a model a page was still rendering when it had in fact never been ours. The two functions
+  // are one rule; `tests/engines.test.mjs` pins that they stay the same rule.
   if (verdict.details.substituted === true) return verdict;
   return {
     ...verdict,

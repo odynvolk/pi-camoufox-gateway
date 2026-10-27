@@ -34,6 +34,29 @@ items (`A.2`, `B.5`, `D.1`, `E.3`, …) are the open findings in
   because those are outcomes the next engine would meet too. And `snapshot` no longer retries a request
   that already spent its whole deadline: one hung snapshot cost 2 × `timeoutMs` before the chain was told
   anything had failed.
+- **The chain has one budget, not one per request.** Removing `timeout` from that list moved a cost from
+  one module to none — the deadline lived only per request, so a gateway that is *up* and answering nothing
+  owned no total: an open landing a millisecond inside its deadline plus a snapshot that never answers is
+  two deadlines per engine, four across the chain, ~120 s against the shipped 30 s. The walk now carries
+  one wall-clock budget of two request deadlines, derived from the client's own and handed to every engine,
+  so a second engine cannot start a fresh full deadline after the first burned one — measured at 606 ms
+  where the same gateway took 1 173 ms, with the first engine still getting its full deadline. The code and
+  the message say which deadline ran out: `timeout` naming the search budget, where a cancelled call still
+  reports `aborted` naming the cancellation.
+- **`www.google.com.evil.test` is not Google's page.** The rule that decides which engine a page belongs to
+  was a suffix pattern, and `[a-z.]+$` admits dots — so a host whose registrable domain is `evil.test` was
+  credited to google and chrome-filtered by google's host list, while `google.xn--p1ai` (google.рф) was
+  refused as a stranger. It counts hostname labels now: the engine's own label, one or two alphabetic or
+  punycode labels after it. `google.co.uk`, `google.com.br` and `google.рф` are still google; the
+  look-alikes are refused by label count, on both sides, where only duckduckgo had been pinned.
+- **A page some other engine served says so, once.** A substituted page that was still changing when the
+  settle budget ran out was reported as *"google's results page was still rendering … not known whether it
+  had results"* — the wait's sentence about a page google never served, because `undecidedVerdict` rewrote
+  every non-`results` message it was handed. Which page we got is decided from the address on the first
+  look, so the loop may downgrade "no results yet" and may not downgrade that. And the loop no longer pays
+  for the privilege: `serpWorthAnotherLook` stopped on a wall and on results but not on ownership, so a
+  google tab that landed on duckduckgo spent 3 snapshots and 2 sleeps at a page no waiting can turn into
+  google's — it costs 1, and the count is asserted rather than described.
 
 ### Changed
 

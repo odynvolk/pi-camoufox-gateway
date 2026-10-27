@@ -6,7 +6,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { withFakeGateway } from "./helpers/fake_gateway.mjs";
 import { createGatewayClient } from "../src/gateway.ts";
 import { GatewayError } from "../src/errors.ts";
-import { enginesFromConfig, searchWithFallback } from "../src/engines/chain.ts";
+import { enginesFromConfig, SEARCH_CHAIN_BUDGET_IN_DEADLINES, searchWithFallback } from "../src/engines/chain.ts";
 import { googleEngine } from "../src/engines/google.ts";
 import { duckduckgoEngine } from "../src/engines/duckduckgo.ts";
 import { classifySerp, engineOwnsUrl, parseSerp } from "../src/snapshot.ts";
@@ -636,8 +636,8 @@ test("a SERP that answers on the first look costs exactly the requests it always
 // the one number `gateway.ts` already enforces.
 
 const REQUEST_DEADLINE_MS = 300;
-/** Two request deadlines: one for the engine that hangs, one for the one that hops to. */
-const CHAIN_BUDGET_MS = 2 * REQUEST_DEADLINE_MS;
+/** Exported rather than repeated here, so the budget these cases are sized against is the one that ships. */
+const CHAIN_BUDGET_MS = SEARCH_CHAIN_BUDGET_IN_DEADLINES * REQUEST_DEADLINE_MS;
 /** Long enough that only our deadline can end a hung request. */
 const HANG_MS = 20 * REQUEST_DEADLINE_MS;
 
