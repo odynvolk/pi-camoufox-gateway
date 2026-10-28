@@ -843,6 +843,67 @@ for (const [label, run] of [
   });
 }
 
+/**
+ * The positive half of `retry: "connect-only"`, which none of the cases above pins.
+ *
+ * Everything so far asserts what that policy *forbids* — a 5xx is not repeated, a timeout is not
+ * repeated. Nothing asserts what it *preserves*, so flipping any of these call sites to `retry: "never"`
+ * would leave them all green while silently dropping the one retry that is worth having: a request the
+ * gateway never received cannot have opened, closed or changed anything, so sending it again is free.
+ * The line deciding it is `code !== "gateway_unreachable"` in `requestJson` — a classification an
+ * unrelated edit to the error mapping could move, which is the regression this table exists to catch.
+ * One row per `connect-only` call site, so a policy flipped on any one of them is a named failure.
+ */
+function refusingConnectionOn(path) {
+  const paths = [];
+  const fetchImpl = async (requestUrl) => {
+    const requested = new URL(requestUrl).pathname;
+    paths.push(requested);
+    if (requested === path) throw Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" });
+    return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
+  };
+  return { paths, fetchImpl };
+}
+
+const counted = (paths, path) => paths.filter((requested) => requested === path).length;
+
+for (const [label, path, run] of [
+  ["openTab", "/tabs/open", (client) => client.openTab({ userId: "u1", url: "https://example.com" })],
+  ["a snapshot", "/tabs/tab-1/snapshot", (client) => client.snapshot({ userId: "u1", tabId: "tab-1" })],
+  ["the stray-tab sweep", "/tabs", (client) => client.reconcileStrayTabs({ userId: "u1" })],
+  ["closing a tab", "/tabs/tab-1", (client) => client.closeTab({ userId: "u1", tabId: "tab-1" })],
+  ["destroying a session", "/sessions/u1", (client) => client.deleteSession({ userId: "u1" })],
+]) {
+  test(`${label} repeats a request the gateway never received`, async () => {
+    const { paths, fetchImpl } = refusingConnectionOn(path);
+    const client = createGatewayClient({ baseUrl: BASE, timeoutMs: 2000, fetchImpl });
+
+    expectError(await run(client).catch((e) => e), "gateway_unreachable");
+    assert.equal(counted(paths, path), 2, "nothing was sent, so sending it again costs nothing and may still land");
+  });
+}
+
+test("the destination lookup repeats a request the gateway never received", async () => {
+  // The `GET /tabs` call hidden inside `snapshot()`. It needs a snapshot that names no destination to be
+  // reached at all, and it now carries the same policy as the same endpoint called on its own — which is
+  // the whole reason it was added, so the two must not be free to disagree about a retry.
+  const { paths, fetchImpl: refuse } = refusingConnectionOn("/tabs");
+  const client = createGatewayClient({
+    baseUrl: BASE,
+    timeoutMs: 2000,
+    fetchImpl: async (requestUrl) =>
+      new URL(requestUrl).pathname === "/tabs"
+        ? refuse(requestUrl)
+        : new Response(JSON.stringify({ snapshot: '- heading "Page" [level=1]', refsCount: 0 }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+  });
+
+  expectError(await client.snapshot({ userId: "u1", tabId: "tab-1" }).catch((e) => e), "gateway_unreachable");
+  assert.equal(counted(paths, "/tabs"), 2, "a lookup inside an operation gets the same retry as the same endpoint called directly");
+});
+
 test("opening a tab is not retried once the gateway has answered", async (t) => {
   // A 5xx on /tabs/open means a tab may already exist. Retrying would create a second one whose id
   // we never learn, so the leak could never be closed. Only a failure to connect is retried.
