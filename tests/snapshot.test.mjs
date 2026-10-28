@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 
 import { classifySerp, detectWall, engineOwnsUrl, extractText, parseSerp } from "../src/snapshot.ts";
+import { ENGINE_NAMES } from "../src/config.ts";
 
 /** Every recorded page, so a budget check picks up a fixture the moment one is added. */
 const FIXTURES = readdirSync(new URL("./fixtures/", import.meta.url), { withFileTypes: true })
@@ -492,4 +493,107 @@ test("engineOwnsUrl answers where a page is, and invents nothing when it cannot"
   // silence answer, which is `true` and not a verdict about the host.
   assert.equal(engineOwnsUrl("duckduckgo", "duckduckgo.com/"), true, "unparseable, so unjudged — the fail-open the docstring promises");
   assert.equal(engineOwnsUrl("google", "about:blank"), true, "a tab between two addresses has taken neither, which is a silence and not a foreign host");
+
+  // The FQDN terminator. `new URL()` keeps a trailing dot and even decodes `%2e` into one, which
+  // `src/net-policy.ts` already knows and normalises away — and this rule read the hostname itself
+  // instead of going through that one normaliser, so a genuine Google SERP reported as
+  // `www.google.com.` was refused: `empty_results` + `substituted`, the chain hops, and DuckDuckGo
+  // silently answers a Google page. A host read in two places is two answers, which is what that
+  // normaliser's own comment warns about; these rows are the receipt.
+  assert.equal(engineOwnsUrl("google", "https://www.google.com./search"), true, "a terminated host is the same domain");
+  assert.equal(engineOwnsUrl("google", "https://www.google.com%2e/search"), true, "and `%2e` decodes to one");
+  assert.equal(engineOwnsUrl("google", "https://www.google.co.uk./search"), true, "a two-label suffix keeps its shape when terminated");
+  assert.equal(engineOwnsUrl("duckduckgo", "https://duckduckgo.com./?q=camoufox"), true, "the url we actually open, terminated");
+
+  // Stripping one terminator must not hand the empty label back: these are the shapes that would reach
+  // it if the strip were greedy, and each is still refused.
+  assert.equal(engineOwnsUrl("google", "https://www.google...com/search"), false, "a doubled dot inside is still not a TLD");
+  assert.equal(engineOwnsUrl("google", "https://www.google...com./search"), false, "terminated, same refusal");
+  assert.equal(engineOwnsUrl("google", "https://google..com./search"), false, "an empty label before the TLD is still empty");
+
+  // The strip's own edges, run rather than reasoned about: `"."` has to be refused by the empty-label
+  // invariant, not promoted into the fail-open by a second emptiness test after the strip.
+  assert.equal(engineOwnsUrl("google", "https://www.google.com../search"), false, "a doubled terminator is not one terminator");
+  assert.equal(engineOwnsUrl("google", "https://www.google.com.../search"), false, "nor is a tripled one");
+  assert.equal(engineOwnsUrl("google", "https://./x"), false, "a host of nothing but a dot is judged, not excused");
+  assert.equal(engineOwnsUrl("google", "https://.google.com./x"), false, "a leading empty label is no resolver's answer");
+  assert.equal(engineOwnsUrl("google", "HTTPS://WWW.GOOGLE.COM./search"), true, "uppercase and a terminator together");
+  assert.equal(engineOwnsUrl("google", "https://www.google。com./search"), true, "an ideographic full stop and a terminator together");
+
+  // The residual, second half: the one-label engine is in the same class as `google.xyz`, so pinning only
+  // the google side would leave a reader to discover it there.
+  assert.equal(engineOwnsUrl("duckduckgo", "https://duckduckgo.xyz/?q=camoufox"), true, "known limit, both engines: an apex on any TLD is owned by whoever registered it");
+});
+
+test("chrome and ownership are one host rule, asked of the page and of each link", () => {
+  // They used to be two. Ownership counted labels while `isChrome` peeled `www.` and asked
+  // `endsWith("google.com")`, so one question had two answers and each was wrong in a different
+  // direction: `evilgoogle.com` was the engine's own chrome and its links were silently dropped, while a
+  // `www.google.co.uk` SERP's own `…/imghp` tabs were *not* chrome and surfaced as organic results.
+  const page = (links, url = "https://www.google.com/search?q=x") => ({
+    url,
+    text: links.map(([title, href], index) => `- link "${title}" [e${index + 1}]:\n  - /url: ${href}`).join("\n"),
+  });
+  const kept = (links, engine = "google", url = undefined) =>
+    parseSerp(page(links, url), engine).results.map((result) => result.url);
+
+  assert.deepEqual(kept([["Imghp", "https://www.google.com/imghp"]]), [], "google's own UI on .com is chrome");
+  assert.deepEqual(
+    kept([["Imghp", "https://www.google.co.uk/imghp"]]),
+    [],
+    "and on a ccTLD too — the half the old endsWith rule got wrong, on a page this file now credits to google",
+  );
+  assert.deepEqual(
+    kept([["Result", "https://www.google.com/goto?url=CAES"]]),
+    ["https://www.google.com/goto?url=CAES"],
+    "a wrapper on google's own host is a result, not chrome — the carve-out is what keeps the suite reading",
+  );
+  assert.deepEqual(kept([["Foreign", "https://evilgoogle.com/x"]]), ["https://evilgoogle.com/x"], "a look-alike is nobody's chrome");
+  assert.deepEqual(kept([["Foreign", "https://myduckduckgo.com/x"]]), ["https://myduckduckgo.com/x"], "peeled `www.` did not make it one");
+  assert.deepEqual(
+    kept([["Own", "https://html.duckduckgo.com/html"], ["Look-alike", "https://notduckduckgo.com/x"]], "duckduckgo", "https://duckduckgo.com/?q=x"),
+    ["https://notduckduckgo.com/x"],
+    "duckduckgo's own subdomain is chrome; the look-alike is a result",
+  );
+});
+
+test("a terminated host is the same page to every rule in this file", () => {
+  for (const url of ["https://www.google.com./search?q=camoufox", "https://www.google.com%2e/search?q=camoufox"]) {
+    const verdict = classifySerp(fixture("serp-google.txt", url), "google");
+    assert.equal(verdict.kind, "results", `${url} is a Google page, and was being reported as somebody else's`);
+    assert.equal(verdict.results.length, 10, "with all ten of its results");
+  }
+  // The wall branch has to survive the terminator too, or the fix trades a false refusal for an
+  // undetected consent wall — which is why the host match goes through the shared normaliser.
+  assert.equal(
+    detectWall({ url: "https://consent.google.com./ml?continue=x", text: "Before you continue to Google" }),
+    "consent_wall",
+    "a real consent page, spelled the way DNS allows",
+  );
+});
+
+test("a consent wall is a host, not a substring anyone can put in a url", () => {
+  // The cheap version of this was a substring test on the whole url, and the attacker in that story is
+  // not needed: the query is echoed into the search url and `encodeURIComponent` leaves dots alone, so one
+  // ordinary search calls a healthy Google page a consent wall and hops to DuckDuckGo for nothing.
+  const served = `- heading "Results" [level=1]\n${"  - text: a paragraph of ordinary results.\n".repeat(40)}`;
+  assert.equal(detectWall({ url: "https://evil.test/?next=https://consent.google.com/", text: served }), null, "a redirect parameter cannot fabricate a wall");
+  assert.equal(detectWall({ url: "https://www.google.com/search?q=consent.google.com", text: served }), null, "nor can the user's own query, echoed back");
+  assert.equal(
+    detectWall({ url: "https://www.google.com/search?q=why+does+consent.google.com+keep+appearing", text: served }),
+    null,
+    "the deterministic no-attacker case: this search used to be reported as a consent wall",
+  );
+  assert.equal(detectWall({ url: "https://consent.google.com/ml?continue=x", text: served }), "consent_wall", "and the real one is still caught");
+});
+
+test("every engine the config can name has a host rule", () => {
+  // `engineOwnsUrl` fails open for an engine with no rule, so an engine added to `ENGINE_NAMES` without an
+  // entry in `HOST_RULES` would opt itself out of the misattribution guard in silence. `satisfies` makes
+  // that a compile error, and this makes it a test — the guard is security, and `npm test` does not run tsc.
+  assert.ok(ENGINE_NAMES.length > 0, "the list is derived, so an empty list here would make this vacuous");
+  for (const name of ENGINE_NAMES) {
+    assert.equal(engineOwnsUrl(name, "https://not-the-engine.test/"), false, `"${name}" has no host rule and would be credited with any page`);
+    assert.equal(engineOwnsUrl(name, "https://www.google.evil.com/"), false, `"${name}" must not accept a look-alike either`);
+  }
 });
