@@ -60,6 +60,32 @@ test("openTab posts the url to /tabs/open and returns the tabId", async (t) => {
   assert.deepEqual(call.body, { userId: "u1", url: "https://example.com" });
 });
 
+test("openTab reports the asked-for url when the gateway will not say where the tab is", async () => {
+  // `openTab`'s destination re-check is only a check when the gateway answers with a destination. A
+  // gateway that replies with just `{ ok, tabId }` makes that check compare the asked-for url with
+  // itself, which is the vacuous case `snapshot`'s own comment names as the reason the snapshot-side
+  // guard is the load-bearing one. Pinned here without the fake so the branch cannot regress into
+  // silently returning an unchecked destination: the fallback is deliberate, and it is the url we vetted
+  // before opening, so it is safe to report and worthless as evidence.
+  const client = createGatewayClient({
+    baseUrl: BASE,
+    timeoutMs: 2000,
+    fetchImpl: () =>
+      Promise.resolve(
+        new Response(JSON.stringify({ ok: true, tabId: "tab-1", targetId: "tab-1" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      ),
+  });
+
+  const tab = await client.openTab({ userId: "u1", url: "https://example.com" });
+
+  assert.equal(tab.url, "https://example.com", "a silent open reports the url we asked for, not a blank one");
+  assert.equal(tab.title, undefined, "and nothing else is invented alongside it");
+  await client.closeTab({ userId: "u1", tabId: tab.tabId });
+});
+
 /**
  * A tab open that answered `{ "ok": false }` is classified by the central `{ok:false}` rule, from the
  * gateway's own words — not by a per-endpoint guess.

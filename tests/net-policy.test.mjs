@@ -279,10 +279,16 @@ test("the fallback destination is guarded like any other", async (t) => {
 });
 
 test("nothing will say where the tab is, so the page is not returned", async (t) => {
-  withFakeGateway(t, { snapshotReportsUrl: false, tabsReportUrl: false });
+  // Every mouth is shut: `/tabs/open` answers `{ ok, tabId }`, so `openTab`'s re-check is handed the url
+  // it asked for and compares it with itself; `/snapshot` names no destination; and the tab list will not
+  // say either. Three silences is the strongest form of this case, because it is the one where no guard
+  // anywhere in the exchange could have fired — `destination_unreported` is the only thing left standing
+  // between a page nobody can place and a model being handed its content.
+  withFakeGateway(t, { openReportsUrl: false, snapshotReportsUrl: false, tabsReportUrl: false });
   const client = createGatewayClient({ baseUrl: BASE, timeoutMs: 2000, urlPolicy: OPEN });
 
   const tab = await client.openTab({ userId: "u1", url: "https://public.test/x" });
+  assert.equal(tab.url, "https://public.test/x", "the open-side url is our own, which is why it cannot be the evidence");
   const error = await client.snapshot({ userId: "u1", tabId: tab.tabId }).catch((e) => e);
 
   assert.equal(error.name, "GatewayError", "expected a refusal");
