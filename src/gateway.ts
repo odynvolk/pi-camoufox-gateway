@@ -541,6 +541,11 @@ export class GatewayClient {
       query: { userId: params.userId },
       signal: params.signal,
       tolerateMissing: true,
+      // Same policy as the other `GET /tabs` caller (`reconcileStrayTabs`), and for the same reason: this
+      // lookup runs *inside* `snapshot()`, so a timeout here is a second deadline charged to one
+      // `snapshot()` call — and on the default policy a retryable timeout was charged twice. `read` has no
+      // chain budget to absorb that, and an answer that costs two deadlines is not a retry worth having.
+      retry: "connect-only",
     });
     const tabs = Array.isArray(body.tabs) ? (body.tabs as Record<string, unknown>[]) : [];
     for (const tab of tabs) {
@@ -625,6 +630,11 @@ export class GatewayClient {
       query: { userId: params.userId },
       signal: params.signal,
       tolerateMissing: true,
+      // Teardown sits in the `finally` of every search engine and every read, so its deadline is
+      // user-visible latency, and `closeTabQuietly` takes no signal — not even the chain budget can cut
+      // it short. A DELETE that timed out may already have closed the tab, and `session_shutdown`
+      // reclaims what it did not, so only a request that never landed is worth a second deadline over.
+      retry: "connect-only",
     });
     this.liveTabs.delete(params.tabId);
   }
@@ -648,6 +658,9 @@ export class GatewayClient {
     await this.requestJson("DELETE", endpointPath("deleteSession", { userId: params.userId }), {
       signal: params.signal,
       tolerateMissing: true,
+      // Same reasoning as `closeTab`: this runs on `session_shutdown`, where a hung gateway must not be
+      // able to make the shutdown cost two deadlines.
+      retry: "connect-only",
     });
     for (const [tabId, userId] of [...this.liveTabs.entries()]) {
       if (userId === params.userId) this.liveTabs.delete(tabId);

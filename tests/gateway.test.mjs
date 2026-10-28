@@ -763,6 +763,60 @@ test("a snapshot that times out is issued once, not twice", async () => {
   assert.equal(requests, 1, "one deadline per snapshot, whatever the budget allows for a request that never landed");
 });
 
+test("asking where a silent snapshot ended up is not retried either", async () => {
+  // The branch the test above cannot see, because it hangs every request and so never reaches the
+  // lookup: when `/snapshot` omits `url`, `snapshot()` calls `GET /tabs` itself to place the page before
+  // the address guard has anything to check. That lookup is the same endpoint `reconcileStrayTabs`
+  // already issues `connect-only`, and left on the default policy a hung answer there was retried — so
+  // one `read()` paid the deadline a third time, and unlike `search` the read path has no chain budget
+  // to cap it. One operation, one deadline per request, whatever branch of it the gateway forces us down.
+  const paths = [];
+  const client = createGatewayClient({
+    baseUrl: BASE,
+    timeoutMs: 20,
+    fetchImpl: (url) => {
+      const path = new URL(url).pathname;
+      paths.push(path);
+      if (path === "/tabs") return new Promise(() => {});
+      // A snapshot that answers and names no destination: `policyCanRefuse` is true on the default
+      // policy, so this is exactly what sends `snapshot()` off to `/tabs`.
+      return Promise.resolve(new Response(JSON.stringify({ snapshot: '- heading "Page" [level=1]', refsCount: 0 }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }));
+    },
+  });
+
+  expectError(await client.snapshot({ userId: "u1", tabId: "tab-1" }).catch((e) => e), "timeout");
+  assert.equal(paths.filter((path) => path === "/tabs").length, 1, "one deadline per destination lookup, as for every other /tabs call");
+});
+
+/**
+ * Teardown runs in the `finally` of every search engine and every read, so its cost is user-visible
+ * latency — and `closeTabQuietly` takes no signal, so not even the chain budget can bound it. A DELETE
+ * that timed out left the gateway free to have closed the tab already, and `session_shutdown` reclaims
+ * anything it did not; only a request that never landed is worth a second deadline over.
+ */
+for (const [label, run] of [
+  ["closing a tab", (client) => client.closeTab({ userId: "u1", tabId: "tab-1" })],
+  ["destroying a session", (client) => client.deleteSession({ userId: "u1" })],
+]) {
+  test(`${label} is not retried when the gateway hangs`, async () => {
+    let requests = 0;
+    const client = createGatewayClient({
+      baseUrl: BASE,
+      timeoutMs: 20,
+      fetchImpl: () => {
+        requests += 1;
+        return new Promise(() => {});
+      },
+    });
+
+    expectError(await run(client).catch((e) => e), "timeout");
+    assert.equal(requests, 1, `one deadline for ${label}, whatever the budget allows for a request that never landed`);
+  });
+}
+
 test("opening a tab is not retried once the gateway has answered", async (t) => {
   // A 5xx on /tabs/open means a tab may already exist. Retrying would create a second one whose id
   // we never learn, so the leak could never be closed. Only a failure to connect is retried.
