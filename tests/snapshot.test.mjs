@@ -455,6 +455,32 @@ test("engineOwnsUrl answers where a page is, and invents nothing when it cannot"
   assert.equal(engineOwnsUrl("google", "https://google.com.evil.test/search"), false, "and the apex spelling is the same host");
   assert.equal(engineOwnsUrl("google", "https://www.google/search"), false, "a host with no TLD is somebody's LAN name, not google's domain");
 
+  // The registrable-domain case, which is the one that actually costs something. `google.evil.com` has
+  // two labels after `google` — inside the count that keeps `google.co.uk` — and the first of them is a
+  // word, not a suffix any registry hands out. Requiring alphabetic tails let it through, and the host
+  // is the gateway's *reported* destination, which a redirect can arrange: whoever owns `evil.com` would
+  // get `(via google)`, `Engine.name` credit, and google's chrome list applied to their own page. That is
+  // the exact failure this rule was added to close, so the shape is pinned rather than the count.
+  assert.equal(engineOwnsUrl("google", "https://google.evil.com/search"), false, "the registrable domain here is evil.com, not google's");
+  assert.equal(engineOwnsUrl("google", "https://www.google.evil.com/search"), false, "and a subdomain of that host is no better");
+  assert.equal(engineOwnsUrl("google", "https://google.evil.de/search"), false, "a two-letter tail does not make the middle label a suffix");
+  assert.equal(engineOwnsUrl("google", "https://google.net.au/search"), false, "google registers under co/com, so net.au is not its shape");
+  assert.equal(engineOwnsUrl("duckduckgo", "https://duckduckgo.evil.com/?q=camoufox"), false, "one label of slack is still enough for this attack");
+
+  // The suffixes that are real, so the tightening above cannot be a blanket refusal. `google.dev` and
+  // `google.app` are Google's own gTLDs; `co`/`com` + ccTLD is how it registers where it does not own the TLD.
+  assert.equal(engineOwnsUrl("google", "https://google.co.in/search"), true);
+  assert.equal(engineOwnsUrl("google", "https://google.com.au/search"), true);
+  assert.equal(engineOwnsUrl("google", "https://google.dev/search"), true, "google runs its own TLDs");
+  assert.equal(engineOwnsUrl("google", "https://google.app/search"), true);
+
+  // The residual, pinned rather than hidden: whoever registers the second-level label `google` under some
+  // TLD *is* the owner of that apex, and no suffix rule can tell them from Google. Closing this needs an
+  // allowlist of the suffixes we serve, and that costs a search every time Google geo-redirects to a ccTLD
+  // the list does not name — a silent quality loss for a class of spoof Google defensively registers
+  // against and a registrar trademark-blocks. Refusing to pretend the rule is stronger than it is.
+  assert.equal(engineOwnsUrl("google", "https://google.xyz/search"), true, "known limit: an apex squat on a real TLD is indistinguishable");
+
   // Two silences, both answered by not inventing a rule: an engine we do not ship, and a url we cannot
   // place. Refusing either would be an engine blaming a page it has no opinion about.
   assert.equal(engineOwnsUrl("bing", "https://www.bing.com/search?q=camoufox"), true);

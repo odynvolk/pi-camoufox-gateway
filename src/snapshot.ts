@@ -360,29 +360,56 @@ export function engineOwnsUrl(engine: string, url: string): boolean {
   return true;
 }
 
-/** A tail label that can belong to a real domain: an alphabetic TLD, or a punycode one. */
-const DOMAIN_LABEL = /^(?:[a-z]+|xn--[a-z0-9-]+)$/u;
+/** A single-label tail: a TLD, alphabetic or punycode. Nothing shaped `com1` or `c` is one. */
+const TLD_LABEL = /^(?:[a-z]{2,24}|xn--[a-z0-9-]{2,})$/u;
+/** The middle labels a registry, not a domain owner, puts between the name and the country code. */
+const REGISTRY_SUFFIX = /^(?:co|com)$/u;
+/** A country code is two letters, and is only ever the last label. */
+const CC_TLD = /^[a-z]{2}$/u;
 
 /**
- * Does this host sit under `<label>.<tld>` (or `<label>.<tld>.<cc>`), at any subdomain depth?
+ * Could these labels be the suffix of a domain the engine itself registered?
+ *
+ * One label has to be a TLD. Two have to be `<registry>.<cc>` — `co.uk`, `com.br` — which is the line
+ * that refuses `google.evil.com`: it has two labels, and the first is a word the owner of `evil.com`
+ * chose, not a suffix any registry issues. Requiring only that each label be alphabetic was the defect —
+ * it checked the shape of the characters while the thing that carries the trust is *who controls the
+ * registrable domain*, and in `google.evil.com` that is whoever owns `evil.com`.
+ *
+ * What this cannot do is tell an apex squatter from Google: whoever registers `google` under some TLD
+ * owns that apex, and no suffix rule can see the difference. `https://google.xyz/` is therefore claimed,
+ * pinned as a known limit in `tests/snapshot.test.mjs` rather than left a surprise. An allowlist of the
+ * suffixes we serve would close it, and would cost a search every time Google geo-redirects to a ccTLD
+ * the list does not name — a silent quality loss on the common path to police a class Google defensively
+ * registers against and most registrars trademark-block.
+ */
+function isRegistrableSuffix(tail: string[]): boolean {
+  if (tail.length === 1) return tail.every((part) => TLD_LABEL.test(part));
+  if (tail.length !== 2) return false;
+  const [registry, cc] = tail;
+  // The two guards are for `noUncheckedIndexedAccess`; the length check above is what makes them hold.
+  return registry !== undefined && cc !== undefined && REGISTRY_SUFFIX.test(registry) && CC_TLD.test(cc);
+}
+
+/**
+ * Does this host sit under a domain the engine registered, at any subdomain depth?
  *
  * Labels, counted, rather than a suffix pattern: `[a-z.]+$` admits dots, so a character class cannot
  * count labels, and the pattern this replaced read `www.google.com.evil.test` — a host whose registrable
  * domain is `evil.test` — as Google's. Counting is also what keeps the domains that are real: `google.co.uk`
- * and `google.com.br` carry two labels after the engine's, and no country-code domain carries more than
- * two. Requiring each of them to be alphabetic or punycode is what refuses `google.xn--p1ai`'s neighbours
- * rather than `google.xn--p1ai` itself, which is google.рф and is google.
+ * and `google.com.br` carry two labels after the engine's, and no country-code domain carries more.
+ * Counting alone is not enough, which is what `isRegistrableSuffix` is for — see the attack it refuses.
  *
  * At least one tail label is required: `www.google` is a hostname on somebody's LAN, not Google's domain.
  * The last matching label wins, so the tail counted is the registrable one.
  */
 function hostIsEngineDomain(host: string, label: string, maxTail: number): boolean {
-  const parts = host.split(".");
+  const parts = host.toLowerCase().split(".");
   const at = parts.lastIndexOf(label);
   if (at === -1) return false;
   const tail = parts.slice(at + 1);
   if (tail.length === 0 || tail.length > maxTail) return false;
-  return tail.every((part) => DOMAIN_LABEL.test(part));
+  return isRegistrableSuffix(tail);
 }
 
 /**
