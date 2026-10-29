@@ -64,6 +64,18 @@ test("internal addresses are recognised", () => {
   }
 });
 
+test("a private host is still private with the FQDN terminator on it", () => {
+  // `isPrivateHost` is exported and is handed whatever `new URL().hostname` produced, and that keeps the
+  // terminator — `http://169.254.169.254./` resolves exactly like the version without it. It used to carry
+  // its own strip, typed a second time directly beside the one in `normalizeHost`, in the file whose
+  // docstring says hosts are read one way: deleting that strip changed nothing in this suite, which is
+  // precisely how two copies of one rule could disagree here the way they did for `engineOwnsUrl`.
+  for (const host of ["localhost.", "127.0.0.1.", "10.0.0.1.", "169.254.169.254.", "metadata.google.internal."]) {
+    assert.equal(isPrivateHost(host), true, `${host} should be private`);
+  }
+  assert.equal(isPrivateHost("example.com."), false, "and a terminated public host is still public");
+});
+
 test("public addresses are not blocked, including the near-misses", () => {
   for (const host of [
     "example.com",

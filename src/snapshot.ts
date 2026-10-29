@@ -168,12 +168,13 @@ function isChrome(engine: string, url: string): boolean {
   const host = rawHostOf(url);
   // A link whose host cannot be read is not a place, and a result has to be a place.
   if (!host) return true;
-  const rule = RULE_BY_ENGINE[engine];
-  // Deliberately not `engineOwnsUrl`, which fails *open*: asked about an engine we do not ship it says
-  // every page belongs to it, so asked this way it would call every link on the page chrome and hand back
-  // no results at all. This branch keeps the string test it has always had, for an engine nothing
-  // reachable from config can name.
-  if (!rule) return host.endsWith("google.com") && !isWrapper(url);
+  // An engine we do not ship is judged as google, which is what the string test this replaced always meant
+  // — but judged by the *same function*. The branch used to be `host.endsWith("google.com")`, kept "for
+  // safety" behind an engine name no config can produce (`src/config.ts` validates every name against
+  // `ENGINE_NAMES`), and it had inherited both defects the table deletes: `evilgoogle.com` was the engine's
+  // own chrome, so its links were dropped, and `www.google.co.uk/imghp` was not, so it surfaced as organic.
+  // A duplicate rule nobody tests is not a safety net; it is the old code, waiting.
+  const rule = RULE_BY_ENGINE[engine] ?? HOST_RULES.google;
   // One host rule, asked two questions: ownership of the page here, and ownership of each link there.
   // It used to be two rules — `endsWith("google.com")` after peeling `www.` — which disagreed with the
   // first in both directions: it called `evilgoogle.com` and `myduckduckgo.com` the engine's own chrome,
@@ -369,7 +370,6 @@ export function engineOwnsUrl(engine: string, url: string): boolean {
   if (!rule) return true;
   return hostIsEngineDomain(host, rule);
 }
-
 /** What it takes for a host to be an engine's own: the label its registrations sit at, and how deep a suffix it registers under. */
 interface HostRule {
   label: string;

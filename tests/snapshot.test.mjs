@@ -555,6 +555,16 @@ test("chrome and ownership are one host rule, asked of the page and of each link
     ["https://notduckduckgo.com/x"],
     "duckduckgo's own subdomain is chrome; the look-alike is a result",
   );
+  // An engine we do not ship is judged as google, by the same function and the same table — which is the
+  // point of this case. The branch used to be its own `endsWith("google.com")`, and asked this question of
+  // `"bing"` it answered the *opposite* way: both links below were chrome, because `evilgoogle.com` ends
+  // with `google.com`. Dead code (`src/config.ts` validates every name against `ENGINE_NAMES`), and
+  // therefore exactly where a second answer to one question can sit undiscovered.
+  assert.deepEqual(
+    kept([["Imghp", "https://www.google.com/imghp"], ["Look-alike", "https://evilgoogle.com/x"]], "bing"),
+    ["https://evilgoogle.com/x"],
+    "an unknown engine gets google's rule, not google's old string test",
+  );
 });
 
 test("a terminated host is the same page to every rule in this file", () => {
@@ -565,10 +575,22 @@ test("a terminated host is the same page to every rule in this file", () => {
   }
   // The wall branch has to survive the terminator too, or the fix trades a false refusal for an
   // undetected consent wall — which is why the host match goes through the shared normaliser.
+  // `longConsent` is past `INTERSTITIAL_MAX_CHARS`, so the phrase branch is gated out and the host branch
+  // is the only thing that can answer. The short text the first draft of this case used was answered by
+  // the phrase list instead: deleting `hostOf`'s normaliser left the whole suite green, which is how a test
+  // written to pin the FQDN terminator ended up pinning nothing. The control below is what makes it a test.
+  assert.ok(longConsent.length > 3_000, "long enough that the phrase branch cannot be what answers this");
   assert.equal(
-    detectWall({ url: "https://consent.google.com./ml?continue=x", text: "Before you continue to Google" }),
+    detectWall({ url: "https://consent.google.com./ml?continue=x", text: longConsent }),
     "consent_wall",
     "a real consent page, spelled the way DNS allows",
+  );
+  const longServed = `- heading "Results" [level=1]\n${"  - text: a paragraph of ordinary results.\n".repeat(90)}`;
+  assert.ok(longServed.length > 3_000, "same shape, same length, no consent bytes");
+  assert.equal(
+    detectWall({ url: "https://www.google.com./search?q=x", text: longServed }),
+    null,
+    "so it is the host that answers, not the page being long and google-ish",
   );
 });
 
@@ -595,5 +617,22 @@ test("every engine the config can name has a host rule", () => {
   for (const name of ENGINE_NAMES) {
     assert.equal(engineOwnsUrl(name, "https://not-the-engine.test/"), false, `"${name}" has no host rule and would be credited with any page`);
     assert.equal(engineOwnsUrl(name, "https://www.google.evil.com/"), false, `"${name}" must not accept a look-alike either`);
+    // Refusing a stranger is what a *missing* rule fails, and it is also what a *wrong* rule does: copying
+    // google's entry under `duckduckgo` keeps this test green on those two alone, because `satisfies`
+    // checks shape and not label. Owning a page named after itself is the half that catches the copy-paste.
+    assert.equal(engineOwnsUrl(name, `https://www.${name}.com/`), true, `"${name}" must be credited with the domain its own name is the label of`);
   }
+});
+
+test("an unreported destination is a fail-open with a name, not a silent one", () => {
+  // `gateway.ts → snapshot` leaves `url: ""` when the address policy cannot refuse — `network.allowPrivateHosts`
+  // on and `blockedHosts` empty — and `engineOwnsUrl` then answers that silence as *ours*. A Google page is
+  // credited `(via google)` with no `substituted` flag: the misattribution this branch exists to prevent,
+  // arriving through the silence door instead of the terminated-host door. Pinned as a decision with a
+  // named trigger, because with the guard at its default `snapshot()` closes the same door with
+  // `destination_unreported` and nothing else in the suite says which state you are in.
+  const verdict = classifySerp(fixture("serp-google.txt", ""), "google");
+  assert.equal(verdict.kind, "results", "no destination is judged, not refused");
+  assert.equal(verdict.results.length, 10, "and the page is parsed as the engine asked for");
+  assert.equal(verdict.details?.substituted, undefined, "credited, not substituted — the residual, stated");
 });
