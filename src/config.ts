@@ -56,8 +56,11 @@ export interface CamoufoxConfig {
 }
 
 /**
- * How many results one engine page holds. Structural, not a preference: the gateway's `@google_search`
- * macro takes a query and returns a single page, and there is no pagination to ask for.
+ * How many results one engine page holds. Structural, not a preference: both engines open one results
+ * page and there is no pagination to ask for, and the ceiling is the narrower of the two pages — Google's,
+ * ten wide, measured as the 10 results of `tests/fixtures/serp-google.txt`. DuckDuckGo's recorded page is
+ * wider (`serp-duckduckgo.txt`, 19), which is why adapters hand back the whole page rather than this
+ * number: a page wider than the ceiling has to be disclosed, not silently cut here.
  *
  * Declared here rather than in `tools/search.ts`, which is where it is enforced, because the validator
  * has to refuse a `search.maxResults` above it and `config.ts` imports nothing but node builtins —

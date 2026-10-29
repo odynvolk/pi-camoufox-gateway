@@ -1,24 +1,25 @@
 import "./helpers/fetch_guard.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 
 import { withFakeGateway } from "./helpers/fake_gateway.mjs";
 import { createGatewayClient } from "../src/gateway.ts";
 import { GatewayError } from "../src/errors.ts";
-import { enginesFromConfig, searchWithFallback } from "../src/engines/chain.ts";
+import { enginesFromConfig, SEARCH_CHAIN_BUDGET_IN_DEADLINES, searchWithFallback } from "../src/engines/chain.ts";
 import { googleEngine } from "../src/engines/google.ts";
 import { duckduckgoEngine } from "../src/engines/duckduckgo.ts";
-import { SEARCH_SETTLE_MS, SEARCH_SETTLE_POLL_MS } from "../src/engines/settle.ts";
-import { parseSerp } from "../src/snapshot.ts";
+import { classifySerp, engineOwnsUrl, parseSerp } from "../src/snapshot.ts";
+import { SEARCH_SETTLE_MS, SEARCH_SETTLE_POLL_MS, serpWorthAnotherLook } from "../src/engines/settle.ts";
 import { STABLE_ROUNDS } from "../src/settle.ts";
 import { DEFAULT_CONFIG } from "../src/config.ts";
 
 const BASE = "http://gateway.test:9377";
 
 function setup(t, options = {}) {
-  const fake = withFakeGateway(t, options);
-  const client = createGatewayClient({ baseUrl: BASE, timeoutMs: 2000 });
+  const { timeoutMs = 2000, ...gatewayOptions } = options;
+  const fake = withFakeGateway(t, gatewayOptions);
+  const client = createGatewayClient({ baseUrl: BASE, timeoutMs });
   return { fake, client };
 }
 
@@ -26,7 +27,13 @@ function callsFor(fake, suffix) {
   return fake.state.calls.filter((c) => c.path.includes(suffix));
 }
 
-test("google goes open -> navigate(macro) -> snapshot and nothing else", async (t) => {
+test("google opens the tab at the SERP url and nothing else", async (t) => {
+  // The macro is gone, and this is the sequence that replaced it. Measured on the live gateway
+  // (2026-10-27): `POST /tabs/open` at the search url answers in 268 ms with a Google SERP, while
+  // `POST /tabs/:id/navigate` with `@google_search` spends ~31s and hands back a DuckDuckGo page —
+  // upstream's organic-results check rejects `google.com/goto?url=` links by host name, so it always
+  // concludes "no organic results" and substitutes DuckDuckGo. One open is both the fast path and the
+  // honest one.
   const { fake, client } = setup(t);
 
   const outcome = await googleEngine().search("camoufox", { client, userId: "u1" });
@@ -38,16 +45,15 @@ test("google goes open -> navigate(macro) -> snapshot and nothing else", async (
   const sequence = fake.state.calls
     .filter((c) => c.path !== "/")
     .map((c) => `${c.method} ${c.path.split("?")[0].replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gu, ":tab")}`);
-  assert.deepEqual(sequence, [
-    "POST /tabs/open",
-    "POST /tabs/:tab/navigate",
-    "GET /tabs/:tab/snapshot",
-    "DELETE /tabs/:tab",
-  ]);
+  assert.deepEqual(sequence, ["POST /tabs/open", "GET /tabs/:tab/snapshot", "DELETE /tabs/:tab"]);
 
-  const navigate = callsFor(fake, "/navigate")[0];
-  assert.equal(navigate.body.macro, "@google_search");
-  assert.equal(navigate.body.query, "camoufox");
+  const opened = fake.state.calls.find((c) => c.path === "/tabs/open");
+  assert.equal(
+    opened.body.url,
+    "https://www.google.com/search?q=camoufox",
+    "the engine asks for the SERP itself, query encoded",
+  );
+  assert.equal(callsFor(fake, "/navigate").length, 0, "no macro hop, and no second navigation to time out on");
 });
 
 test("google leaves no tab open when it finishes", async (t) => {
@@ -78,6 +84,25 @@ test("duckduckgo navigates straight to its query url", async (t) => {
   assert.equal(callsFor(fake, "/navigate").length, 0, "no macro or extra navigation for ddg");
 });
 
+test("each adapter opens at a page its own credited name owns", async (t) => {
+  // The one risk `serp.ts` takes on is that a single identifier now answers two questions: the `Engine.name`
+  // the chain credits, and the key `engineOwnsUrl` decides host ownership by. Written as two literals they
+  // could drift, and the drift is exactly the misattribution the ownership rule exists to close — an engine
+  // credited for a page it does not host, chrome-filtered by that engine's own host list. So ask each
+  // adapter where it actually opened, and hold that url to the name it reports.
+  for (const engine of [googleEngine(), duckduckgoEngine()]) {
+    const { fake, client } = setup(t);
+    await engine.search("camoufox", { client, userId: "u1" });
+
+    const opened = fake.state.calls.find((call) => call.path === "/tabs/open").body.url;
+    assert.equal(
+      engineOwnsUrl(engine.name, opened),
+      true,
+      `${engine.name} opened at ${opened}, which its own name does not own — it would refuse its own results page`,
+    );
+  }
+});
+
 test("an adapter hands back the whole page, unsliced", async (t) => {
   // The default fake SERP carries three links, so `results.length <= 10` would pass against any
   // implementation. Twelve is the input that decides whether a slice happened here or at the tool.
@@ -92,7 +117,7 @@ test("an adapter hands back the whole page, unsliced", async (t) => {
   const outcome = await googleEngine().search("camoufox", { client, userId: "u1" });
 
   assert.equal(outcome.results.length, 12, "twelve links on the page, twelve handed back — one width, and it is not here");
-  assert.equal(callsFor(fake, "/navigate").length, 1, "and still one navigation, whatever the count");
+  assert.equal(callsFor(fake, "/navigate").length, 0, "and the count was bought with the one open, not a navigation");
 });
 
 test("a page we cannot read as a results list is parse_error, not empty_results", async (t) => {
@@ -189,7 +214,10 @@ test("a link-less page inside the wall window is parse_error, empty_results is r
 test("every terminal code stops the chain before the next engine is tried", async (t) => {
   const { client } = setup(t);
 
-  for (const code of ["gateway_unreachable", "gateway_unauthorized", "timeout", "host_blocked"]) {
+  // `timeout` is not in this list, and the case below is why. Everything here is an outcome where the
+  // next engine would meet the same wall: the gateway is down, it refused our credentials, or the address
+  // guard said no before anyone dialled.
+  for (const code of ["gateway_unreachable", "gateway_unauthorized", "host_blocked", "private_network"]) {
     let secondRan = false;
     const first = {
       name: "first",
@@ -211,6 +239,29 @@ test("every terminal code stops the chain before the next engine is tried", asyn
     assert.equal(secondRan, false, `${code} must not reach the next engine`);
     assert.equal(error.details.tried.length, 1, `${code} must stop after one step`);
   }
+});
+
+test("one slow engine may not abort the whole search", async (t) => {
+  // A gateway that is up and slow on one engine is the case this chain exists for; a gateway that is
+  // *down* is still terminal through `gateway_unreachable`, which the case above keeps. Reported with the
+  // timeout still terminal: one slow google cost 2 × 30s (a retryable timeout spends the retry budget)
+  // and the call came back `tried: [{"engine":"google","code":"timeout"}]` with duckduckgo never asked.
+  const { client } = setup(t);
+  const slow = {
+    name: "google",
+    search: async () => {
+      throw new GatewayError("timeout", "gateway did not respond within 30000ms", { retryable: true });
+    },
+  };
+
+  const outcome = await searchWithFallback("camoufox", [slow, duckduckgoEngine()], { client, userId: "u1" });
+
+  assert.equal(outcome.engine, "duckduckgo", "the engine that answered, not the one that was slow");
+  assert.deepEqual(
+    outcome.tried.map((step) => `${step.engine}:${step.code}`),
+    ["google:timeout", "duckduckgo:ok"],
+    "the slow engine is still recorded — a hop that hides which engine was slow is a lie by omission",
+  );
 });
 
 test("an engine that throws something bare is our fault, not the gateway's", async (t) => {
@@ -273,6 +324,70 @@ function assertNoOrganics(text, engine, label) {
     `${label} carries an organic result, so a test built on it proves nothing`,
   );
 }
+
+test("a google tab that ends up on duckduckgo is credited to duckduckgo, not to google", async (t) => {
+  // The engine is decided by where the page is, not by who asked. Measured before this rule existed: one
+  // recorded DuckDuckGo page classified under "google" returned 30 results where the same page returns 22
+  // as duckduckgo — 9 of the extra 10 are DuckDuckGo's own footer, because `isChrome` filters chrome by
+  // the host of the engine we *asked* for. Crediting from `Engine.name` is only honest while the page is
+  // that engine's, which is the fact this case pins.
+  const { fake, client } = setup(t, {
+    redirects: new Map([["https://www.google.com/search?q=camoufox", "https://duckduckgo.com/?q=camoufox"]]),
+    pageContents: new Map([["https://duckduckgo.com/?q=camoufox", DUCKDUCKGO_SERP]]),
+    // The recorded page is wider than the fake's snapshot window, so without this the count below is a
+    // fact about the fake rather than about the fixture.
+    snapshotLimit: 40_000,
+  });
+
+  const outcome = await searchWithFallback("camoufox", [googleEngine(), duckduckgoEngine()], { client, userId: "u1" });
+
+  assert.deepEqual(outcome.tried.map((step) => step.engine), ["google", "duckduckgo"], "google was not skipped: it was refused, and then duckduckgo ran");
+  assert.equal(outcome.tried[0].code, "empty_results", "the code the chain hops on — a refused page may not end the search");
+  assert.equal(outcome.engine, "duckduckgo", "credited to the engine that served the page");
+  assert.equal(outcome.results.length, 19, "the recorded page's nineteen results, and none of duckduckgo's footer");
+  assert.equal(
+    outcome.results.every((result) => !/\/\/([^/]*\.)?duckduckgo\.com/u.test(result.url)),
+    true,
+    "no duckduckgo chrome reached the model, which is what the wrong-engine filter used to let through",
+  );
+  // The price of the refusal, pinned rather than described: a page whose host the asked engine does not own
+  // can never become its results, which is a fact about the address and not about the page still arriving,
+  // so it is answered on the first look — the same reason `wallWorthWaitingOn` ends the wait on a wall. B.6's
+  // blind page is the contrast: that one cannot be told from "not yet", and it does pay the stability looks.
+  assert.equal(
+    callsFor(fake, "/snapshot").length,
+    2,
+    "one look named a page google can never own, and google paid for no more at it — then one at duckduckgo's own",
+  );
+});
+
+test("a page the asked engine cannot own is reported as a substitution, whatever it was doing while we looked", async (t) => {
+  // Rotating text is the provocation, because it is exactly the shape that keeps the settle loop alive: a
+  // page that never answers stable runs to the budget, and the budget's line is "its results page was still
+  // rendering, so it is not known whether it had results". That is a claim about *whether results arrived*,
+  // and it cannot be made about a page this engine never served. Where the page is is decided from its
+  // address on the first look and no frame afterwards contradicts it, so it is the one verdict the wait may
+  // not downgrade — the model reads one message, and it must be the one about which page we got.
+  const { fake, client } = setup(t, {
+    redirects: new Map([["https://www.google.com/search?q=camoufox", "https://duckduckgo.com/?q=camoufox"]]),
+    snapshotScripts: new Map([["https://duckduckgo.com/?q=camoufox", ROTATING_FRAMES]]),
+  });
+
+  const error = await googleEngine().search("camoufox", { client, userId: "u1" }).catch((e) => e);
+
+  assert.equal(error.code, "empty_results", "the code the chain hops on, so a foreign page never ends the search");
+  assert.equal(error.details.substituted, true, "and a reader can tell this from a query that came up empty");
+  assert.match(error.message, /^google did not serve this page/u, "names the engine we asked for");
+  assert.match(error.message, /duckduckgo\.com/u, "and the destination that actually served it");
+  assert.doesNotMatch(
+    error.message,
+    /still rendering/u,
+    `"${error.message}" makes the wait's claim about a page that was never this engine's to render`,
+  );
+  // The cost of deciding it, measured rather than hoped: rotation is what would have kept the loop alive,
+  // and it does not, because the question the loop now asks is answered before the second look.
+  assert.equal(callsFor(fake, "/snapshot").length, 1, "one look was enough to know this page cannot be google's");
+});
 
 test("a google page still rendering on the first look is re-looked, not reported as one with no results", async (t) => {
   assertNoOrganics(GOOGLE_SKELETON, "google", "the chrome-only frame");
@@ -385,8 +500,10 @@ test("a page that never stops changing costs the search budget and nothing more"
   const error = await googleEngine().search("camoufox", { client, userId: "u1" }).catch((e) => e);
 
   assert.equal(error.code, "empty_results");
-  // The code has to stay: `chain.ts` hops on `empty_results` and stops on `timeout`, and a page that
-  // never stopped changing is not a reason to give up on the next engine. The *message* is the other
+  // The code has to stay whatever the last page looked like: `empty_results` is what the chain hops on,
+  // and borrowing the transport's `timeout` here would report a request that missed its deadline when what
+  // actually happened was a page that never finished arriving — and a page that never stopped changing is
+  // no reason to give up on the next engine either. The *message* is the other
   // half, and it is what the model reads first — this is the one case where the branch cannot say the
   // query came up empty, only that our waiting came up short.
   assert.doesNotMatch(
@@ -401,6 +518,59 @@ test("a page that never stops changing costs the search budget and nothing more"
     callsFor(fake, "/snapshot").length <= 1 + Math.ceil(SEARCH_SETTLE_MS / SEARCH_SETTLE_POLL_MS),
     `${callsFor(fake, "/snapshot").length} snapshots is more re-look than one engine's budget can buy`,
   );
+});
+
+/**
+ * Every recording, so this section's coupling check picks up a page the moment one is added — a hand-named
+ * list is a count, and a count is the thing that goes stale quietly.
+ */
+const RECORDED_PAGES = readdirSync(new URL("./fixtures/", import.meta.url), { withFileTypes: true })
+  .filter((entry) => entry.isFile() && entry.name.endsWith(".txt"))
+  .map((entry) => entry.name)
+  .sort();
+
+/**
+ * The destinations a snapshot can be reported at: both engines' own hosts, a look-alike, a stranger's, and
+ * the two silences — no destination, and one a tab has not taken yet.
+ */
+const REPORTED_URLS = [
+  "https://www.google.com/search?q=camoufox",
+  "https://duckduckgo.com/?q=camoufox",
+  "https://www.google.com.evil.test/search?q=camoufox",
+  "https://example.test/",
+  "about:blank",
+  "",
+];
+
+test("the settle loop never keeps looking at a page the classifier says this engine cannot own", () => {
+  // The two ask one question — `classifySerp` to refuse the page, `serpWorthAnotherLook` to stop waiting on
+  // it — and they must keep answering it identically. Their agreement is what makes `undecidedVerdict`'s
+  // substituted branch dead: a frame the loop is still willing to re-look at is never a frame the classifier
+  // called a substitution. Narrow the predicate on one side alone — "stop only on walls" is the plausible
+  // revision — and the loop runs its budget out on a page that was never ours and reports it as still
+  // rendering. So assert the rule, not the branch, across every recording: the shapes where the two could
+  // drift apart (a wall, a blank page, a page this parser is blind to) are exactly what a single case misses.
+  for (const name of RECORDED_PAGES) {
+    const text = fixture(name);
+    for (const engine of ["google", "duckduckgo"]) {
+      for (const url of REPORTED_URLS) {
+        const snapshot = { url, text };
+        const verdict = classifySerp(snapshot, engine);
+        const substituted = verdict.kind === "error" && verdict.details.substituted === true;
+        assert.equal(
+          substituted && serpWorthAnotherLook(snapshot, engine),
+          false,
+          `${name} read as ${engine} at ${url || "(no destination)"}: refused as a substitution, and re-looked at anyway`,
+        );
+      }
+    }
+  }
+
+  // Named explicitly because it is the recording the ownership rule was written for: a DuckDuckGo page
+  // asked for as google, at the url it was taken at.
+  const substituted = { url: "https://duckduckgo.com/?q=expressen&ia=web", text: fixture("serp-google-answered-by-duckduckgo.txt") };
+  assert.equal(classifySerp(substituted, "google").details.substituted, true, "the classifier refuses it — the premise below is nothing without this");
+  assert.equal(serpWorthAnotherLook(substituted, "google"), false, "and the loop does not spend a look on it");
 });
 
 test("the search settle budget is its own, and smaller than the one a read may spend", () => {
@@ -448,10 +618,172 @@ test("an abort that lands during a search's settle sleep ends it and closes the 
 test("a SERP that answers on the first look costs exactly the requests it always cost", async (t) => {
   const google = setup(t);
   await googleEngine().search("camoufox", { client: google.client, userId: "u1" });
-  // Open the seed tab, run the macro, one look, close. Anything else is a re-look nobody asked for.
-  assert.equal(google.fake.state.calls.filter((call) => call.path !== "/").length, 4);
+  // Open at the SERP, one look, close. Anything else is a re-look nobody asked for — and the request
+  // this dropped, the macro hop, is the one that measured 31s against the real gateway.
+  assert.equal(google.fake.state.calls.filter((call) => call.path !== "/").length, 3);
 
   const duckduckgo = setup(t);
   await duckduckgoEngine().search("camoufox", { client: duckduckgo.client, userId: "u1" });
   assert.equal(duckduckgo.fake.state.calls.filter((call) => call.path !== "/").length, 3);
+});
+
+// --- the chain's own wall-clock budget -------------------------------------------------------------
+//
+// Taking `timeout` out of `TERMINAL_CODES` was the fix, and it moved a cost: the terminal list used to own
+// "when does the search stop" implicitly, and the deadline now lives only per request, so nothing owned the
+// total. These cases own it. The per-request deadline is lowered from the shipped 30s so they run in
+// milliseconds rather than minutes — which is only possible because the chain budget is *derived* from it,
+// the one number `gateway.ts` already enforces.
+
+const REQUEST_DEADLINE_MS = 300;
+/** Exported rather than repeated here, so the budget these cases are sized against is the one that ships. */
+const CHAIN_BUDGET_MS = SEARCH_CHAIN_BUDGET_IN_DEADLINES * REQUEST_DEADLINE_MS;
+/** Long enough that only our deadline can end a hung request. */
+const HANG_MS = 20 * REQUEST_DEADLINE_MS;
+
+function hangSetup(t, options) {
+  const fake = withFakeGateway(t, options);
+  const client = createGatewayClient({ baseUrl: BASE, timeoutMs: REQUEST_DEADLINE_MS });
+  return { fake, client };
+}
+
+/** A page that keeps changing, so the settle loop keeps looking and stays inside whatever budget is left. */
+const ROTATING_FRAMES = Array.from(
+  { length: 12 },
+  (_unused, index) => `- heading "loading ${index}" [level=1]\n- link "chrome ${index}" [e${index}]:\n  - /url: /?q=${index}`,
+);
+
+test("an engine that hangs to its deadline still leaves the next one its whole deadline", async (t) => {
+  // The bound is on the chain, not on the call: the first engine must still get a full request deadline,
+  // and spending it must not be the reason the second engine never gets asked.
+  const { fake, client } = hangSetup(t, {
+    hangUrls: new Set(["https://www.google.com/search?q=camoufox"]),
+    hangForMs: HANG_MS,
+  });
+
+  const startedAt = Date.now();
+  const outcome = await searchWithFallback("camoufox", [googleEngine(), duckduckgoEngine()], { client, userId: "u1" });
+  const elapsed = Date.now() - startedAt;
+
+  assert.equal(outcome.engine, "duckduckgo", "one engine burning its deadline is not a reason to skip the other");
+  assert.deepEqual(
+    outcome.tried.map((step) => `${step.engine}:${step.code}`),
+    ["google:timeout", "duckduckgo:ok"],
+  );
+  assert.ok(
+    elapsed < CHAIN_BUDGET_MS + REQUEST_DEADLINE_MS,
+    `${elapsed}ms spent the whole chain budget on the first engine, so the hop got none of it`,
+  );
+  // The hung open is the ambiguous case: the gateway had created the tab before we stopped listening.
+  assert.deepEqual(fake.liveTabs(), [], "a hung open is still swept, budget or no budget");
+  assert.equal(client.openTabCount(), 0);
+});
+
+test("a gateway that hangs on both engines comes back inside the chain budget, not four deadlines", async (t) => {
+  // The shape that costs two deadlines per engine, and so four across the chain: an open that lands just
+  // inside its deadline, and a snapshot that never answers. Measured against the shipped 30s default this
+  // is the ~122s a gateway that is *up* and answering nothing used to be able to cost, once `timeout`
+  // stopped ending the walk — the probe is `preflight`'s own 2s and lives outside the chain.
+  let thirdRan = false;
+  const third = {
+    name: "third",
+    search: async () => {
+      thirdRan = true;
+      return { results: [] };
+    },
+  };
+  const { fake, client } = hangSetup(t, {
+    openLatencyMs: REQUEST_DEADLINE_MS - 20,
+    snapshotHangsForMs: HANG_MS,
+  });
+
+  const startedAt = Date.now();
+  const error = await searchWithFallback("camoufox", [googleEngine(), duckduckgoEngine(), third], {
+    client,
+    userId: "u1",
+  }).catch((e) => e);
+  const elapsed = Date.now() - startedAt;
+
+  assert.equal(error.code, "timeout", "a deadline of ours ran out, which is what the code is for");
+  assert.match(error.message, /budget/u, "and the message says *which* deadline, not a per-request timeout");
+  assert.deepEqual(
+    error.details.tried.map((step) => `${step.engine}:${step.code}`),
+    ["google:timeout", "duckduckgo:timeout"],
+    "what each attempt said is still recorded; the budget is why the walk ended",
+  );
+  assert.equal(thirdRan, false, "the walk stops when the budget is gone, not when the engine list does");
+  assert.ok(
+    elapsed < 3 * REQUEST_DEADLINE_MS,
+    `${elapsed}ms is more chain than its ${CHAIN_BUDGET_MS}ms budget — four deadlines would be ${4 * REQUEST_DEADLINE_MS}ms`,
+  );
+  assert.ok(
+    callsFor(fake, "/snapshot").length <= 2,
+    `${callsFor(fake, "/snapshot").length} snapshots asked a gateway that had already run out of our patience`,
+  );
+});
+
+test("a search that runs out of its budget is not reported as a search someone cancelled", async (t) => {
+  // Two ways a search stops early, and they are different instructions to the model: one is "you gave up",
+  // the other is "we did". The chain aborts on a signal the engines cannot tell apart from the caller's, so
+  // the distinction has to ride on the abort *reason* — which is what each of these two messages is read to
+  // prove, side by side.
+  const cancelled = hangSetup(t, {
+    snapshotScripts: new Map([["https://www.google.com/search?q=camoufox", ROTATING_FRAMES]]),
+  });
+  const controller = new AbortController();
+  const cancelling = searchWithFallback("camoufox", [googleEngine()], {
+    client: cancelled.client,
+    userId: "u1",
+    signal: controller.signal,
+  }).catch((e) => e);
+  const cancelTimer = setTimeout(() => controller.abort(), 20);
+  const cancelError = await cancelling;
+  clearTimeout(cancelTimer);
+
+  const stalled = hangSetup(t, {
+    openLatencyMs: REQUEST_DEADLINE_MS - 20,
+    snapshotScripts: new Map([["https://www.google.com/search?q=camoufox", ROTATING_FRAMES]]),
+  });
+  const startedAt = Date.now();
+  const budgetError = await searchWithFallback("camoufox", [googleEngine()], {
+    client: stalled.client,
+    userId: "u1",
+  }).catch((e) => e);
+
+  assert.equal(cancelError.code, "aborted", "a caller that gave up is the caller's own decision");
+  assert.match(cancelError.message, /cancelled/u, `got "${cancelError.message}"`);
+  assert.equal(budgetError.code, "timeout", "a budget that ran out is a deadline, and says so with the deadline's code");
+  assert.match(budgetError.message, /budget/u, `got "${budgetError.message}"`);
+  assert.doesNotMatch(budgetError.message, /cancel/iu, "nothing was cancelled: the search spent its own budget");
+  assert.notEqual(budgetError.message, cancelError.message, "the model reads one line, and it cannot read two meanings");
+  assert.ok(
+    Date.now() - startedAt < CHAIN_BUDGET_MS + REQUEST_DEADLINE_MS,
+    "the budget cut it short, which is the whole mechanism this case is about",
+  );
+  // Teardown must not inherit the deadline that fired: the DELETE would be dropped before it was sent and
+  // the tab would stay open on the gateway forever. `closeTabQuietly` takes no signal for exactly this.
+  assert.deepEqual(stalled.fake.liveTabs(), [], "the tab outlived our budget, which is not the gateway's fault");
+  assert.equal(stalled.client.openTabCount(), 0);
+});
+
+test("a search handed an already-aborted signal never reaches the gateway", async (t) => {
+  // The chain's derived signal has to inherit a cancel that landed *before* the walk started: listening is
+  // not enough, because an already-aborted signal never fires its event again, and the search would then
+  // open a tab and read a page for a caller who has already left.
+  const { fake, client } = setup(t);
+  const controller = new AbortController();
+  controller.abort();
+
+  const error = await searchWithFallback("camoufox", [googleEngine(), duckduckgoEngine()], {
+    client,
+    userId: "u1",
+    signal: controller.signal,
+  }).catch((e) => e);
+
+  assert.equal(error.code, "aborted");
+  // The sweep is allowed to speak (`openTab` cannot tell a cancel that landed before the request from one
+  // that landed after it, so it reconciles either way); nothing that *asks for a page* may.
+  assert.equal(callsFor(fake, "/tabs/open").length, 0, "not one tab opened for a call nobody is waiting for");
+  assert.equal(callsFor(fake, "/snapshot").length, 0);
+  assert.equal(client.openTabCount(), 0);
 });

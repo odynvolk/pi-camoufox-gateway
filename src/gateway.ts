@@ -61,10 +61,6 @@ export interface OpenTabResult {
   title?: string;
 }
 
-export interface NavigateResult {
-  url: string;
-}
-
 export interface SnapshotResult {
   url: string;
   text: string;
@@ -173,7 +169,6 @@ export const ENDPOINTS = {
   health: { method: "GET", path: "/health" },
   openTab: { method: "POST", path: "/tabs/open" },
   listTabs: { method: "GET", path: "/tabs" },
-  navigate: { method: "POST", path: "/tabs/{tabId}/navigate" },
   snapshot: { method: "GET", path: "/tabs/{tabId}/snapshot" },
   wait: { method: "POST", path: "/tabs/{tabId}/wait" },
   extract: { method: "POST", path: "/tabs/{tabId}/extract" },
@@ -291,6 +286,18 @@ export class GatewayClient {
   /** Tabs the client believes are still open, for leak assertions. */
   openTabCount(): number {
     return this.liveTabs.size;
+  }
+
+  /**
+   * The deadline this client puts on one request.
+   *
+   * Public because a caller that sequences several requests needs to bound the *sequence*, and the number
+   * that decides one request's patience is the only honest unit for that: `engines/chain.ts` budgets the
+   * walk in these. Read it rather than copying the config value, which is what lets a test lower one number
+   * and have every bound above it move with it.
+   */
+  get requestDeadlineMs(): number {
+    return this.timeoutMs;
   }
 
   /**
@@ -471,21 +478,6 @@ export class GatewayClient {
     return closed;
   }
 
-  async navigateMacro(params: {
-    userId: string;
-    tabId: string;
-    macro: string;
-    query: string;
-    signal?: AbortSignal;
-  }): Promise<NavigateResult> {
-    const body = await this.requestJson<Record<string, unknown>>("POST", endpointPath("navigate", { tabId: params.tabId }), {
-      userId: params.userId,
-      body: { userId: params.userId, macro: params.macro, query: params.query },
-      signal: params.signal,
-    });
-    return this.asNavigateResult(body);
-  }
-
   async snapshot(params: {
     userId: string;
     tabId: string;
@@ -496,6 +488,11 @@ export class GatewayClient {
       userId: params.userId,
       query: { userId: params.userId, format: "text", ...(params.offset ? { offset: params.offset } : {}) },
       signal: params.signal,
+      // It is a GET, so repeating it is safe — and safety was never the reason to repeat it. A timeout has
+      // already spent the entire `timeoutMs`, and every caller of this pays it per engine before a hop: a
+      // hung snapshot used to cost the deadline twice before the chain was told anything had failed. Only
+      // a request that never landed is worth sending again.
+      retry: "connect-only",
     });
     const text = typeof body.snapshot === "string" ? body.snapshot : "";
     const totalChars = typeof body.totalChars === "number" ? body.totalChars : text.length;
@@ -544,6 +541,11 @@ export class GatewayClient {
       query: { userId: params.userId },
       signal: params.signal,
       tolerateMissing: true,
+      // Same policy as the other `GET /tabs` caller (`reconcileStrayTabs`), and for the same reason: this
+      // lookup runs *inside* `snapshot()`, so a timeout here is a second deadline charged to one
+      // `snapshot()` call — and on the default policy a retryable timeout was charged twice. `read` has no
+      // chain budget to absorb that, and an answer that costs two deadlines is not a retry worth having.
+      retry: "connect-only",
     });
     const tabs = Array.isArray(body.tabs) ? (body.tabs as Record<string, unknown>[]) : [];
     for (const tab of tabs) {
@@ -628,6 +630,11 @@ export class GatewayClient {
       query: { userId: params.userId },
       signal: params.signal,
       tolerateMissing: true,
+      // Teardown sits in the `finally` of every search engine and every read, so its deadline is
+      // user-visible latency, and `closeTabQuietly` takes no signal — not even the chain budget can cut
+      // it short. A DELETE that timed out may already have closed the tab, and `session_shutdown`
+      // reclaims what it did not, so only a request that never landed is worth a second deadline over.
+      retry: "connect-only",
     });
     this.liveTabs.delete(params.tabId);
   }
@@ -651,22 +658,13 @@ export class GatewayClient {
     await this.requestJson("DELETE", endpointPath("deleteSession", { userId: params.userId }), {
       signal: params.signal,
       tolerateMissing: true,
+      // Same reasoning as `closeTab`: this runs on `session_shutdown`, where a hung gateway must not be
+      // able to make the shutdown cost two deadlines.
+      retry: "connect-only",
     });
     for (const [tabId, userId] of [...this.liveTabs.entries()]) {
       if (userId === params.userId) this.liveTabs.delete(tabId);
     }
-  }
-
-  /**
-   * Reads one field. Navigate's recorded 200 (`tests/fixtures/openapi.json`) declares no properties, so it
-   * argues nothing about the fields we skip — it neither promises them nor denies them.
-   *
-   * Never sees a `{ "ok": false }` body: `perform()` rejects those first, classifying them by the gateway's message.
-   */
-  private asNavigateResult(body: Record<string, unknown>): NavigateResult {
-    return {
-      url: typeof body.url === "string" ? body.url : "",
-    };
   }
 
   private url(path: string, query?: RequestOptions["query"]): string {

@@ -64,6 +64,18 @@ test("internal addresses are recognised", () => {
   }
 });
 
+test("a private host is still private with the FQDN terminator on it", () => {
+  // `isPrivateHost` is exported and is handed whatever `new URL().hostname` produced, and that keeps the
+  // terminator — `http://169.254.169.254./` resolves exactly like the version without it. It used to carry
+  // its own strip, typed a second time directly beside the one in `normalizeHost`, in the file whose
+  // docstring says hosts are read one way: deleting that strip changed nothing in this suite, which is
+  // precisely how two copies of one rule could disagree here the way they did for `engineOwnsUrl`.
+  for (const host of ["localhost.", "127.0.0.1.", "10.0.0.1.", "169.254.169.254.", "metadata.google.internal."]) {
+    assert.equal(isPrivateHost(host), true, `${host} should be private`);
+  }
+  assert.equal(isPrivateHost("example.com."), false, "and a terminated public host is still public");
+});
+
 test("public addresses are not blocked, including the near-misses", () => {
   for (const host of [
     "example.com",
@@ -209,18 +221,18 @@ test("a redirect into a blocked host is refused the same way", async (t) => {
 });
 
 test("a destination only the snapshot reports is still refused", async (t) => {
-  // The hole `openTab`'s re-check cannot cover: a gateway that reports no url at open is handed back the
-  // url we asked for, so that check compares a string with itself. A page that moves after the tab is
-  // open appears only in `/snapshot` — which is also the only destination check the search engines and
-  // `resolve` could ever get, because they do not do it themselves.
+  // The hole `openTab`'s re-check cannot cover, and it is not a gateway that will not say: at open the tab
+  // genuinely is at the url we asked for, because the move happens after that. So that check compares a
+  // string with itself whatever the gateway answers, and the destination it actually reached turns up only
+  // in `/snapshot` — which is also the only destination check the search engines and `resolve` could ever
+  // get, because they do not do it themselves.
   withFakeGateway(t, {
-    openReportsUrl: false,
     redirectAfterOpen: new Map([["https://public.test/x", "http://169.254.169.254/latest/meta-data/"]]),
   });
   const client = createGatewayClient({ baseUrl: BASE, timeoutMs: 2000, urlPolicy: OPEN });
 
   const tab = await client.openTab({ userId: "u1", url: "https://public.test/x" });
-  assert.equal(tab.url, "https://public.test/x", "the fallback is the url we asked for, which proves nothing");
+  assert.equal(tab.url, "https://public.test/x", "the destination open reports is the one we asked for, which proves nothing");
 
   const error = await client.snapshot({ userId: "u1", tabId: tab.tabId }).catch((e) => e);
 
@@ -232,7 +244,6 @@ test("a destination only the snapshot reports is still refused", async (t) => {
 
 test("blockedHosts is applied to the snapshot destination as well", async (t) => {
   withFakeGateway(t, {
-    openReportsUrl: false,
     redirectAfterOpen: new Map([["https://public.test/x", "https://internal.test/admin"]]),
   });
   const client = createGatewayClient({
@@ -280,10 +291,16 @@ test("the fallback destination is guarded like any other", async (t) => {
 });
 
 test("nothing will say where the tab is, so the page is not returned", async (t) => {
-  withFakeGateway(t, { snapshotReportsUrl: false, tabsReportUrl: false });
+  // Every mouth is shut: `/tabs/open` answers `{ ok, tabId }`, so `openTab`'s re-check is handed the url
+  // it asked for and compares it with itself; `/snapshot` names no destination; and the tab list will not
+  // say either. Three silences is the strongest form of this case, because it is the one where no guard
+  // anywhere in the exchange could have fired — `destination_unreported` is the only thing left standing
+  // between a page nobody can place and a model being handed its content.
+  withFakeGateway(t, { openReportsUrl: false, snapshotReportsUrl: false, tabsReportUrl: false });
   const client = createGatewayClient({ baseUrl: BASE, timeoutMs: 2000, urlPolicy: OPEN });
 
   const tab = await client.openTab({ userId: "u1", url: "https://public.test/x" });
+  assert.equal(tab.url, "https://public.test/x", "the open-side url is our own, which is why it cannot be the evidence");
   const error = await client.snapshot({ userId: "u1", tabId: tab.tabId }).catch((e) => e);
 
   assert.equal(error.name, "GatewayError", "expected a refusal");

@@ -17,7 +17,7 @@
  *   accepts, so a gateway rejecting it has drifted from its own document. Which is a gateway fault.
  *
  * Deliberately a hand-rolled check over the subset the contract actually uses, not a JSON Schema
- * engine: there is no validator dependency in this repo, adding one to make four flat objects conform
+ * engine: there is no validator dependency in this repo, adding one to make three flat objects conform
  * is a dependency for a `for` loop, and a partial validator that says which keywords it understands
  * beats one that silently ignores the ones it does not.
  */
@@ -149,14 +149,13 @@ test("every body the client sends is one the recorded contract accepts", async (
   // first run of this file. Kept because a conformance test that leaks is still a leak.
   t.after(() => client.closeTab({ userId, tabId: tab.tabId }));
 
-  await client.navigateMacro({ userId, tabId: tab.tabId, macro: "@google_search", query: "camoufox" });
   // `timeout` and not `timeoutMs`: the contract renamed it, and the client renames it back on the way
   // out. The one field where both names are plausible, so the one worth pinning from the spec side.
   await client.waitFor({ userId, tabId: tab.tabId, selector: "h1", timeoutMs: 250 });
   await client.extract({ userId, tabId: tab.tabId, schema: { type: "object", properties: { t: { type: "string" } } } });
 
   const withBodies = bodiesOf(fake);
-  assert.ok(withBodies.length >= 4, `expected the four body-carrying calls, saw ${withBodies.length}`);
+  assert.ok(withBodies.length >= 3, `expected the three body-carrying calls, saw ${withBodies.length}`);
 
   assert.deepEqual(problemsOf(withBodies), [], "the client is sending bodies the recorded contract does not accept");
 });
@@ -164,7 +163,7 @@ test("every body the client sends is one the recorded contract accepts", async (
 /**
  * The unmatched route, seen firing.
  *
- * The first test asserts nothing is unmatched across the four calls a normal read makes, which is the
+ * The first test asserts nothing is unmatched across the three body-carrying calls this client makes, which is the
  * guarantee. It cannot show that the unmatched branch *works*, and an assertion nobody has watched go
  * red is a guess dressed as a guard — this file's header says as much about an absent check, and
  * `b32fbcb` removed exactly this shape from `gateway.test.mjs` one commit before this branch.

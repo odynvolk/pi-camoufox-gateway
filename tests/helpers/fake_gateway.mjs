@@ -2,17 +2,15 @@
  * In-process fake of the camofox-browser gateway.
  *
  * It implements only the endpoints this extension uses, with the real API's observed behaviour:
- * http/https-only tabs, navigate that does not auto-create a tab, a macro path for Google, and
- * snapshot pagination that reports totalChars/hasMore/nextOffset.
+ * http/https-only tabs, and three places a destination could be named — `/tabs/open`, `/snapshot` and the
+ * `/tabs` list — each of which can stay silent on its own, because which ones a given gateway keeps quiet
+ * about is exactly what decides which guard has to catch an unsafe destination. Snapshot pagination reports
+ * totalChars/hasMore/nextOffset.
  *
  * Tests get a `fetch` implementation to install, plus a call log for assertions.
  */
 
 import { trackTabLeaks } from "./tab_leaks.mjs";
-
-const MACROS = {
-  "@google_search": (query) => `https://www.google.com/search?q=${encodeURIComponent(query)}`,
-};
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -51,11 +49,13 @@ export function createFakeGateway(options = {}) {
     waitError: null, // string: the gateway refused the wait, e.g. "Invalid selector"
     waitBody: undefined, // anything: answers /wait with exactly this, for shapes we must interpret
     waitReject: null, // { status, message }: answer /wait with an error at that status
-    openReportsUrl: true, // false simulates a gateway that never reports where a tab ended up
     snapshotReportsUrl: true, // false: `/snapshot` stays silent about where the page is
+    openReportsUrl: true, // false: `/tabs/open` answers `{ ok, tabId }` only, so `openTab`'s own
+      // destination re-check has nothing to compare — the shape `snapshot`'s destination check exists for
     dropsTabAfterSnapshot: false, // the browser closes the tab under us after the first look
     tabsReportUrl: true, // false: neither endpoint will say, so the location is genuinely unknown
     waitHangsForMs: 0, // the gateway holds /wait past our per-request deadline, ignoring its own timeout
+    snapshotHangsForMs: 0, // the gateway holds /snapshot the same way: a page that never finishes rendering
     healthRoute: true, // false simulates a gateway older than GET /health
     healthStatus: 200, // 503 is the documented "unhealthy or recovering" answer
     healthBody: undefined, // anything: answers /health with exactly this, for shapes we must interpret
@@ -208,6 +208,9 @@ export function createFakeGateway(options = {}) {
         return json({ error: "Blocked URL: this host is refused by the gateway (only http/https allowed)" }, 400);
       }
       const tabId = crypto.randomUUID();
+      // The consent wall is modelled here because this is where a search engine is asked for: an engine
+      // opens at its own results url and never navigates anywhere, so a wall has to be what the open lands
+      // on. `googleHost` keeps it a Google-shaped answer — duckduckgo gets its page whatever the user is.
       const googleHost = /^https?:\/\/(www\.)?google\./u.test(body.url);
       const url =
         state.consentWallOn?.has(body.userId) && googleHost
@@ -221,7 +224,12 @@ export function createFakeGateway(options = {}) {
       } else if (state.openLatencyMs) {
         await sleep(state.openLatencyMs);
       }
-      return json({ ok: true, tabId, targetId: tabId, url, title: `Title: ${url}` });
+      return json({
+        ok: true,
+        tabId,
+        targetId: tabId,
+        ...(state.openReportsUrl ? { url, title: `Title: ${url}` } : {}),
+      });
     }
 
     const tabMatch = path.match(/^\/tabs\/([^/]+)(\/.*)?$/);
@@ -237,36 +245,9 @@ export function createFakeGateway(options = {}) {
         return json({ ok: true });
       }
 
-      // `refsAvailable` / `googleSerp` are what the real gateway was observed sending here (the 2026-10-09
-      // probe record in `docs/brainstorms/2026-10-09-pi-camoufox-gateway.md` → Verified facts about the
-      // gateway), and are deliberately unmodelled: the recorded contract declares no fields on a navigate
-      // answer, and nothing reads these. They stay to prove we ignore what we do not model — not to be
-      // "completed" by adding them back to `NavigateResult`.
-      if (method === "POST" && sub === "/navigate") {
-        if (body.macro) {
-          const template = MACROS[body.macro];
-          if (!template) return json({ error: `Unknown macro ${body.macro}` }, 400);
-          const target = template(body.query ?? "");
-          if (state.consentWallOn?.has(body.userId)) {
-            // The macro ran, and Google answered with the interstitial instead of a results page.
-            tab.url = `https://consent.google.com/ml?continue=${encodeURIComponent(target)}`;
-            return json({ ok: true, tabId, url: tab.url, refsAvailable: false });
-          }
-          tab.url = target;
-          tab.title = tab.url;
-          return json({ ok: true, tabId, url: tab.url, refsAvailable: false, googleSerp: true });
-        }
-        if (!body?.url || !/^https?:\/\//.test(body.url)) {
-          return json({ error: "Blocked URL scheme (only http/https allowed)" }, 400);
-        }
-        tab.url = resolveTarget(body.url);
-        // Some gateways answer `/tabs/open` with an id only, which is the case `openTab`'s destination
-        // re-check cannot see: it gets back the url we asked for, so it compares a string with itself.
-        return json({ ok: true, tabId, refsAvailable: true, ...(state.openReportsUrl ? { url: tab.url } : {}) });
-      }
-
       if (method === "GET" && sub === "/snapshot") {
         if (state.failSnapshot) return json({ error: "snapshot exploded" }, 500);
+        if (state.snapshotHangsForMs) await sleep(state.snapshotHangsForMs);
         // A page can move after we opened it (meta refresh, `location.href`), which is the case the
         // pre-flight url check cannot see.
         const jumped = state.redirectAfterOpen.get(tab.url);

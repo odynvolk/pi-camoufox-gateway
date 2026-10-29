@@ -27,9 +27,10 @@ word is indistinguishable from a wall. It surfaced on the first live read, not i
 Make the evidence structural, and keep prose out of the decision:
 
 ```ts
-if (/consent\.google\.com/u.test(url)) return "consent_wall";   // host evidence: size irrelevant
+const host = hostOf(url);                                                 // new URL().hostname, then normalised
+if (host && matchesHostRule(host, CONSENT_HOST)) return "consent_wall";   // host evidence: size irrelevant
 if (text.trim().length === 0) return "empty_page";
-if (text.length <= INTERSTITIAL_MAX_CHARS) {                    // 3000 chars
+if (text.length <= INTERSTITIAL_MAX_CHARS) {                              // 3000 chars
   if (/<consent phrases>/iu.test(text)) return "consent_wall";
   if (/<network error phrases>/iu.test(text)) return "navigation_failed";
 }
@@ -38,7 +39,19 @@ return null;
 
 The rule: **an interstitial is small**. A page above the threshold is content, whatever it happens to
 mention. A wall whose host we already recognise is exempt from the size test, because real consent
-interstitials run long (the recorded Google consent fixture is 4,193 chars).
+interstitials run long (the recorded Google consent fixture is 4,000 chars, measured, which is past the
+3,000 threshold — so on that recording only the host branch can answer).
+
+**And a correction to the first version of this very line.** It was written
+`if (/consent\.google\.com/u.test(url))`, a substring test on the whole url — but a url is not a host. It
+carries the query, and `encodeURIComponent` leaves dots alone, so
+`camoufox_search("why does consent.google.com keep appearing")` produced the destination
+`https://www.google.com/search?q=why%20does%20consent.google.com%20keep%20appearing&sei=…` (measured on the
+live gateway, 2026-10-28), matched the pattern, and an ordinary Google results page was reported as a
+consent wall while DuckDuckGo answered an ordinary question. No attacker required — an attacker's
+`?next=https://consent.google.com/` was simply the same door from the other side. Host evidence has to be
+read off the **host**: parse it, normalise it (`normalizeHost` in `src/net-policy.ts`, which is also what
+settles `www.google.com.` versus `www.google.com`), then compare labels.
 
 # Why this works
 
@@ -57,6 +70,9 @@ classifier change against that, not against this sentence.
 
 - Any keyword classifier over fetched text must be gated on size or position, and must state its
   evidence in the error (`url`, `refsCount`).
+- **Host evidence means the host, not the url.** Parse it with `new URL()`, normalise it with `normalizeHost`,
+  compare labels (`matchesHostRule`), never substring the full url: a url carries query bytes the caller
+  wrote and path bytes a redirect did.
 - Regression test with the phrase buried in a *long* body, not just in a tiny wall fixture. This repo
   has one: `a long page that merely mentions captchas is content, not a wall` (
   `tests/snapshot.test.mjs`). If you widen the patterns, extend that test.

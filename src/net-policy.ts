@@ -67,6 +67,25 @@ interface ParsedUrl {
   host: string;
 }
 
+/**
+ * The one way this repo turns a hostname into the string its rules compare against.
+ *
+ * Exported because a host read in two places is two answers: `src/snapshot.ts` judges engine ownership
+ * off the same field this file's address rules use, and it used to call `new URL().hostname` directly —
+ * which keeps the FQDN terminator, so `www.google.com.` was refused as nobody's domain while
+ * `parseHttpUrl` below was happily calling it `www.google.com`. Every host *this file* compares against a
+ * rule comes through here.
+ *
+ * It is not yet true repo-wide, and saying so is the point: `src/tools/search.ts → engineLabel` prints a
+ * raw hostname, `src/resolve.ts` matches wrapper bytes rather than a host, and `src/tools/read.ts →
+ * pageCacheKey` keys on `new URL().href`. None of them decides ownership today; all of them would be
+ * wrong about a terminated host. Recorded in `docs/improvements/2026-10-18-code.md` rather than left for
+ * the next reader to discover by being bitten — which is how the P1 above happened.
+ */
+export function normalizeHost(hostname: string): string {
+  return hostname.toLowerCase().replace(/\.$/u, "");
+}
+
 function parseHttpUrl(url: string): ParsedUrl {
   let parsed: URL;
   try {
@@ -81,12 +100,20 @@ function parseHttpUrl(url: string): ParsedUrl {
     throw new GatewayError("blocked_url", `"${url}" has no host to open in a browser tab`);
   }
   // `new URL()` keeps the FQDN terminator and even decodes `%2e` into one, so `evil.test.` resolves
-  // exactly like `evil.test`. Normalising here — the only place a host is read — means the host rules
-  // and the address rules below can never disagree about what a url points at.
-  return { host: parsed.hostname.toLowerCase().replace(/\.$/u, "") };
+  // exactly like `evil.test`. Normalising here — the one place a host is read, shared with
+  // `engineOwnsUrl` — means the host rules and the address rules below can never disagree about what a
+  // url points at, and neither can drift from what the browser actually resolved.
+  return { host: normalizeHost(parsed.hostname) };
 }
 
-function matchesHostRule(host: string, rule: string): boolean {
+/**
+ * Does this host match a host rule — exactly, or as a subdomain, with the `*.` prefix accepted?
+ *
+ * Exported for `src/snapshot.ts`, which asks the same question about the engine's own hosts. Two copies
+ * of "does this host equal or sit under that one" is how `blockedHosts` and the chrome filter could start
+ * meaning different things about the same string.
+ */
+export function matchesHostRule(host: string, rule: string): boolean {
   const needle = rule.toLowerCase();
   if (!needle) return false;
   return needle.startsWith("*.")
@@ -147,7 +174,10 @@ function isPrivateIpv6(rawHost: string): boolean {
 }
 
 export function isPrivateHost(host: string): boolean {
-  const lowered = host.toLowerCase().replace(/\.$/u, "");
+  // Same normaliser, not a re-typing of it. This function is exported and takes a raw `new URL().hostname`,
+  // so it used to carry its own terminator strip — a second reader of one field, in the file that
+  // documents why that is how the P1 was born.
+  const lowered = normalizeHost(host);
   if (PRIVATE_NAMES.has(lowered)) return true;
   if (lowered.endsWith(PRIVATE_SUFFIX)) return true;
   return isPrivateIpv4(lowered) || isPrivateIpv6(lowered);

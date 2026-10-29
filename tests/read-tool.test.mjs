@@ -709,16 +709,16 @@ test("network.allowPrivateHosts restores access to internal hosts", async (t) =>
 });
 
 test("a page that moves after the tab opened is refused before any text is returned", async (t) => {
-  // `openTab` cannot see this move: the gateway reports no destination there, so its re-check has
-  // nothing to compare. The one response that does report it is `/snapshot`, which is why the
-  // destination check lives in the client rather than in this tool.
+  // `openTab` cannot see this move: at open the tab is still where we asked it to be — the page navigates
+  // itself afterwards — so that re-check has only the requested url to compare against. The one response
+  // that reports the move is `/snapshot`, which is why the destination check lives in the client rather
+  // than in this tool.
   //
   // The page is scripted thin on purpose. A short response is exactly what `worthPollingAgain` polls
   // again, so if the refusal came after the loop — where this check used to live — the count below
   // would be three, and two of those requests would have been aimed at the internal host.
   const internal = "http://169.254.169.254/latest/meta-data/";
   const { fake, tool } = setup(t, {
-    openReportsUrl: false,
     redirectAfterOpen: new Map([["https://spa.test/late", internal]]),
     snapshotScripts: new Map([[internal, ["instance-id"]]]),
   });

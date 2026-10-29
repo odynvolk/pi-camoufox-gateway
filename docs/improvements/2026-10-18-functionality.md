@@ -26,15 +26,17 @@ stronger claim than "needs upstream work", and worth keeping the two separate.
 
 ## The finding that reframes the roadmap
 
-**The gateway exposes 36 endpoints and 14 search macros. This client consumes 9 endpoints and 1
-macro.**
+**The gateway exposes 36 endpoints and 14 search macros. This client consumes 9 endpoints and no
+macros.**
 
-Verified at `68d1e14`:
+Recounted against `ENDPOINTS` and `tests/fixtures/openapi.json` when the navigate endpoint went away, not
+copied forward from the last count — the endpoint half was last taken at `68d1e14`, and a number this
+doc's own argument rests on is worth re-measuring rather than inheriting:
 
 | Claim | Evidence |
 | --- | --- |
 | 9 of 36 endpoints | `ENDPOINTS` — `src/gateway.ts` |
-| 1 of 14 macros | `const MACRO = "@google_search"` — `src/engines/google.ts` |
+| 0 of 14 macros | `const SEARCH_URL` — `src/engines/google.ts` opens the results page directly; see [2026-10-27-google-direct-open-serp.md](../plans/2026-10-27-google-direct-open-serp.md) |
 | `trace` / `sessionKey` / `listItemId` / `includeScreenshot` never sent | 0 occurrences anywhere in `src/` |
 | Gateway surface is 36 paths, v1.14.0 | `tests/fixtures/openapi.json` (recorded from the live gateway) |
 
@@ -269,9 +271,18 @@ timid.
 
   **The source refuses us, consistently.** Two unrelated queries through the macro return the same 265
   chars, byte for byte, recorded at `tests/fixtures/serp-reddit-blocked.txt`: *You've been blocked by
-  network security.*, and one link to Reddit's ticket form. What that page is classified as is a separate
-  defect, filed in [2026-10-18-code.md](./2026-10-18-code.md) as B.8 — it reports a successful search
-  with one result, and gets cached as one.
+  network security.*, and one link to Reddit's ticket form. What that page was classified as is a separate
+  defect, filed in [2026-10-18-code.md](./2026-10-18-code.md) as B.8 — it reported a successful search
+  with one result, and got cached as one. Half of that is closed since
+  [2026-10-27-google-direct-open-serp.md](../plans/2026-10-27-google-direct-open-serp.md), and the words
+  that carry the closing are *at the url it was taken at*: measured against this recording at
+  `www.reddit.com`, a host no engine we ship owns, the page is now refused before it is parsed rather than
+  read as one ticket-form result. Nothing navigated it there. The recording came through `@reddit_search`,
+  one of the 14 macros this client never calls, and for the shipped client the page is reachable only in
+  tests — where `tests/search-tool.test.mjs` → `B.8 as filed: a refusal served from the first look is cached, and the second query costs no request` serves it at a *google* url, which the ownership rule has no
+  objection to. That case is the item's open half, and it is why the closed half is stated with its url:
+  the same 265 chars served at a url the asked engine *does* own still report as one result, and nothing
+  calls any of it a wall.
 
   **The mechanism is real, and it is not "no parsing".** A JSON document does render as something we can
   read: `https://api.github.com/repos/jo-inc/camofox-browser` comes back as **one** `text:` node, **0**

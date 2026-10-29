@@ -6,6 +6,8 @@
  * alternative is silently handing the model garbage.
  */
 
+import type { EngineName } from "./config.ts";
+import { matchesHostRule, normalizeHost } from "./net-policy.ts";
 import type { GatewayErrorCode } from "./errors.ts";
 
 export interface SnapshotLike {
@@ -85,13 +87,13 @@ function hostFrom(cite: string | undefined, url: string): string {
   if (citeUrl) {
     try {
       const parsed = new URL(citeUrl.includes("://") ? citeUrl : `https://${citeUrl}`);
-      return parsed.hostname.replace(/^www\./u, "");
+      return normalizeHost(parsed.hostname).replace(/^www\./u, "");
     } catch {
       // fall through to the url
     }
   }
   try {
-    return new URL(url).hostname.replace(/^www\./u, "");
+    return normalizeHost(new URL(url).hostname).replace(/^www\./u, "");
   } catch {
     return "";
   }
@@ -163,20 +165,23 @@ function isWrapper(url: string): boolean {
  * rather than a regression.
  */
 function isChrome(engine: string, url: string): boolean {
-  let host: string;
-  try {
-    host = new URL(url).hostname.replace(/^www\./u, "");
-  } catch {
-    return true;
-  }
-  if (engine === "google") {
-    if (!host.endsWith("google.com")) return false;
-    return !isWrapper(url);
-  }
-  if (engine === "duckduckgo") {
-    return host.endsWith("duckduckgo.com");
-  }
-  return host.endsWith("google.com") && !isWrapper(url);
+  const host = rawHostOf(url);
+  // A link whose host cannot be read is not a place, and a result has to be a place.
+  if (!host) return true;
+  // An engine we do not ship is judged as google, which is what the string test this replaced always meant
+  // — but judged by the *same function*. The branch used to be `host.endsWith("google.com")`, kept "for
+  // safety" behind an engine name no config can produce (`src/config.ts` validates every name against
+  // `ENGINE_NAMES`), and it had inherited both defects the table deletes: `evilgoogle.com` was the engine's
+  // own chrome, so its links were dropped, and `www.google.co.uk/imghp` was not, so it surfaced as organic.
+  // A duplicate rule nobody tests is not a safety net; it is the old code, waiting.
+  const rule = RULE_BY_ENGINE[engine] ?? HOST_RULES.google;
+  // One host rule, asked two questions: ownership of the page here, and ownership of each link there.
+  // It used to be two rules — `endsWith("google.com")` after peeling `www.` — which disagreed with the
+  // first in both directions: it called `evilgoogle.com` and `myduckduckgo.com` the engine's own chrome,
+  // and left a `www.google.co.uk` SERP's own `…/imghp` tabs unfiltered because they are not on `.com`.
+  // The one place the questions legitimately differ: google's organic links *are* wrappers on google's
+  // own host, so without the carve-out every result on the page we most want to read becomes chrome.
+  return hostIsEngineDomain(host, rule) && !(rule.wrappers && isWrapper(url));
 }
 
 /** Leading slice of a snapshot as one line, for a diagnostic excerpt. Used in `classifySerp`'s details. */
@@ -277,7 +282,14 @@ export function detectWall(snapshot: SnapshotLike): GatewayErrorCode | null {
   const text = snapshot.text ?? "";
   const url = snapshot.url ?? "";
 
-  if (/consent\.google\.com/u.test(url)) return "consent_wall";
+  // The host, not the url. The query is echoed into the search url and `encodeURIComponent` leaves dots
+  // alone, so `camoufox_search("why does consent.google.com keep appearing")` produces a destination that
+  // *contains* that string while Google served an ordinary results page — and a substring test called it a
+  // consent wall, hopping to DuckDuckGo over a page that was fine. Same reason an attacker's
+  // `?next=https://consent.google.com/` can no longer fabricate one. Kept total like the rest of this
+  // function: an unreadable url is no match, and the branches below still get their turn.
+  const host = hostOf(url);
+  if (host && matchesHostRule(host, CONSENT_HOST)) return "consent_wall";
 
   if (text.trim().length === 0) return "empty_page";
 
@@ -331,10 +343,142 @@ export type SerpVerdict =
   | { kind: "error"; code: GatewayErrorCode; message: string; details: Record<string, unknown> };
 
 /**
- * One SERP snapshot, one verdict: wall, results, or — with nothing organic to hand back — why not.
+ * Did the engine we asked for serve this page?
  *
- * The two axes of the last branch are read here, not inferred from call order: how wide the page is,
- * and whether anything in it had the shape of a link at all. Both engines used to repeat the sequence
+ * Two things downstream are per-engine and only true of a page that engine served: `isChrome`, which
+ * filters an engine's own UI by host, and the credit `src/engines/chain.ts` hands out from `Engine.name`.
+ * Measured on `tests/fixtures/serp-google-answered-by-duckduckgo.txt` — a DuckDuckGo results page, asked
+ * for as google: **30** results as `"google"`, **22** as `"duckduckgo"`. Nine of them are DuckDuckGo's own
+ * footer links, which google's host rule has no way to call chrome, and one `play.google.com` link moves
+ * the other way — so eight of them reached the model as organic results under a header saying
+ * `(via google)`.
+ *
+ * Answers `true` for anything it cannot judge: an engine we do not ship, an unparseable url, a host with
+ * no labels in it, a gateway that reports no destination. Each of those is a silence, and reading a
+ * silence as "not ours" fails a search closed on evidence nobody has.
+ */
+export function engineOwnsUrl(engine: string, url: string): boolean {
+  const host = rawHostOf(url);
+  // Two silences, both answered "not a verdict": an unparseable url and a host of nothing are missing
+  // information, not evidence about where a page is. Asked of the **raw** hostname on purpose —
+  // normalising first would let `"."`, which the strip turns into nothing, walk in here from being judged
+  // foreign, and a tab mid-navigation would stop being a silence.
+  if (!host) return true;
+  const rule = RULE_BY_ENGINE[engine];
+  // An engine we do not ship has no host rule, and inventing one would be a claim about a site we have
+  // never measured. `HOST_RULES`' exhaustiveness check is what makes "no rule" mean "not ours to say".
+  if (!rule) return true;
+  return hostIsEngineDomain(host, rule);
+}
+/** What it takes for a host to be an engine's own: the label its registrations sit at, and how deep a suffix it registers under. */
+interface HostRule {
+  label: string;
+  /** How many labels may follow it. Two covers `co.uk`/`com.br`; one is an engine that owns a single TLD. */
+  maxTail: number;
+  /** Does this engine wrap organic links in a redirect on its own host? Those are results, not chrome. */
+  wrappers: boolean;
+}
+
+/**
+ * One entry per engine we ship an adapter for, and `satisfies` is what makes that a compile error rather
+ * than a silent hole. `engineOwnsUrl` answers `true` for an engine with no rule, so a third engine added
+ * to `ENGINE_NAMES` without stating its host rule here would opt itself out of the misattribution guard
+ * this file exists to enforce — no type error, no red test, and `(via bing)` printed over whatever page
+ * arrived. `ENGINE_NAMES` is the source of truth, and `engines/serp.ts` writes the same literal for the
+ * credit, so the name that owns a page and the name credited with it cannot drift apart.
+ */
+const HOST_RULES = {
+  google: { label: "google", maxTail: 2, wrappers: true },
+  duckduckgo: { label: "duckduckgo", maxTail: 1, wrappers: false },
+} satisfies Record<EngineName, HostRule>;
+
+/** The lookup form, widened so an engine outside `ENGINE_NAMES` yields no rule instead of a type error. */
+const RULE_BY_ENGINE: Record<string, HostRule | undefined> = HOST_RULES;
+
+/** The host `consent_wall` is named for, matched as a host rather than as a substring of the url. */
+const CONSENT_HOST = "consent.google.com";
+
+/**
+ * The hostname a url points at, exactly as `new URL` spelled it. Empty means there is no host to judge —
+ * an unparseable url, or a scheme with no authority — which every caller here treats as a silence.
+ */
+function rawHostOf(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return "";
+  }
+}
+
+/** The same host as `src/net-policy.ts` spells it: lower-cased, with one FQDN terminator removed. */
+function hostOf(url: string): string {
+  return normalizeHost(rawHostOf(url));
+}
+
+/** A single-label tail: a TLD, alphabetic or punycode. Nothing shaped `com1` or `c` is one. */
+const TLD_LABEL = /^(?:[a-z]{2,24}|xn--[a-z0-9-]{2,})$/u;
+/** The middle labels a registry, not a domain owner, puts between the name and the country code. */
+const REGISTRY_SUFFIX = /^(?:co|com)$/u;
+/** A country code is two letters, and is only ever the last label. */
+const CC_TLD = /^[a-z]{2}$/u;
+
+/**
+ * Could these labels be the suffix of a domain the engine itself registered?
+ *
+ * One label has to be a TLD. Two have to be `<registry>.<cc>` — `co.uk`, `com.br` — which is the line
+ * that refuses `google.evil.com`: it has two labels, and the first is a word the owner of `evil.com`
+ * chose, not a suffix any registry issues. Requiring only that each label be alphabetic was the defect —
+ * it checked the shape of the characters while the thing that carries the trust is *who controls the
+ * registrable domain*, and in `google.evil.com` that is whoever owns `evil.com`.
+ *
+ * What this cannot do is tell an apex squatter from Google: whoever registers `google` under some TLD
+ * owns that apex, and no suffix rule can see the difference. `https://google.xyz/` is therefore claimed,
+ * pinned as a known limit in `tests/snapshot.test.mjs` rather than left a surprise. An allowlist of the
+ * suffixes we serve would close it, and would cost a search every time Google geo-redirects to a ccTLD
+ * the list does not name — a silent quality loss on the common path to police a class Google defensively
+ * registers against and most registrars trademark-block.
+ */
+function isRegistrableSuffix(tail: string[]): boolean {
+  if (tail.length === 1) return tail.every((part) => TLD_LABEL.test(part));
+  if (tail.length !== 2) return false;
+  const [registry, cc] = tail;
+  // The two guards are for `noUncheckedIndexedAccess`; the length check above is what makes them hold.
+  return registry !== undefined && cc !== undefined && REGISTRY_SUFFIX.test(registry) && CC_TLD.test(cc);
+}
+
+/**
+ * Does this host sit under a domain the engine registered, at any subdomain depth?
+ *
+ * Labels, counted, rather than a suffix pattern: `[a-z.]+$` admits dots, so a character class cannot
+ * count labels, and the pattern this replaced read `www.google.com.evil.test` — a host whose registrable
+ * domain is `evil.test` — as Google's. Counting is also what keeps the domains that are real: `google.co.uk`
+ * and `google.com.br` carry two labels after the engine's, and no country-code domain carries more.
+ * Counting alone is not enough, which is what `isRegistrableSuffix` is for — see the attack it refuses.
+ *
+ * At least one tail label is required: `www.google` is a hostname on somebody's LAN, not Google's domain.
+ * The last matching label wins, so the tail counted is the registrable one.
+ */
+function hostIsEngineDomain(host: string, rule: HostRule): boolean {
+  // Normalised here rather than at each call site, so the page-ownership question and the per-link
+  // chrome question cannot disagree about whether `www.google.com.` is Google's.
+  const parts = normalizeHost(host).split(".");
+  // No resolver can serve a name with an empty label. Until now the shapes carrying one were refused only
+  // by accident — `["", "com"]` fails `REGISTRY_SUFFIX` rather than being told no.
+  if (parts.some((part) => part === "")) return false;
+  const at = parts.lastIndexOf(rule.label);
+  if (at === -1) return false;
+  const tail = parts.slice(at + 1);
+  if (tail.length === 0 || tail.length > rule.maxTail) return false;
+  return isRegistrableSuffix(tail);
+}
+
+/**
+ * One SERP snapshot, one verdict: a wall, a page some other engine served, results, or — with nothing
+ * organic to hand back — why not.
+ *
+ * The order is the answer, and it lives here rather than in call order: host and phrase evidence first,
+ * then ownership, then the parse. The last branch reads two axes itself — how wide the page is, and
+ * whether anything in it had the shape of a link at all. Both engines used to repeat the sequence
  * themselves, which made the *meaning* of `PARSEABLE_MIN_CHARS` an emergent property of that order —
  * swap two calls and a wall-shaped page reports `empty_results`, or a thin one blames our parser. Now
  * one call site holds the order, and the branches are asserted together in `tests/snapshot.test.mjs`.
@@ -342,6 +486,11 @@ export type SerpVerdict =
 export function classifySerp(snapshot: SnapshotLike, engine: string): SerpVerdict {
   const url = snapshot.url ?? "";
   const text = snapshot.text ?? "";
+  // The message a model reads gets the parsed host; `details.url` keeps the raw string for diagnostics.
+  // Both are printed from a destination the gateway reported, which a redirect — or a query the engine
+  // echoed — can put words in, and a verdict that is right about a page should not launder an attacker's
+  // bytes into model-facing prose while doing it.
+  const host = hostOf(url) || "a page with no destination";
 
   // Host and phrase evidence first: an interstitial is a substituted page, and naming it is more
   // useful than reporting a page we could not parse.
@@ -350,8 +499,23 @@ export function classifySerp(snapshot: SnapshotLike, engine: string): SerpVerdic
     return {
       kind: "error",
       code: wall,
-      message: `${engine} did not serve results (got ${url})`,
+      message: `${engine} did not serve results (got ${host})`,
       details: { url, engine },
+    };
+  }
+
+  // Where the page is, asked before what is on it. `empty_results` is the code deliberately: it is not in
+  // `chain.ts`'s `TERMINAL_CODES`, so the chain runs the engine that does host this page and is credited
+  // by its own `Engine.name` — which is the only way a substituted page can be attributed without letting
+  // a field in the payload pick who gets the credit, and the only way it is never chrome-filtered by the
+  // wrong engine's host list. Runs after `detectWall` because a consent interstitial is a named event, and
+  // naming it beats reporting a page we declined to read.
+  if (!engineOwnsUrl(engine, url)) {
+    return {
+      kind: "error",
+      code: "empty_results",
+      message: `${engine} did not serve this page — the tab is at ${host}`,
+      details: { url, engine, substituted: true },
     };
   }
 

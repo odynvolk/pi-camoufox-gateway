@@ -8,7 +8,7 @@
 
 import type { EngineName } from "../config.ts";
 import type { GatewayClient } from "../gateway.ts";
-import { classifySerp, detectWall, wallWorthWaitingOn, type SerpVerdict, type SnapshotLike } from "../snapshot.ts";
+import { classifySerp, detectWall, engineOwnsUrl, wallWorthWaitingOn, type SerpVerdict, type SnapshotLike } from "../snapshot.ts";
 import { snapshotSettled } from "../settle.ts";
 import type { EngineContext } from "./types.ts";
 
@@ -31,8 +31,15 @@ export const SEARCH_SETTLE_POLL_MS = 150;
  * signal already computed — `classifySerp` has decided whether any organic result is there — so a
  * character threshold here would only add a number that disagrees with the classifier below it.
  *
- * Two branches matter:
+ * Three branches matter:
  *
+ * - A page the asked engine does not host ends the wait. Its address decided that on the first frame, and
+ *   no frame afterwards contradicts it, which makes it the same kind of named event as a wall rather than
+ *   the "not yet" case this loop exists for. The counter-case is real — a page can move after the tab
+ *   opened, so ownership is the one verdict a later frame could reverse — and it is answered where it is
+ *   genuinely undecided: `engineOwnsUrl` declines to judge a destination it cannot read, which is what a tab
+ *   between two addresses reports. Waiting three looks on a page that has named its host costs latency and
+ *   says nothing new, which is `wallWorthWaitingOn`'s argument, repeated for the other named event.
  * - A wall ends the wait, with the one exception `wallWorthWaitingOn` states — the same exception read
  *   applies to its own predicate, because "a blank page is a page that has not started" is not a fact
  *   two callers may disagree about.
@@ -43,6 +50,11 @@ export const SEARCH_SETTLE_POLL_MS = 150;
  *   after `STABLE_ROUNDS` identical looks, because a page that has stopped changing is something the
  *   loop can actually see. Measured cost of that page: 3 snapshots, 2 sleeps of `SEARCH_SETTLE_POLL_MS`.
  *
+ * The first two are the same two rules `classifySerp` applies when it refuses a page, and each side must
+ * keep answering the way the other does: a frame the loop will still re-look at must never be a frame the
+ * classifier called a substitution, or the budget's "still rendering" line gets said about a page that was
+ * never ours. `tests/engines.test.mjs` asserts that across every recording rather than trusting the wording.
+ *
  * The narrower predicate — look again only while the page has no link blocks — would skip that cost by
  * never re-looking at a page whose chrome had already rendered. Measured against the recorded pages it
  * skips the case this is for: the chrome-only prefix of `serp-google.txt` is 5 link blocks with no
@@ -51,6 +63,7 @@ export const SEARCH_SETTLE_POLL_MS = 150;
  */
 export function serpWorthAnotherLook(snapshot: SnapshotLike, engine: EngineName): boolean {
   if (classifySerp(snapshot, engine).kind === "results") return false;
+  if (!engineOwnsUrl(engine, snapshot.url ?? "")) return false;
   return wallWorthWaitingOn(detectWall(snapshot));
 }
 
@@ -60,12 +73,24 @@ export function serpWorthAnotherLook(snapshot: SnapshotLike, engine: EngineName)
  * `classifySerp`'s error messages are claims about what the engine had. A frame taken while the page was
  * still growing is not evidence for one: the loop only reaches its deadline while another look is still
  * wanted, and a page that had answered stable and empty already stopped it. The *code* has to stay
- * whatever the last frame looked like, because `chain.ts` hops on `empty_results` and stops on `timeout`
- * — so the correction goes in the message, which is the line the model reads first and the one
- * `structuredTried` hands a script.
+ * whatever the last frame looked like. `timeout` is what the transport says when a request missed its own
+ * deadline, and a page that had not finished rendering is not that event — borrowing the code would report
+ * a gateway that never answered when what happened was a page that never arrived. The *code* also decides
+ * the fallback, so a rewrite would move the hop too. The correction therefore goes in the message, which
+ * is the line the model reads first and the one `structuredTried` hands a script.
  */
 function undecidedVerdict(verdict: SerpVerdict, engine: EngineName): SerpVerdict {
   if (verdict.kind === "results") return verdict;
+  // The ownership verdict is about *which page we got*, and the address decides it on the first frame: no
+  // amount of waiting makes a foreign host the asked engine's results page. So this loop may downgrade
+  // "there were no results" — that page might still have been on its way — and may not downgrade this one.
+  //
+  // Unreachable today, and kept against one specific edit. `serpWorthAnotherLook`, above, stops the wait on
+  // the first frame `engineOwnsUrl` refuses, so no substituted frame is ever the frame the budget runs out
+  // on. Narrow that predicate — "stop only on walls" is the plausible revision — and this branch is live
+  // again, telling a model a page was still rendering when it had in fact never been ours. The two functions
+  // are one rule; `tests/engines.test.mjs` pins that they stay the same rule.
+  if (verdict.details.substituted === true) return verdict;
   return {
     ...verdict,
     message: `${engine}'s results page was still rendering when the ${SEARCH_SETTLE_MS}ms wait ran out, so it is not known whether it had results`,
