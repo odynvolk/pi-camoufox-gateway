@@ -34,8 +34,25 @@ Searches through the browser and returns ranked titles, urls and snippets.
   `(via google)` can no longer be printed over a DuckDuckGo page. That combination comes back as
   `empty_results` from google, duckduckgo is asked, and credits itself. *Host it sits on* is the gateway's
   answer and not our own guess: the rule reads the destination the gateway reports, and a gateway that
-  reports none is answered as "owned" rather than refused on evidence nobody has — the address guard is what
-  stops that case under the shipped policy, refusing with `destination_unreported` before any of it is read.
+  reports none is answered as "owned" rather than refused on evidence nobody has. Under the shipped policy
+  the address guard closes that door, refusing with `destination_unreported` before any of it is read — but
+  turning the guard off entirely (`allowPrivateHosts: true` with no `blockedHosts`) opens it again, and a
+  page then arrives credited with no `substituted` flag. That is pinned as a decision with a name in
+  `tests/snapshot.test.mjs` rather than left a property of the code. *Owned* means the registrable domain,
+  not the shape of the characters: `google.co.uk`, `google.com.br` and `google.рф` are Google's, while
+  `google.evil.com` and `www.google.com.evil.test` — a host whose registrable domain is `evil.test` — are
+  refused. What no suffix rule can do is tell an apex squatter from Google: whoever registers `google`
+  under some TLD owns that apex, so `https://google.xyz/` is credited to Google. Stated as a known limit
+  rather than left a surprise; an allowlist of suffixes would close it and cost a search every time Google
+  geo-redirects to a ccTLD the list does not name.
+- **A wall is where the page is, not what the url contains.** The consent check used to be a substring test
+  on the whole url, and the query is echoed into the search url — `encodeURIComponent` leaves dots alone —
+  so `camoufox_search("why does consent.google.com keep appearing")` reached
+  `https://www.google.com/search?q=why%20does%20consent.google.com%20keep%20appearing&sei=…`, matched it,
+  and reported a healthy Google results page as a consent wall while DuckDuckGo answered an ordinary
+  question. Measured live on 2026-10-28; no attacker was involved, though an attacker's
+  `?next=https://consent.google.com/` walked through the same door. It matches the host now, normalised the
+  same way every other host comparison in this repo is.
 - Bing is not offered: there is no adapter for it. A Bing page that arrived anyway used to be read as
   whichever engine we had asked for — chrome is filtered by host, and no `bing.com` link is that engine's.
   It is now refused before it is parsed, by the same rule as above, so the mis-filter is not reachable and

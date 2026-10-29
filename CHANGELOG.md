@@ -46,9 +46,16 @@ items (`A.2`, `B.5`, `D.1`, `E.3`, …) are the open findings in
 - **`www.google.com.evil.test` is not Google's page.** The rule that decides which engine a page belongs to
   was a suffix pattern, and `[a-z.]+$` admits dots — so a host whose registrable domain is `evil.test` was
   credited to google and chrome-filtered by google's host list, while `google.xn--p1ai` (google.рф) was
-  refused as a stranger. It counts hostname labels now: the engine's own label, one or two alphabetic or
-  punycode labels after it. `google.co.uk`, `google.com.br` and `google.рф` are still google; the
-  look-alikes are refused by label count, on both sides, where only duckduckgo had been pinned.
+  refused as a stranger. It counts hostname labels now, and refuses on the **registrable domain** rather
+  than on the shape of the labels: the engine's own label, then either one TLD label (alphabetic or
+  punycode) or a registry label (`co`, `com`) followed by a two-letter country code. `google.co.uk`,
+  `google.com.br` and `google.рф` are google; `google.evil.com`, `www.google.evil.com` and `google.net.au`
+  are refused, on both engines, where only duckduckgo had been pinned. Counting labels was the first
+  attempt and was still wrong in the way that matters — `google.evil.com` has two alphabetic labels after
+  `google`, and whoever registered them owns `evil.com`, not Google. What no suffix rule can do is tell an
+  apex squatter from Google: whoever registers `google` under some TLD owns that apex, so `google.xyz` is
+  credited to google. Stated as a limit and pinned as one, because the alternative is an allowlist that
+  costs a search every time Google geo-redirects to a ccTLD the list does not name.
 - **A page some other engine served says so, once.** A substituted page that was still changing when the
   settle budget ran out was reported as *"google's results page was still rendering … not known whether it
   had results"* — the wait's sentence about a page google never served, because `undecidedVerdict` rewrote
@@ -57,9 +64,43 @@ items (`A.2`, `B.5`, `D.1`, `E.3`, …) are the open findings in
   for the privilege: `serpWorthAnotherLook` stopped on a wall and on results but not on ownership, so a
   google tab that landed on duckduckgo spent 3 snapshots and 2 sleeps at a page no waiting can turn into
   google's — it costs 1, and the count is asserted rather than described.
+- **A Google page spelled the way DNS allows was handed to DuckDuckGo.** The rule above trusted
+  `new URL().hostname`, which keeps the FQDN terminator and even decodes `%2e` into one — so
+  `https://www.google.com./search` was refused as nobody's domain, a real Google SERP came back
+  `empty_results` with `details.substituted: true`, and DuckDuckGo was asked to answer a query Google had
+  already answered. The guard against misattribution had become a second way to misattribute, and both
+  readers were already in this repo: `net-policy.ts` had been stripping the terminator in `parseHttpUrl`
+  all along. Hosts go through one exported `normalizeHost` now, and emptiness is still judged on the **raw**
+  value, so a tab mid-navigation stays a silence instead of being promoted into a verdict by the strip.
+- **Chrome and ownership were two rules, and each was wrong on its own.** `isChrome` decided an engine's own
+  UI by peeling `www.` and asking `endsWith("google.com")`, disagreeing with the ownership rule in opposite
+  directions: `evilgoogle.com` and `myduckduckgo.com` counted as the engine's own chrome, so every link on a
+  page hosted there was dropped as UI without a word, while a `www.google.co.uk` results page's own `/imghp`
+  tabs were *not* chrome and came back as organic results. Both questions read one `HOST_RULES` entry per
+  engine now, keyed off `EngineName` with an exhaustiveness check — and a runtime test beside it, because
+  `npm test` does not run `tsc` and a guard that only fires in a typecheck is a guard nobody sees fail.
+  Measured across every recorded fixture, before and after: organic result counts identical, which is what
+  makes this a defect found by reading rather than one that was hurting anyone.
+- **Searching for `consent.google.com` reported a consent wall.** That check was a substring test on the
+  whole url, and the query is echoed into the search url — `encodeURIComponent` does not escape dots.
+  Measured live on 2026-10-28: `camoufox_search("why does consent.google.com keep appearing")` came back
+  `consent_wall` at `https://www.google.com/search?q=why%20does%20consent.google.com%20keep%20appearing&sei=…`,
+  a page Google had served normally, with DuckDuckGo answering an ordinary question. No attacker required;
+  an attacker's `?next=https://consent.google.com/` walked through the same door. It is a host match through
+  `matchesHostRule` now, which also survives the terminator. The lesson is in
+  `docs/solutions/integration/wall-detection-must-be-structural.md`, including that the first version of
+  that solution had this hole in it.
 
 ### Changed
 
+- **One reader of a host, and no rule left behind a dead branch.** `isPrivateHost` carried `normalizeHost`'s
+  body re-typed, in the file whose own docstring says hosts are read one way — and deleting that strip
+  changed nothing anywhere in the suite, which is exactly how two copies got to disagree. It calls the shared
+  one now, with terminated private hosts (`localhost.`, `169.254.169.254.`) pinned. `isChrome`'s
+  unknown-engine fallback kept a third copy of the old string rule behind a branch no loadable config can
+  reach, since `config.ts` validates every name against `ENGINE_NAMES`; asked directly it still called
+  `evilgoogle.com` the engine's chrome. Deleted rather than pinned — an untested duplicate is the old code,
+  waiting for a name nobody thought to test.
 - **No gateway macros, and one endpoint fewer.** `navigateMacro`, `NavigateResult` and `ENDPOINTS.navigate`
   are deleted rather than left unused: `POST /tabs/{tabId}/navigate` is the endpoint that runs the check
   and the substitution above, and it is only unreachable while nothing can call it. The client now

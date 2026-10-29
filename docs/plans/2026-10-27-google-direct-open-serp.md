@@ -97,7 +97,17 @@ export function engineOwnsUrl(engine: string, url: string): boolean
 ```
 
 google → hostname matches `/\.google\.[a-z.]+$/i`; duckduckgo → `/\.duckduckgo\.com$/i`; an unknown
-engine → `true` (do not invent a rule for an adapter we do not ship). Then in `classifySerp`, **after**
+engine → `true` (do not invent a rule for an adapter we do not ship).
+
+> **As built — do not copy that regex.** It shipped and it was wrong: `[a-z.]+$` admits dots, so
+> `www.google.com.evil.test` — a host whose registrable domain is `evil.test` — was credited to google while
+> `google.рф` was refused. Counting labels fixed that and was *still* not enough: `google.evil.com` has two
+> alphabetic labels after `google`, and whoever registered them owns `evil.com`. What shipped is
+> `isRegistrableSuffix` in `src/snapshot.ts` — the engine's label, then either one TLD label or a registry
+> label plus a country code — asked of a host put through `normalizeHost`, because `new URL()` keeps the FQDN
+> terminator and a page on `www.google.com.` is Google's. Chrome asks that same rule from the same
+> `HOST_RULES` table, so the page verdict and the per-link filter cannot disagree. Both steps are in
+> `CHANGELOG.md`. Then in `classifySerp`, **after**
 `detectWall` and **before** parsing, a page the asked engine does not own returns
 `{ kind: "error", code: "empty_results", details: { url, engine, substituted: true } }` with a message
 naming both. `empty_results` is deliberately chosen: it is not terminal, so the chain runs the engine that
@@ -156,6 +166,13 @@ budget only admits a third look when a `/snapshot` answers in under ~450 ms; the
 Measured, tabulated, and written up at
 `.context/compound-engineering/findings/2026-10-28T00-10-00-000Z-finding-settle-stalled-at-deadline.md`.
 Left alone because `snapshotSettled` is shared with `tools/read.ts`, so the fix moves read's behaviour too.
+
+It is not confined to nonsense queries. Reproduced on 2026-10-28 on an ordinary one while verifying the
+consent-wall fix: `camoufox_search("why does consent.google.com keep appearing", engine: google)` cost
+1,242 ms and came back `empty_results` with `details.stalledAtDeadline: true`, at a destination the gateway
+reported as a genuine Google results page (`…&sei=…`). Whether it carried organic results is exactly what
+the message declines to say, and the loop still cannot tell. Any fix here should be measured against that
+query too, not only against `zzzqqqxx nonexisting thing`.
 
 ## Explicitly out of scope
 
