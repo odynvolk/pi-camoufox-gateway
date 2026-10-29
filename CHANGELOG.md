@@ -5,7 +5,11 @@ items (`A.2`, `B.5`, `D.1`, `E.3`, …) are the open findings in
 [`docs/improvements/2026-10-18-functionality.md`](./docs/improvements/2026-10-18-functionality.md) and
 [`docs/improvements/2026-10-18-code.md`](./docs/improvements/2026-10-18-code.md).
 
-## [Unreleased]
+## [0.2.1] - 2026-10-29
+
+Everything merged after v0.2.0 — PR #22, 21 commits, and the suite went from 353 passing tests to 378. Every
+entry below was measured against a real gateway (`camofox-browser` 1.18.1) before it was written; the ones that
+came from reading alone say so.
 
 ### Fixed
 
@@ -18,7 +22,7 @@ items (`A.2`, `B.5`, `D.1`, `E.3`, …) are the open findings in
   2026-10-27: macro **31,285 ms** → `duckduckgo.com/?q=goa`; `POST /tabs/open` at the same SERP url
   **268 ms** → 9–10 Google results on every query tried, cold, warm, without `hl`/`gl`, and in CJK. The
   macro expanded to the url we now build ourselves, so it carried no capability — only that check
-  (`docs/plans/2026-10-27-google-direct-open-serp.md`).
+  (#22, `docs/plans/2026-10-27-google-direct-open-serp.md`).
 - **A page is credited to the engine that hosts it.** A Google call whose page came back from DuckDuckGo
   printed `(via google)` over 30 links, 9 of them DuckDuckGo's own footer — because chrome is filtered by
   the host of the engine we *asked* for, and the chain credits from `Engine.name`. `classifySerp` now asks
@@ -26,14 +30,14 @@ items (`A.2`, `B.5`, `D.1`, `E.3`, …) are the open findings in
   `details.substituted: true`, the chain runs the engine that does host it, and that engine credits
   itself. Closes `B.9`, and the half of `B.8` that reported a refusal as one successful result; the pin on
   the substituted page was converted into the regression that asserts the right answer, on the same
-  recording.
+  recording (#22).
 - **A slow engine costs a hop, not the search.** `timeout` was terminal for the engine chain, so one
   engine that was merely slow ended everything with
   `tried: [{"engine":"google","code":"timeout"}]` and duckduckgo never being asked. It is not on that list
   now — `gateway_unreachable`, `gateway_unauthorized`, `host_blocked` and `private_network` still are,
   because those are outcomes the next engine would meet too. And `snapshot` no longer retries a request
   that already spent its whole deadline: one hung snapshot cost 2 × `timeoutMs` before the chain was told
-  anything had failed.
+  anything had failed (#22).
 - **The chain has one budget, not one per request.** Removing `timeout` from that list moved a cost from
   one module to none — the deadline lived only per request, so a gateway that is *up* and answering nothing
   owned no total: an open landing a millisecond inside its deadline plus a snapshot that never answers is
@@ -42,7 +46,7 @@ items (`A.2`, `B.5`, `D.1`, `E.3`, …) are the open findings in
   so a second engine cannot start a fresh full deadline after the first burned one — measured at 606 ms
   where the same gateway took 1 173 ms, with the first engine still getting its full deadline. The code and
   the message say which deadline ran out: `timeout` naming the search budget, where a cancelled call still
-  reports `aborted` naming the cancellation.
+  reports `aborted` naming the cancellation (#22).
 - **`www.google.com.evil.test` is not Google's page.** The rule that decides which engine a page belongs to
   was a suffix pattern, and `[a-z.]+$` admits dots — so a host whose registrable domain is `evil.test` was
   credited to google and chrome-filtered by google's host list, while `google.xn--p1ai` (google.рф) was
@@ -55,7 +59,7 @@ items (`A.2`, `B.5`, `D.1`, `E.3`, …) are the open findings in
   `google`, and whoever registered them owns `evil.com`, not Google. What no suffix rule can do is tell an
   apex squatter from Google: whoever registers `google` under some TLD owns that apex, so `google.xyz` is
   credited to google. Stated as a limit and pinned as one, because the alternative is an allowlist that
-  costs a search every time Google geo-redirects to a ccTLD the list does not name.
+  costs a search every time Google geo-redirects to a ccTLD the list does not name (#22).
 - **A page some other engine served says so, once.** A substituted page that was still changing when the
   settle budget ran out was reported as *"google's results page was still rendering … not known whether it
   had results"* — the wait's sentence about a page google never served, because `undecidedVerdict` rewrote
@@ -63,7 +67,7 @@ items (`A.2`, `B.5`, `D.1`, `E.3`, …) are the open findings in
   look, so the loop may downgrade "no results yet" and may not downgrade that. And the loop no longer pays
   for the privilege: `serpWorthAnotherLook` stopped on a wall and on results but not on ownership, so a
   google tab that landed on duckduckgo spent 3 snapshots and 2 sleeps at a page no waiting can turn into
-  google's — it costs 1, and the count is asserted rather than described.
+  google's — it costs 1, and the count is asserted rather than described (#22).
 - **A Google page spelled the way DNS allows was handed to DuckDuckGo.** The rule above trusted
   `new URL().hostname`, which keeps the FQDN terminator and even decodes `%2e` into one — so
   `https://www.google.com./search` was refused as nobody's domain, a real Google SERP came back
@@ -71,7 +75,7 @@ items (`A.2`, `B.5`, `D.1`, `E.3`, …) are the open findings in
   already answered. The guard against misattribution had become a second way to misattribute, and both
   readers were already in this repo: `net-policy.ts` had been stripping the terminator in `parseHttpUrl`
   all along. Hosts go through one exported `normalizeHost` now, and emptiness is still judged on the **raw**
-  value, so a tab mid-navigation stays a silence instead of being promoted into a verdict by the strip.
+  value, so a tab mid-navigation stays a silence instead of being promoted into a verdict by the strip (#22).
 - **Chrome and ownership were two rules, and each was wrong on its own.** `isChrome` decided an engine's own
   UI by peeling `www.` and asking `endsWith("google.com")`, disagreeing with the ownership rule in opposite
   directions: `evilgoogle.com` and `myduckduckgo.com` counted as the engine's own chrome, so every link on a
@@ -80,7 +84,7 @@ items (`A.2`, `B.5`, `D.1`, `E.3`, …) are the open findings in
   engine now, keyed off `EngineName` with an exhaustiveness check — and a runtime test beside it, because
   `npm test` does not run `tsc` and a guard that only fires in a typecheck is a guard nobody sees fail.
   Measured across every recorded fixture, before and after: organic result counts identical, which is what
-  makes this a defect found by reading rather than one that was hurting anyone.
+  makes this a defect found by reading rather than one that was hurting anyone (#22).
 - **Searching for `consent.google.com` reported a consent wall.** That check was a substring test on the
   whole url, and the query is echoed into the search url — `encodeURIComponent` does not escape dots.
   Measured live on 2026-10-28: `camoufox_search("why does consent.google.com keep appearing")` came back
@@ -89,7 +93,7 @@ items (`A.2`, `B.5`, `D.1`, `E.3`, …) are the open findings in
   an attacker's `?next=https://consent.google.com/` walked through the same door. It is a host match through
   `matchesHostRule` now, which also survives the terminator. The lesson is in
   `docs/solutions/integration/wall-detection-must-be-structural.md`, including that the first version of
-  that solution had this hole in it.
+  that solution had this hole in it (#22).
 
 ### Changed
 
@@ -100,12 +104,20 @@ items (`A.2`, `B.5`, `D.1`, `E.3`, …) are the open findings in
   unknown-engine fallback kept a third copy of the old string rule behind a branch no loadable config can
   reach, since `config.ts` validates every name against `ENGINE_NAMES`; asked directly it still called
   `evilgoogle.com` the engine's chrome. Deleted rather than pinned — an untested duplicate is the old code,
-  waiting for a name nobody thought to test.
+  waiting for a name nobody thought to test (#22).
 - **No gateway macros, and one endpoint fewer.** `navigateMacro`, `NavigateResult` and `ENDPOINTS.navigate`
   are deleted rather than left unused: `POST /tabs/{tabId}/navigate` is the endpoint that runs the check
   and the substitution above, and it is only unreachable while nothing can call it. The client now
   consumes 9 of the gateway's 36 endpoints and none of its 14 search macros — recounted from `ENDPOINTS`
-  and the recorded contract, not inherited from the last count.
+  and the recorded contract, not inherited from the last count (#22).
+
+### Notes
+
+- The pinned install example in the README now reads `@v0.2.1`; the tag is cut on merge.
+- The known defect the live gate surfaced — `snapshotSettled` stalling at its deadline, so a query that has
+  results can report `empty_results` with `details.stalledAtDeadline: true` — is **not** fixed here. It is
+  written up in `docs/plans/2026-10-27-google-direct-open-serp.md`, and left alone because `snapshotSettled`
+  is shared with `tools/read.ts`, so the fix moves read's behaviour too.
 
 ## [0.2.0] - 2026-10-26
 
