@@ -3,8 +3,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 
-import { withFakeGateway } from "./helpers/fake_gateway.mjs";
+import { withFakeGateway, createFakeGateway } from "./helpers/fake_gateway.mjs";
 import { createGatewayClient } from "../src/gateway.ts";
+import { snapshotSettled } from "../src/settle.ts";
 import { GatewayError } from "../src/errors.ts";
 import { enginesFromConfig, SEARCH_CHAIN_BUDGET_IN_DEADLINES, searchWithFallback } from "../src/engines/chain.ts";
 import { googleEngine } from "../src/engines/google.ts";
@@ -618,6 +619,72 @@ test("the settle loop never keeps looking at a page the classifier says this eng
   const substituted = { url: "https://duckduckgo.com/?q=expressen&ia=web", text: fixture("serp-google-answered-by-duckduckgo.txt") };
   assert.equal(classifySerp(substituted, "google").details.substituted, true, "the classifier refuses it — the premise below is nothing without this");
   assert.equal(serpWorthAnotherLook(substituted, "google"), false, "and the loop does not spend a look on it");
+});
+
+/** Where each engine's own results page is, which is what makes a recorded page an honest frame. */
+const ENGINE_URLS = [
+  ["google", googleEngine, "https://www.google.com/search?q=camoufox"],
+  ["duckduckgo", duckduckgoEngine, "https://duckduckgo.com/?q=camoufox"],
+];
+
+/** One look costs more than the whole budget, which is the shape the third stop clause exists for. */
+const OVERSPENT_BUDGET_MS = 10;
+const OVERSPENT_SNAPSHOT_MS = 20;
+
+test("a budget that cannot afford the third look never reports a stall on a page that stopped changing", async (t) => {
+  // The same rule as above, on the frame the budget runs out on. `undecidedVerdict`'s premise — a page that
+  // had answered stable and empty already stopped it — is true because of that clause, not independently of
+  // it, so it is asserted over every recording rather than trusted: at a latency where the third look is
+  // unaffordable, no recording may be called a stall, and a stall is never reported for a frame the loop
+  // itself no longer wanted to look at again.
+  //
+  // Driven through the shared machine with the engine's own predicate rather than through an engine, so the
+  // budget can be smaller than one snapshot here; the message that budget produces is the engine cases'
+  // business, and `"the identical pair that spent the budget is a stop…"` below owns it.
+  const real = globalThis.fetch;
+  t.after(() => {
+    globalThis.fetch = real;
+  });
+
+  for (const [name, factory, url] of ENGINE_URLS) {
+    for (const page of RECORDED_PAGES) {
+      const fake = createFakeGateway({
+        pageContents: new Map([[url, fixture(page)]]),
+        // Every recording whole: a frame the fake had sliced would be a different page from the one
+        // `wanted` below is measured on, and the count would be a fact about the fake.
+        snapshotLimit: 100_000,
+        snapshotHangsForMs: OVERSPENT_SNAPSHOT_MS,
+      });
+      globalThis.fetch = fake.fetch;
+      const client = createGatewayClient({ baseUrl: BASE, timeoutMs: 2000 });
+
+      const tab = await client.openTab({ userId: "u1", url });
+      const settled = await snapshotSettled(client, "u1", tab.tabId, {
+        budgetMs: OVERSPENT_BUDGET_MS,
+        pollMs: 5,
+        worthLookingAgain: (looked) => serpWorthAnotherLook(looked, name),
+        cancelledMessage: "the settle probe was cancelled",
+      });
+      await client.closeTabQuietly({ userId: "u1", tabId: tab.tabId });
+      globalThis.fetch = real;
+
+      const label = `${page} read as ${name}`;
+      const wanted = serpWorthAnotherLook({ url, text: fixture(page) }, name);
+      const snapshots = fake.state.calls.filter((call) => call.path.includes("/snapshot")).length;
+      assert.equal(
+        snapshots,
+        wanted ? 2 : 1,
+        `${label}: wanted another look was ${wanted}, so it cost ${snapshots} snapshots`,
+      );
+      assert.equal(settled.stalledAtDeadline, false, `${label}: a page that answered identical once is not a stall`);
+      assert.equal(
+        settled.stalledAtDeadline && !serpWorthAnotherLook(settled.snapshot, name),
+        false,
+        `${label}: a stall was reported on a frame the loop had stopped wanting`,
+      );
+      assert.deepEqual(fake.liveTabs(), [], `${label}: the tab outlived the wait`);
+    }
+  }
 });
 
 test("the search settle budget is its own, and smaller than the one a read may spend", () => {

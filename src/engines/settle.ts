@@ -70,10 +70,14 @@ export function serpWorthAnotherLook(snapshot: SnapshotLike, engine: EngineName)
 /**
  * What may be said about a page that was still arriving when the budget ran out.
  *
- * `classifySerp`'s error messages are claims about what the engine had. A frame taken while the page was
- * still growing is not evidence for one: the loop only reaches its deadline while another look is still
- * wanted, and a page that had answered stable and empty already stopped it. The *code* has to stay
- * whatever the last frame looked like. `timeout` is what the transport says when a request missed its own
+ * `classifySerp`'s error messages are claims about what the engine had, and a frame taken while the page was
+ * still growing is not evidence for one. That the loop can only reach its deadline with a page *still
+ * changing* is not a property of the deadline: it holds because `settle.ts` stops on an identical pair once
+ * the budget cannot admit another look. Widen that clause's `unchanged >= 1` to `STABLE_ROUNDS` — the edit
+ * that reads as tidying — and this line is again being said about a page the loop had already seen
+ * byte-identical twice. `tests/engines.test.mjs` pins the two together, over every recorded page.
+ *
+ * The *code* has to stay whatever the last frame looked like. `timeout` is what the transport says when a request missed its own
  * deadline, and a page that had not finished rendering is not that event — borrowing the code would report
  * a gateway that never answered when what happened was a page that never arrived. The *code* also decides
  * the fallback, so a rewrite would move the hop too. The correction therefore goes in the message, which
