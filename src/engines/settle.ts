@@ -15,7 +15,7 @@ import type { EngineContext } from "./types.ts";
 /**
  * How long one engine may wait for its results page to arrive.
  *
- * Sized for the *second* look, not the first: `settle.ts` stops on a page that answered identical twice,
+ * Sized for the *second* look, not the first: `src/settle.ts` stops on a page that answered identical twice,
  * and a page still arriving spends the budget whether or not it answers. The 600 ms this was before was
  * measured against snapshots costing milliseconds and expired inside the first re-look on a gateway where
  * one costs seconds — which is how a page that had stopped changing got called one still rendering.
@@ -79,7 +79,7 @@ export function serpWorthAnotherLook(snapshot: SnapshotLike, engine: EngineName)
  *
  * `classifySerp`'s error messages are claims about what the engine had, and a frame taken while the page was
  * still growing is not evidence for one. That the loop can only reach its deadline with a page *still
- * changing* is not a property of the deadline: it holds because `settle.ts` stops on an identical pair once
+ * changing* is not a property of the deadline: it holds because `src/settle.ts` stops on an identical pair once
  * the budget cannot admit another look. Widen that clause's `unchanged >= 1` to `STABLE_ROUNDS` — the edit
  * that reads as tidying — and this line is again being said about a page the loop had already seen
  * byte-identical twice. `tests/engines.test.mjs` pins the two together, over every recorded page.
