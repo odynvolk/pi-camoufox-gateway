@@ -514,10 +514,19 @@ test("a page that never stops changing costs the search budget and nothing more"
   );
   assert.match(error.message, /still rendering/u, "what was actually observed: a page still arriving");
   assert.match(error.message, new RegExp(`${SEARCH_SETTLE_MS}ms`, "u"), "and for how long we looked");
+  const looked = callsFor(fake, "/snapshot").length;
+  // The counterpart of that flag where it is live: a stall is only honest about a frame another look could
+  // still have answered. The fake serves one scripted frame per look, so the nth look is the nth frame.
+  const openedAt = fake.state.calls.find((call) => call.path === "/tabs/open").body.url;
+  assert.equal(
+    serpWorthAnotherLook({ url: openedAt, text: frames[Math.min(looked - 1, frames.length - 1)] }, "google"),
+    true,
+    "the wait ran out on a frame another look could not have changed, so the stall it reports is one it never earned",
+  );
   assert.equal(error.details?.stalledAtDeadline, true, "read reports this fact as data; so does this");
   assert.ok(
-    callsFor(fake, "/snapshot").length <= 1 + Math.ceil(SEARCH_SETTLE_MS / SEARCH_SETTLE_POLL_MS),
-    `${callsFor(fake, "/snapshot").length} snapshots is more re-look than one engine's budget can buy`,
+    looked <= 1 + Math.ceil(SEARCH_SETTLE_MS / SEARCH_SETTLE_POLL_MS),
+    `${looked} snapshots is more re-look than one engine's budget can buy`,
   );
 });
 
@@ -765,6 +774,9 @@ test("a budget that cannot afford the third look never reports a stall on a page
         `${label}: wanted another look was ${wanted}, so it cost ${snapshots} snapshots`,
       );
       assert.equal(settled.stalledAtDeadline, false, `${label}: a page that answered identical once is not a stall`);
+      // Documentation of the rule rather than a check of it: the line above already pins the flag `false`
+      // for every recording, so this can only fire if that pin goes away. The version that can fail is in
+      // the growing-page case above, the one place the flag is ever `true`.
       assert.equal(
         settled.stalledAtDeadline && !serpWorthAnotherLook(settled.snapshot, name),
         false,
