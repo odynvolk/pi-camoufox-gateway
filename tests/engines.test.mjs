@@ -520,6 +520,53 @@ test("a page that never stops changing costs the search budget and nothing more"
   );
 });
 
+test("the identical pair that spent the budget is a stop, not a page still rendering", async (t) => {
+  // The measured live case (`.context/measure-stalled-at-deadline.mjs`, the 449ms row): one `/snapshot`
+  // costing more than the whole settle budget means the loop can never reach the *second* comparison the
+  // stability stop asks for, so it leaves with the flag that started at `true` — and `undecidedVerdict`
+  // said "was still rendering" about a page that had already answered identically twice. The pair in hand
+  // is the evidence; the missing third look is the thing this call could not buy.
+  assertNoOrganics(GOOGLE_NO_RESULTS, "google", "the recorded zero-result page");
+
+  const { fake, client } = setup(t, {
+    pageContents: new Map([["https://www.google.com/search?q=camoufox", GOOGLE_NO_RESULTS]]),
+    snapshotHangsForMs: SEARCH_SETTLE_MS + 1,
+  });
+
+  const error = await googleEngine().search("camoufox", { client, userId: "u1" }).catch((e) => e);
+
+  assert.equal(error.code, "empty_results");
+  assert.equal(
+    error.message,
+    "google returned no organic results for that query",
+    "a page that answered stable and empty is a zero we may name, not an unknown",
+  );
+  assert.equal(error.details?.stalledAtDeadline, undefined, "a bigger budget could not have bought the third look, so it is not offered");
+  assert.equal(
+    callsFor(fake, "/snapshot").length,
+    2,
+    "one look, then the identical re-look that both proved the page had stopped and spent the budget",
+  );
+});
+
+test("a stable page on a gateway that answers in milliseconds still pays for the third look", async (t) => {
+  // The other half of that stop: it fires only when the budget cannot admit another look, so nothing here
+  // gets cheaper on a fast gateway, and one repeat is still not mistaken for a finished page.
+  const { fake, client } = setup(t, {
+    pageContents: new Map([["https://www.google.com/search?q=camoufox", GOOGLE_NO_RESULTS]]),
+  });
+
+  const error = await googleEngine().search("camoufox", { client, userId: "u1" }).catch((e) => e);
+
+  assert.equal(error.message, "google returned no organic results for that query");
+  assert.equal(error.details?.stalledAtDeadline, undefined);
+  assert.equal(
+    callsFor(fake, "/snapshot").length,
+    1 + STABLE_ROUNDS,
+    "the budget could still afford the confirmation, so it bought it",
+  );
+});
+
 /**
  * Every recording, so this section's coupling check picks up a page the moment one is added — a hand-named
  * list is a count, and a count is the thing that goes stale quietly.

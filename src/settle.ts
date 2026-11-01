@@ -95,7 +95,11 @@ export interface SettledSnapshot {
   settledInMs: number;
   /** False when the first look was enough, which is also when `settledInMs` means nothing. */
   polled: boolean;
-  /** The budget ran out while another look was still wanted, so a bigger one could have helped. */
+  /**
+   * The budget ran out while the page was still changing, so a bigger one could have helped.
+   *
+   * An identical pair already in hand answers the question without the third look, and does not set this.
+   */
   stalledAtDeadline: boolean;
 }
 
@@ -113,9 +117,9 @@ export async function snapshotSettled(
   let latest = first;
   let unchanged = 0;
   let polled = false;
-  // Whether the budget ran out while the page was still worth re-looking at. That is the only case where
-  // "raise the budget" is honest advice: a page that stopped changing on its own will not change because
-  // we asked again.
+  // Whether the budget ran out with the page still changing. That is the only case where "raise the
+  // budget" is honest advice: a page that already answered identical once will not change because we
+  // asked again, and the stop below that reads the pair in hand is what makes this flag mean that.
   let stalledAtDeadline = true;
   // One repeat is a slow script, two is a finished page: that is the stop signal available without
   // knowing the app's selectors. The deadline bounds how long it can take, and each poll is its own
@@ -132,7 +136,18 @@ export async function snapshotSettled(
     unchanged = samePage(next, latest) ? unchanged + 1 : 0;
     latest = next;
     polled = true;
-    if (unchanged >= STABLE_ROUNDS || !options.worthLookingAgain(next)) {
+    if (
+      unchanged >= STABLE_ROUNDS
+      || !options.worthLookingAgain(next)
+      // The stop the other two could not reach on a slow gateway. `samePage` compares a frame with its
+      // predecessor, so `STABLE_ROUNDS` needs `STABLE_ROUNDS + 1` looks, while the request that produces a
+      // look is outside the deadline tested above: one `/snapshot` slower than `budgetMs` ends the loop
+      // before the comparison that would have stopped it, and a page that had answered identically twice
+      // left reported as still arriving. Bounding the poll request by the remaining budget instead would
+      // abort the look that proves stability, so this clause is the fix — keep it if the overshoot is ever
+      // revisited.
+      || (unchanged >= 1 && Date.now() >= deadline)
+    ) {
       stalledAtDeadline = false;
       break;
     }
