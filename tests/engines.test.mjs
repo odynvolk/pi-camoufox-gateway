@@ -582,7 +582,7 @@ test("a stable page on a gateway that answers in milliseconds still pays for the
   );
 });
 
-test("the deadline is read once per look, so the loop cannot leave holding an identical pair and call it a stall", async (t) => {
+test("the loop's exit and its stop consume one reading of the deadline, so it cannot leave holding an identical pair and call it a stall", async (t) => {
   // Whether the budget is spent decides two things: whether the identical-pair stop fires, and whether the
   // loop runs again. Read twice, they can be handed different sides of the deadline — the stop got
   // `deadline - 1` and did not fire, the loop top got `deadline` and exited, and the wait ended past a flag
