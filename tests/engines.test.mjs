@@ -836,6 +836,44 @@ test("a gateway that hangs on both engines comes back inside the chain budget, n
   );
 });
 
+test("both engines spending their whole settle still lands inside the chain's one wall-clock budget", async (t) => {
+  // The per-engine settle is the largest single thing the walk can spend, and the walk owns exactly one
+  // wall-clock budget for all of it — `SEARCH_CHAIN_BUDGET_IN_DEADLINES` request deadlines. Both numbers
+  // are derived from the one in force here, so the arithmetic is the one at risk rather than a margin
+  // picked to pass: the budget is barely twice what two engines' settle wants, an engine whose settle the
+  // walk truncated shows up as elapsed time under the floor, and a settle the walk failed to bound shows
+  // up over the ceiling.
+  const deadlineMs = SEARCH_SETTLE_MS + 500;
+  const budgetMs = SEARCH_CHAIN_BUDGET_IN_DEADLINES * deadlineMs;
+  const { fake, client } = setup(t, {
+    timeoutMs: deadlineMs,
+    snapshotScripts: new Map([
+      ["https://www.google.com/search?q=camoufox", ROTATING_FRAMES],
+      ["https://duckduckgo.com/?q=camoufox", ROTATING_FRAMES],
+    ]),
+  });
+
+  const startedAt = Date.now();
+  const error = await searchWithFallback("camoufox", [googleEngine(), duckduckgoEngine()], {
+    client,
+    userId: "u1",
+  }).catch((e) => e);
+  const elapsed = Date.now() - startedAt;
+
+  assert.equal(error.code, "empty_results", "two pages with nothing in them is the hop, not the budget running out");
+  assert.deepEqual(
+    error.details.tried.map((step) => `${step.engine}:${step.code}`),
+    ["google:empty_results", "duckduckgo:empty_results"],
+    "and both engines were actually asked, on a page that kept them looking",
+  );
+  assert.ok(
+    elapsed >= 2 * SEARCH_SETTLE_MS,
+    `${elapsed}ms for two engines whose settle is ${SEARCH_SETTLE_MS}ms each: the walk cut a wait short`,
+  );
+  assert.ok(elapsed < budgetMs, `${elapsed}ms is more than the chain's single ${budgetMs}ms budget`);
+  assert.deepEqual(fake.liveTabs(), [], "and neither engine left its tab behind for the next one to find");
+});
+
 test("a search that runs out of its budget is not reported as a search someone cancelled", async (t) => {
   // Two ways a search stops early, and they are different instructions to the model: one is "you gave up",
   // the other is "we did". The chain aborts on a signal the engines cannot tell apart from the caller's, so

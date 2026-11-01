@@ -15,11 +15,18 @@ import type { EngineContext } from "./types.ts";
 /**
  * How long one engine may wait for its results page to arrive.
  *
- * Small, absolute, and deliberately not a config key: search runs a chain, and this is paid once per
- * engine *before* the hop — a knob here would be a way to put a document's patience (`read`'s budget is
- * several times this) on the critical path of every search.
+ * Sized for the *second* look, not the first: `settle.ts` stops on a page that answered identical twice,
+ * and a page still arriving spends the budget whether or not it answers. The 600 ms this was before was
+ * measured against snapshots costing milliseconds and expired inside the first re-look on a gateway where
+ * one costs seconds — which is how a page that had stopped changing got called one still rendering.
+ *
+ * Not a cap: the loop tests this before it sleeps and before it requests, so the worst case one engine may
+ * spend is this deadline plus one request. Still absolute and deliberately not a config key — search runs a
+ * chain, this is paid once per engine *before* the hop, and a knob here would be a way to put a document's
+ * patience (`read`'s budget is the larger one, but no longer by orders) on the critical path of every
+ * search.
  */
-export const SEARCH_SETTLE_MS = 600;
+export const SEARCH_SETTLE_MS = 1_500;
 
 /** Gap between re-looks. Same reasoning: this bounds how many times the budget can be spent. */
 export const SEARCH_SETTLE_POLL_MS = 150;
