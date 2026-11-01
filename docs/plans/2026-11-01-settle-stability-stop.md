@@ -165,6 +165,45 @@ Each unit is TDD-gated: failing test first, minimal code, green, one conventiona
   at 3 looks. That probe is the acceptance gate: it is what the defect was measured with.
 - `npm run test:live` against a real gateway, if it is reachable — the same query the finding reproduces on.
 
+## Execution — what actually happened
+
+Twelve commits on `fix/settle-stability-stop-unreachable` (`e726d68`..`cc024e8` for U1–U4, then
+`9e4c7cc`..`5548c9f` for the six review findings). **384 tests pass, `tsc --noEmit` clean**, `tests/session.test.mjs` purely additive — both
+protected pins untouched.
+
+**Acceptance gate, offline.** Every row of `measure-stalled-at-deadline.mjs` is now honest:
+
+| snapshot cost | looks | `stalledAtDeadline` | verdict |
+| --- | --- | --- | --- |
+| 0 / 250 / 400 ms | 3 | unset | honest ✅ (unchanged) |
+| 449 / 460 / 700 ms | 3 | unset | honest ✅ (was ❌ — the raised budget affords the third look) |
+| 5 000 ms | **2** | unset | honest ✅ (was ❌ — the identical pair is the stop) at ~10.4 s, the live case |
+
+**Live, against `camofox-browser` at `192.168.8.110:9377`.** `CAMOUFOX_LIVE=1 npm run test:live` → 5 pass,
+1 skipped (the metadata-endpoint case, skipped by design under `allowPrivateHosts`). The finding's own
+query, plus a nonsense one and the chain as shipped, via `.context/verify-settle-live.mjs`: **no query
+reports a stall it did not earn**, and the finding's query now returns 10 results through the chain.
+
+One gate-design note earned the hard way: that probe first *passed while measuring nothing*, because
+`createGatewayClient` binds `globalThis.fetch` at construction (`src/gateway.ts` → `this.fetchImpl`) and a
+counter installed afterwards never fires. The probe now takes `fetchImpl` and fails a row that reports zero
+snapshots — a row that observes nothing must not be able to report ✅.
+
+## Found while verifying, not caused by this branch
+
+Pinning `engine: "google"` against the live gateway now fails on every query tried, while the shipped chain
+recovers by hopping to DuckDuckGo — so Google is currently a fallback rather than an engine:
+
+- three queries, `code=consent_wall`, 1–2 snapshots each;
+- a direct re-open of the same results url minutes later: **238 chars, 1 ref, 0 organics, and
+  `detectWall` returns `null`** — so the same destination arrives sometimes as a named wall and sometimes as
+  a thin page that is not one.
+
+That is open-question 3 in `docs/improvements/2026-10-18-functionality.md` ("what is the observed real-world
+rate of each failure code?") answering itself, and it belongs to the wall-classification line of work, not
+here: this branch changes no wall or classification path. Recorded here rather than fixed, and the fix for
+this branch's own defect does not depend on the answer.
+
 ## Execution
 
 U1–U4 landed as four commits on this branch, each green before the next. Two things worth recording.
