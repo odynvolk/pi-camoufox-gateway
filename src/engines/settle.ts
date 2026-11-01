@@ -84,11 +84,11 @@ export function serpWorthAnotherLook(snapshot: SnapshotLike, engine: EngineName)
  * that reads as tidying — and this line is again being said about a page the loop had already seen
  * byte-identical twice. `tests/engines.test.mjs` pins the two together, over every recorded page.
  *
- * The *code* has to stay whatever the last frame looked like. `timeout` is what the transport says when a request missed its own
- * deadline, and a page that had not finished rendering is not that event — borrowing the code would report
- * a gateway that never answered when what happened was a page that never arrived. The *code* also decides
- * the fallback, so a rewrite would move the hop too. The correction therefore goes in the message, which
- * is the line the model reads first and the one `structuredTried` hands a script.
+ * The *code* has to stay whatever the last frame looked like. `timeout` is what the transport says when a
+ * request missed its own deadline, and a page that had not finished rendering is not that event — borrowing
+ * the code would report a gateway that never answered when what happened was a page that never arrived. The
+ * *code* also decides the fallback, so a rewrite would move the hop too. The correction therefore goes in the
+ * message, which is the line the model reads first and the one `structuredTried` hands a script.
  */
 function undecidedVerdict(verdict: SerpVerdict, engine: EngineName): SerpVerdict {
   if (verdict.kind === "results") return verdict;
