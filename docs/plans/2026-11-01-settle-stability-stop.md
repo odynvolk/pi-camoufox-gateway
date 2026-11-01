@@ -189,19 +189,50 @@ One gate-design note earned the hard way: that probe first *passed while measuri
 counter installed afterwards never fires. The probe now takes `fetchImpl` and fails a row that reports zero
 snapshots — a row that observes nothing must not be able to report ✅.
 
-## Found while verifying, not caused by this branch
+## Found while verifying — not caused by this branch, and initially mis-called
 
-Pinning `engine: "google"` against the live gateway now fails on every query tried, while the shipped chain
-recovers by hopping to DuckDuckGo — so Google is currently a fallback rather than an engine:
+Stated here because the first version of this section got it wrong, and the wrong version is the kind of
+sentence a later reader inherits as fact.
 
-- three queries, `code=consent_wall`, 1–2 snapshots each;
-- a direct re-open of the same results url minutes later: **238 chars, 1 ref, 0 organics, and
-  `detectWall` returns `null`** — so the same destination arrives sometimes as a named wall and sometimes as
-  a thin page that is not one.
+What was written: pinning `engine: "google"` "now fails on every query tried". What is true: **five loads
+returned `consent_wall` once, at one moment, and the same five returned 2–10 results 45 minutes later.**
+Google is not failing. It answered 21 of 25 loads, 4 387–5 467 chars, 10–23 refs, median 692 ms, and
+`tests/fixtures/serp-google.txt` — recorded weeks ago for this very query — is the same page we still get.
+The claim "Google is currently a fallback rather than an engine" was an over-read of a five-sample window,
+and open question 3 in `docs/improvements/2026-10-18-functionality.md` is not "answering itself" off three
+queries; it is still open.
 
-That is open-question 3 in `docs/improvements/2026-10-18-functionality.md` ("what is the observed real-world
-rate of each failure code?") answering itself, and it belongs to the wall-classification line of work, not
-here: this branch changes no wall or classification path. Recorded here rather than fixed, and the fix for
+What is real, and reproduces at a stable ~14% across three independent runs (3/20, 3/22, 4/25):
+
+| | n | median total | `/tabs/open` | `/snapshot` |
+| --- | --- | --- | --- | --- |
+| page rendered | 21 | 692 ms | 209 ms | **480 ms** |
+| 108–140 chars, 1 ref, 0 links | 4 | **7 249 ms** | 222 ms | **7 016 ms** |
+
+The tab opens identically either way. The snapshot costs 480 ms or 7 016 ms, with no overlap — and ~7 s is
+a wait timing out inside the gateway, not a page being slow. What comes back is a heading and a searchbox and
+nothing else, `detectWall` says `null`, and `classifySerp` says **"google returned no organic results for that
+query"** — a claim about Google's index, made about a page that never finished loading. That is this repo's
+own 2026-10-26 observation re-measured: *"3 of 36 runs returned a 76–134 char page, `organic=0`,
+`empty_results`, no wall — and cost 7.2–7.9s while every other run cost 0.5–2.3s"*, and *"a page that cost
+ten times the time of its neighbours and came back with no navigable links at all is a load that did not
+complete, not a query that found nothing."* The ratio measured today is 10.5×.
+
+**One honest cost of this branch, stated because it is not obvious.** Serving that captured frame through
+the engine, at a snapshot cost above the settle budget the loop now stops on an identical pair where before
+it hedged:
+
+| snapshot cost | on `main` | on this branch |
+| --- | --- | --- |
+| 0 ms (3 looks) | `empty_results` — overclaims | `empty_results` — unchanged, this is not ours |
+| 1 501 ms (2 looks) | "still rendering … not known whether it had results" | `empty_results` — **hedge replaced by a commitment** |
+| 5 000 ms (2 looks) | "still rendering … not known" | `empty_results` — **same** |
+
+For a genuinely empty page the commitment is the fix — the hedge was the lie, and 384 tests pin it. For a
+page that never rendered, the hedge was the more honest of the two. The gap is `classifySerp`'s, which
+reaches `empty_results` for any page with no link blocks under `PARSEABLE_MIN_CHARS` and has no notion of
+having been handed a load that timed out; this branch made that pre-existing gap load-bearing in the slow
+lane. `.context/probe-commit-on-skeleton.mjs` reproduces all six cells. Recorded here rather than fixed, and the fix for
 this branch's own defect does not depend on the answer.
 
 ## Execution
