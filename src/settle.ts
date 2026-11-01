@@ -121,9 +121,9 @@ export async function snapshotSettled(
   // budget" is honest advice: a page that already answered identical once will not change because we
   // asked again, and the stop below that reads the pair in hand is what makes this flag mean that.
   let stalledAtDeadline = true;
-  // Whether the budget is spent is one question, asked once per look: the stop below and this loop's exit
-  // both consume that reading, because read separately they can be handed different sides of the deadline
-  // and the loop leaves holding the identical pair the stop exists for, still calling it a stall.
+  // Whether the budget is spent is one question, asked once per look and shared: the stop below and this
+  // loop's exit both consume that reading, because read separately they can be handed different sides of the
+  // deadline and the loop leaves holding the identical pair the stop exists for, still calling it a stall.
   let expired = Date.now() >= deadline;
   // One repeat is a slow script, two is a finished page: that is the stop signal available without
   // knowing the app's selectors. The deadline bounds how long it can take, and each poll is its own
