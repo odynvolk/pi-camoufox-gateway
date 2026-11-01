@@ -728,11 +728,14 @@ test("a budget that cannot afford the third look never reports a stall on a page
 
   for (const [name, factory, url] of ENGINE_URLS) {
     for (const page of RECORDED_PAGES) {
+      // One read of the recording, so the window asked for and the oracle below are measured on the same
+      // text.
+      const text = fixture(page);
       const fake = createFakeGateway({
-        pageContents: new Map([[url, fixture(page)]]),
-        // Every recording whole: a frame the fake had sliced would be a different page from the one
-        // `wanted` below is measured on, and the count would be a fact about the fake.
-        snapshotLimit: 100_000,
+        pageContents: new Map([[url, text]]),
+        // Derived, not out-guessed: `RECORDED_PAGES` is whatever the directory holds, and a window fixed
+        // above today's biggest recording silently slices tomorrow's.
+        snapshotLimit: text.length + 1,
         snapshotHangsForMs: OVERSPENT_SNAPSHOT_MS,
       });
       globalThis.fetch = fake.fetch;
@@ -749,8 +752,13 @@ test("a budget that cannot afford the third look never reports a stall on a page
       globalThis.fetch = real;
 
       const label = `${page} read as ${name}`;
-      const wanted = serpWorthAnotherLook({ url, text: fixture(page) }, name);
+      const wanted = serpWorthAnotherLook({ url, text }, name);
       const snapshots = fake.state.calls.filter((call) => call.path.includes("/snapshot")).length;
+      assert.equal(
+        settled.snapshot.truncated,
+        false,
+        `${label}: the fake sliced this recording, so every count below is about the fake`,
+      );
       assert.equal(
         snapshots,
         wanted ? 2 : 1,
