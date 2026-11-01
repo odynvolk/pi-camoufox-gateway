@@ -703,8 +703,8 @@ test("the settle loop never keeps looking at a page the classifier says this eng
 
 /** Where each engine's own results page is, which is what makes a recorded page an honest frame. */
 const ENGINE_URLS = [
-  ["google", googleEngine, "https://www.google.com/search?q=camoufox"],
-  ["duckduckgo", duckduckgoEngine, "https://duckduckgo.com/?q=camoufox"],
+  ["google", "https://www.google.com/search?q=camoufox"],
+  ["duckduckgo", "https://duckduckgo.com/?q=camoufox"],
 ];
 
 /** One look costs more than the whole budget, which is the shape the third stop clause exists for. */
@@ -726,7 +726,7 @@ test("a budget that cannot afford the third look never reports a stall on a page
     globalThis.fetch = real;
   });
 
-  for (const [name, factory, url] of ENGINE_URLS) {
+  for (const [name, url] of ENGINE_URLS) {
     for (const page of RECORDED_PAGES) {
       // One read of the recording, so the window asked for and the oracle below are measured on the same
       // text.
