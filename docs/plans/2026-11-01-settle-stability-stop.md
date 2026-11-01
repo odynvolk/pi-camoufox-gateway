@@ -2,7 +2,7 @@
 
 Branch: `fix/settle-stability-stop-unreachable`
 Date: 2026-11-01
-Status: proposed
+Status: executed on `fix/settle-stability-stop-unreachable` — U1–U4, acceptance gate green
 Baseline: `fdfd61b` (v0.2.1, 378 tests passing, `tsc --noEmit` clean)
 Related: `.context/compound-engineering/findings/2026-10-28T00-10-00-000Z-finding-settle-stalled-at-deadline.md`,
 `docs/plans/2026-10-27-google-direct-open-serp.md` (*Known remaining defect*), `src/settle.ts`, `src/engines/settle.ts`
@@ -164,3 +164,22 @@ Each unit is TDD-gated: failing test first, minimal code, green, one conventiona
   from ❌ to ✅** (honest "no organic results", `stalledAtDeadline` unset) while the 0/250/400 ms rows stay ✅
   at 3 looks. That probe is the acceptance gate: it is what the defect was measured with.
 - `npm run test:live` against a real gateway, if it is reachable — the same query the finding reproduces on.
+
+## Execution
+
+U1–U4 landed as four commits on this branch, each green before the next. Two things worth recording.
+
+The read-side thin-but-stable case (`tests/session.test.mjs` → `"a thin page that answered stable at a slow
+gateway is thin, not unfinished"`) is the failing test that drove U1's clause, so it is in U1's commit and
+not in U2 — writing U1 without it would have meant writing the loop against one caller's test. The pin named
+under U2 (the overspent-budget frame across every recording) is comment-era work and is green on arrival; it
+was checked for teeth instead, by raising the new clause's `unchanged >= 1` to `STABLE_ROUNDS` and watching
+both it and the engine case fail.
+
+`SEARCH_CHAIN_BUDGET_IN_DEADLINES` stayed at 2. The raised settle had to fit inside the chain's one
+wall-clock budget, not the other way round, and the new chain case asserts that fit rather than moving the
+bound.
+
+Acceptance: every probe row honest with `stalledAtDeadline` unset and `tabsLeftOpen=0`; the 0 ms row still 3
+looks; 383 tests passing; `tsc --noEmit` clean. Not run: `npm run test:live` — no gateway was reachable from
+the implementation environment, so the live half of Verification is still open.
