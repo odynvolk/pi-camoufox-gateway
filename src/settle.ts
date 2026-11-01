@@ -121,10 +121,14 @@ export async function snapshotSettled(
   // budget" is honest advice: a page that already answered identical once will not change because we
   // asked again, and the stop below that reads the pair in hand is what makes this flag mean that.
   let stalledAtDeadline = true;
+  // Whether the budget is spent is one question, asked once per look: the stop below and this loop's exit
+  // both consume that reading, because read separately they can be handed different sides of the deadline
+  // and the loop leaves holding the identical pair the stop exists for, still calling it a stall.
+  let expired = Date.now() >= deadline;
   // One repeat is a slow script, two is a finished page: that is the stop signal available without
   // knowing the app's selectors. The deadline bounds how long it can take, and each poll is its own
   // gateway request, so the worst case is the deadline plus one request.
-  while (Date.now() < deadline) {
+  while (!expired) {
     // The wait this note exists for: without it the call looks hung exactly where it is knowingly slow.
     options.onPoll?.(latest);
     // Never sleep past the budget. Sleep the interval instead and a poll configured near the deadline
@@ -136,17 +140,18 @@ export async function snapshotSettled(
     unchanged = samePage(next, latest) ? unchanged + 1 : 0;
     latest = next;
     polled = true;
+    expired = Date.now() >= deadline;
     if (
       unchanged >= STABLE_ROUNDS
       || !options.worthLookingAgain(next)
       // The stop the other two could not reach on a slow gateway. `samePage` compares a frame with its
-      // predecessor, so `STABLE_ROUNDS` needs `STABLE_ROUNDS + 1` looks, while the request that produces a
-      // look is outside the deadline tested above: one `/snapshot` slower than `budgetMs` ends the loop
+      // predecessor, so `STABLE_ROUNDS` needs `STABLE_ROUNDS + 1` looks, while the deadline is tested
+      // before the request that produces a look: one `/snapshot` slower than `budgetMs` ends the loop
       // before the comparison that would have stopped it, and a page that had answered identically twice
       // left reported as still arriving. Bounding the poll request by the remaining budget instead would
       // abort the look that proves stability, so this clause is the fix — keep it if the overshoot is ever
       // revisited.
-      || (unchanged >= 1 && Date.now() >= deadline)
+      || (unchanged >= 1 && expired)
     ) {
       stalledAtDeadline = false;
       break;

@@ -568,6 +568,81 @@ test("a stable page on a gateway that answers in milliseconds still pays for the
   );
 });
 
+test("the deadline is read once per look, so the loop cannot leave holding an identical pair and call it a stall", async (t) => {
+  // Whether the budget is spent decides two things: whether the identical-pair stop fires, and whether the
+  // loop runs again. Read twice, they can be handed different sides of the deadline — the stop got
+  // `deadline - 1` and did not fire, the loop top got `deadline` and exited, and the wait ended past a flag
+  // that started at `true` with a byte-identical pair in hand. That is the exact output this branch exists
+  // to eliminate, arriving on roughly one stable slow-gateway wait in 10^4, so the clock is pinned to that
+  // tick rather than raced for. The clock is what is under test, so the page comes from a stub: a real
+  // client's own timing reads would land in the script below.
+  const frames = [];
+  const client = {
+    snapshot: async () => {
+      // The request is what spends the budget, which is the only honest way to advance a clock that is
+      // measuring one: everything before the first poll is still `startedAt`.
+      if (frames.length > 0) polls += 1;
+      const looked = {
+        url: "https://www.google.com/search?q=camoufox",
+        text: GOOGLE_SKELETON,
+        refsCount: 0,
+        truncated: false,
+        totalChars: GOOGLE_SKELETON.length,
+        hasMore: false,
+        nextOffset: GOOGLE_SKELETON.length,
+      };
+      frames.push(looked);
+      return looked;
+    },
+  };
+
+  const startedAt = 1_000_000;
+  const deadline = startedAt + SEARCH_SETTLE_MS;
+  let polls = 0;
+  let straddled = false;
+  const realNow = Date.now;
+  Date.now = () => {
+    if (polls === 0) return startedAt;
+    // The tick in question: one read short of spent, and every read after it at spent.
+    if (!straddled) {
+      straddled = true;
+      return deadline - 1;
+    }
+    return deadline;
+  };
+  t.after(() => {
+    Date.now = realNow;
+  });
+
+  const settled = await snapshotSettled(client, "u1", "tab-1", {
+    budgetMs: SEARCH_SETTLE_MS,
+    pollMs: 1,
+    worthLookingAgain: (looked) => serpWorthAnotherLook(looked, "google"),
+    cancelledMessage: "the settle probe was cancelled",
+  });
+
+  // The premises, so the assertion below is about the loop and not about a wait that never got there.
+  assert.ok(frames.length >= 2, "no pair was ever in hand, so this case proved nothing");
+  assert.ok(
+    frames.every((looked) => looked.text === frames[0].text && looked.totalChars === frames[0].totalChars),
+    "the loop was served one page answering twice, which is the pair the stop is about",
+  );
+  assert.equal(
+    serpWorthAnotherLook(settled.snapshot, "google"),
+    true,
+    "the predicate still wanted a look at the last frame, so only the budget could have ended the wait",
+  );
+  assert.equal(
+    settled.stalledAtDeadline,
+    false,
+    "a page the loop had itself seen byte-identical is not one that was still changing when the budget ran out",
+  );
+  assert.ok(
+    frames.length <= 1 + STABLE_ROUNDS,
+    `${frames.length} snapshots: the loop kept looking after the budget was spent`,
+  );
+});
+
 /**
  * Every recording, so this section's coupling check picks up a page the moment one is added — a hand-named
  * list is a count, and a count is the thing that goes stale quietly.
