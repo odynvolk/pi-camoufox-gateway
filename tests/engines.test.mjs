@@ -529,7 +529,12 @@ test("the identical pair that spent the budget is a stop, not a page still rende
   // is the evidence; the missing third look is the thing this call could not buy.
   assertNoOrganics(GOOGLE_NO_RESULTS, "google", "the recorded zero-result page");
 
+  // Both numbers come from the one at risk: the hang must outlast the settle budget, and the client's own
+  // per-request deadline must not fire before the hang ends. Inheriting `setup()`'s 2000ms left 499ms of
+  // slack there, so a raised `SEARCH_SETTLE_MS` would fail this case as a transport `timeout`.
+  const requestDeadlineMs = SEARCH_SETTLE_MS + 500;
   const { fake, client } = setup(t, {
+    timeoutMs: requestDeadlineMs,
     pageContents: new Map([["https://www.google.com/search?q=camoufox", GOOGLE_NO_RESULTS]]),
     snapshotHangsForMs: SEARCH_SETTLE_MS + 1,
   });
