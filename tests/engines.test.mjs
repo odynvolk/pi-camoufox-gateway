@@ -531,7 +531,7 @@ test("a page that never stops changing costs the search budget and nothing more"
 });
 
 test("the identical pair that spent the budget is a stop, not a page still rendering", async (t) => {
-  // The measured live case (`.context/measure-stalled-at-deadline.mjs`, the 449ms row): one `/snapshot`
+  // The measured live case (`scripts/measure-stalled-at-deadline.mjs`, the 449ms row): one `/snapshot`
   // costing more than the whole settle budget means the loop can never reach the *second* comparison the
   // stability stop asks for, so it leaves with the flag that started at `true` — and `undecidedVerdict`
   // said "was still rendering" about a page that had already answered identically twice. The pair in hand

@@ -17,7 +17,7 @@ Related: `.context/compound-engineering/findings/2026-10-28T00-10-00-000Z-findin
 while the loop's own `samePage` comparison had already found its two frames **byte-identical**. Measured on
 the live gateway at **~10.9 s** — two `/snapshot` calls of ~5 s each — and reproduced offline on
 `tests/fixtures/serp-no-results.txt` with `snapshotHangsForMs`
-(`.context/measure-stalled-at-deadline.mjs`, table in the finding above). Reproduced on a real query, not
+(`scripts/measure-stalled-at-deadline.mjs`, table in the finding above). Reproduced on a real query, not
 only a nonsense one: `camoufox_search("why does consent.google.com keep appearing", engine: google)` at
 1,242 ms with `details.stalledAtDeadline: true`.
 
@@ -160,7 +160,7 @@ Each unit is TDD-gated: failing test first, minimal code, green, one conventiona
 
 - `NODE_ENV=test npm test` — green, including the pins named above.
 - `npm run typecheck` — clean.
-- `NODE_ENV=test node .context/measure-stalled-at-deadline.mjs` — the **449 ms and 5 000 ms rows must flip
+- `NODE_ENV=test node scripts/measure-stalled-at-deadline.mjs` — the **449 ms and 5 000 ms rows must flip
   from ❌ to ✅** (honest "no organic results", `stalledAtDeadline` unset) while the 0/250/400 ms rows stay ✅
   at 3 looks. That probe is the acceptance gate: it is what the defect was measured with.
 - `npm run test:live` against a real gateway, if it is reachable — the same query the finding reproduces on.
@@ -181,7 +181,7 @@ protected pins untouched.
 
 **Live, against `camofox-browser` at `192.168.8.110:9377`.** `CAMOUFOX_LIVE=1 npm run test:live` → 5 pass,
 1 skipped (the metadata-endpoint case, skipped by design under `allowPrivateHosts`). The finding's own
-query, plus a nonsense one and the chain as shipped, via `.context/verify-settle-live.mjs`: **no query
+query, plus a nonsense one and the chain as shipped, via `scripts/verify-settle-live.mjs`: **no query
 reports a stall it did not earn**, and the finding's query now returns 10 results through the chain.
 
 One gate-design note earned the hard way: that probe first *passed while measuring nothing*, because
@@ -232,7 +232,7 @@ For a genuinely empty page the commitment is the fix — the hedge was the lie, 
 page that never rendered, the hedge was the more honest of the two. The gap is `classifySerp`'s, which
 reaches `empty_results` for any page with no link blocks under `PARSEABLE_MIN_CHARS` and has no notion of
 having been handed a load that timed out; this branch made that pre-existing gap load-bearing in the slow
-lane. `.context/probe-commit-on-skeleton.mjs` reproduces all six cells. Recorded here rather than fixed, and the fix for
+lane. `scripts/probe-commit-on-skeleton.mjs` reproduces all six cells. Recorded here rather than fixed, and the fix for
 this branch's own defect does not depend on the answer.
 
 ## Execution
