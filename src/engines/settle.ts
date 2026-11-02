@@ -15,11 +15,18 @@ import type { EngineContext } from "./types.ts";
 /**
  * How long one engine may wait for its results page to arrive.
  *
- * Small, absolute, and deliberately not a config key: search runs a chain, and this is paid once per
- * engine *before* the hop — a knob here would be a way to put a document's patience (`read`'s budget is
- * several times this) on the critical path of every search.
+ * Sized for the *second* look, not the first: `src/settle.ts` stops on a page that answered identical twice,
+ * and a page still arriving spends the budget whether or not it answers. The 600 ms this was before was
+ * measured against snapshots costing milliseconds and expired inside the first re-look on a gateway where
+ * one costs seconds — which is how a page that had stopped changing got called one still rendering.
+ *
+ * Not a cap: the loop tests this before it sleeps and before it requests, so the worst case one engine may
+ * spend is this deadline plus one request. Still absolute and deliberately not a config key — search runs a
+ * chain, this is paid once per engine *before* the hop, and a knob here would be a way to put a document's
+ * patience (`read`'s budget is the larger one, but no longer by orders) on the critical path of every
+ * search.
  */
-export const SEARCH_SETTLE_MS = 600;
+export const SEARCH_SETTLE_MS = 1_500;
 
 /** Gap between re-looks. Same reasoning: this bounds how many times the budget can be spent. */
 export const SEARCH_SETTLE_POLL_MS = 150;
@@ -70,14 +77,18 @@ export function serpWorthAnotherLook(snapshot: SnapshotLike, engine: EngineName)
 /**
  * What may be said about a page that was still arriving when the budget ran out.
  *
- * `classifySerp`'s error messages are claims about what the engine had. A frame taken while the page was
- * still growing is not evidence for one: the loop only reaches its deadline while another look is still
- * wanted, and a page that had answered stable and empty already stopped it. The *code* has to stay
- * whatever the last frame looked like. `timeout` is what the transport says when a request missed its own
- * deadline, and a page that had not finished rendering is not that event — borrowing the code would report
- * a gateway that never answered when what happened was a page that never arrived. The *code* also decides
- * the fallback, so a rewrite would move the hop too. The correction therefore goes in the message, which
- * is the line the model reads first and the one `structuredTried` hands a script.
+ * `classifySerp`'s error messages are claims about what the engine had, and a frame taken while the page was
+ * still growing is not evidence for one. That the loop can only reach its deadline with a page *still
+ * changing* is not a property of the deadline: it holds because `src/settle.ts` stops on an identical pair once
+ * the budget cannot admit another look. Widen that clause's `unchanged >= 1` to `STABLE_ROUNDS` — the edit
+ * that reads as tidying — and this line is again being said about a page the loop had already seen
+ * byte-identical twice. `tests/engines.test.mjs` pins the two together, over every recorded page.
+ *
+ * The *code* has to stay whatever the last frame looked like. `timeout` is what the transport says when a
+ * request missed its own deadline, and a page that had not finished rendering is not that event — borrowing
+ * the code would report a gateway that never answered when what happened was a page that never arrived. The
+ * *code* also decides the fallback, so a rewrite would move the hop too. The correction therefore goes in the
+ * message, which is the line the model reads first and the one `structuredTried` hands a script.
  */
 function undecidedVerdict(verdict: SerpVerdict, engine: EngineName): SerpVerdict {
   if (verdict.kind === "results") return verdict;

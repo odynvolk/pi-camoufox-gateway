@@ -230,6 +230,32 @@ test("a thin page is offered only the levers that can still move it", async (t) 
   assert.equal(/waitForSettleMs/u.test(outcome.text), false, "the budget was not what stopped the polling");
 });
 
+test("a thin page that answered stable at a slow gateway is thin, not unfinished", async (t) => {
+  // The mirror of the two cases above, at a latency where the third look the stability stop asks for is
+  // unaffordable: `/snapshot` costs more than the whole settle budget, so the loop holds one identical
+  // pair and nothing more. That pair is still the page having stopped growing — which is the statement
+  // made here — while `raise read.waitForSettleMs` would point a caller at a budget that could not have
+  // bought the look it is being blamed for not taking.
+  const { fake, extension } = extensionFor(t, "pi-thin-slow", {
+    snapshotScripts: new Map([["https://spa.test/", ['- heading "Loading…" [level=1]']]]),
+    snapshotHangsForMs: 400,
+    waitRoute: false,
+    config: { read: { settlePollMs: 10, waitForSettleMs: 300 } },
+  });
+
+  const outcome = await extension.read({ url: "https://spa.test/", waitFor: "#article" });
+
+  assert.equal(outcome.details.thinAfterWait, true, "the page stayed thin, and says so");
+  assert.equal(outcome.details.stalledAtDeadline, undefined, "the pair in hand answered the question, so the budget did not run out on it");
+  assert.match(outcome.text, /stopped growing there, so it is thin rather than unfinished/u);
+  assert.equal(/waitForSettleMs/u.test(outcome.text), false, "the budget is not a lever that could have moved this");
+  assert.equal(
+    fake.state.calls.filter((call) => call.path.includes("/snapshot")).length,
+    2,
+    "one look, then the identical re-look that spent the budget",
+  );
+});
+
 test("a page still growing when the budget runs out gets the budget named", async (t) => {
   const growing = Array.from({ length: 10 }, (_unused, index) => `- text: ${"p".repeat((index + 1) * 40)}`);
   const { extension } = extensionFor(t, "pi-thin-growing", {

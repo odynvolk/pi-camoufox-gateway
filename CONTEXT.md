@@ -27,9 +27,18 @@ Canonical vocabulary for this repo. Not a spec — see `docs/brainstorms/` and `
   pins as a decision rather than a property of the code.
 - **Wall** — a consent or CAPTCHA interstitial. Distinct from "no results" and from a timeout; the
   model is told which one it hit.
-- **Settle** — re-snapshotting a page that came back thinner than `read.settleMinChars` until it
-  stops growing. "The tab opened" and "the page rendered" are different events on a client-rendered
-  site, and only the second one is worth returning.
+- **Settle** — re-snapshotting a page that has not finished arriving. "The tab opened" and "the page
+  rendered" are different events on a client-rendered site, and only the second one is worth returning.
+  One machine (`settle.ts` → `snapshotSettled`), two judgements put into it: `read` counts characters
+  against `read.settleMinChars` because a document offers nothing better, an engine asks its own parser
+  whether an organic result has appeared yet. It stops on any of three things — the caller's predicate says
+  another look cannot change the answer, the page answered `STABLE_ROUNDS` identical looks in a row, or it
+  answered *one* identical pair and the budget can no longer afford the next look. The third is not a
+  softening of the second: `samePage` compares a frame with its predecessor, so `STABLE_ROUNDS` needs
+  `STABLE_ROUNDS + 1` looks while the deadline is tested *before* the sleep and the request — so one
+  snapshot slower than the whole budget leaves the loop holding a single identical pair and nothing else,
+  and **a stop the budget cannot reach is not a wait**. `stalledAtDeadline` is set only for a page still
+  changing when the budget ran out, which is the only case where "raise the budget" is honest advice.
 - **Host** — the `hostname` of a url, and never compared to anything before going through `normalizeHost`
   (`net-policy.ts`): lower-cased, with one FQDN terminator removed. `new URL()` keeps that terminator and
   even decodes `%2e` into one, so `www.google.com.` and `www.google.com` are the same host to a browser —

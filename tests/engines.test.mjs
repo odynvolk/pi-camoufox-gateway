@@ -3,8 +3,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 
-import { withFakeGateway } from "./helpers/fake_gateway.mjs";
+import { withFakeGateway, createFakeGateway } from "./helpers/fake_gateway.mjs";
 import { createGatewayClient } from "../src/gateway.ts";
+import { snapshotSettled } from "../src/settle.ts";
 import { GatewayError } from "../src/errors.ts";
 import { enginesFromConfig, SEARCH_CHAIN_BUDGET_IN_DEADLINES, searchWithFallback } from "../src/engines/chain.ts";
 import { googleEngine } from "../src/engines/google.ts";
@@ -583,10 +584,146 @@ test("a page that never stops changing costs the search budget and nothing more"
   );
   assert.match(error.message, /still rendering/u, "what was actually observed: a page still arriving");
   assert.match(error.message, new RegExp(`${SEARCH_SETTLE_MS}ms`, "u"), "and for how long we looked");
+  const looked = callsFor(fake, "/snapshot").length;
+  // The counterpart of that flag where it is live: a stall is only honest about a frame another look could
+  // still have answered. The fake serves one scripted frame per look, so the nth look is the nth frame.
+  const openedAt = fake.state.calls.find((call) => call.path === "/tabs/open").body.url;
+  assert.equal(
+    serpWorthAnotherLook({ url: openedAt, text: frames[Math.min(looked - 1, frames.length - 1)] }, "google"),
+    true,
+    "the wait ran out on a frame another look could not have changed, so the stall it reports is one it never earned",
+  );
   assert.equal(error.details?.stalledAtDeadline, true, "read reports this fact as data; so does this");
   assert.ok(
-    callsFor(fake, "/snapshot").length <= 1 + Math.ceil(SEARCH_SETTLE_MS / SEARCH_SETTLE_POLL_MS),
-    `${callsFor(fake, "/snapshot").length} snapshots is more re-look than one engine's budget can buy`,
+    looked <= 1 + Math.ceil(SEARCH_SETTLE_MS / SEARCH_SETTLE_POLL_MS),
+    `${looked} snapshots is more re-look than one engine's budget can buy`,
+  );
+});
+
+test("the identical pair that spent the budget is a stop, not a page still rendering", async (t) => {
+  // The measured live case (`scripts/measure-stalled-at-deadline.mjs`, the 449ms row): one `/snapshot`
+  // costing more than the whole settle budget means the loop can never reach the *second* comparison the
+  // stability stop asks for, so it leaves with the flag that started at `true` — and `undecidedVerdict`
+  // said "was still rendering" about a page that had already answered identically twice. The pair in hand
+  // is the evidence; the missing third look is the thing this call could not buy.
+  assertNoOrganics(GOOGLE_NO_RESULTS, "google", "the recorded zero-result page");
+
+  // Both numbers come from the one at risk: the hang must outlast the settle budget, and the client's own
+  // per-request deadline must not fire before the hang ends. Inheriting `setup()`'s 2000ms left 499ms of
+  // slack there, so a raised `SEARCH_SETTLE_MS` would fail this case as a transport `timeout`.
+  const requestDeadlineMs = SEARCH_SETTLE_MS + 500;
+  const { fake, client } = setup(t, {
+    timeoutMs: requestDeadlineMs,
+    pageContents: new Map([["https://www.google.com/search?q=camoufox", GOOGLE_NO_RESULTS]]),
+    snapshotHangsForMs: SEARCH_SETTLE_MS + 1,
+  });
+
+  const error = await googleEngine().search("camoufox", { client, userId: "u1" }).catch((e) => e);
+
+  assert.equal(error.code, "empty_results");
+  assert.equal(
+    error.message,
+    "google returned no organic results for that query",
+    "a page that answered stable and empty is a zero we may name, not an unknown",
+  );
+  assert.equal(error.details?.stalledAtDeadline, undefined, "a bigger budget could not have bought the third look, so it is not offered");
+  assert.equal(
+    callsFor(fake, "/snapshot").length,
+    2,
+    "one look, then the identical re-look that both proved the page had stopped and spent the budget",
+  );
+});
+
+test("a stable page on a gateway that answers in milliseconds still pays for the third look", async (t) => {
+  // The other half of that stop: it fires only when the budget cannot admit another look, so nothing here
+  // gets cheaper on a fast gateway, and one repeat is still not mistaken for a finished page.
+  const { fake, client } = setup(t, {
+    pageContents: new Map([["https://www.google.com/search?q=camoufox", GOOGLE_NO_RESULTS]]),
+  });
+
+  const error = await googleEngine().search("camoufox", { client, userId: "u1" }).catch((e) => e);
+
+  assert.equal(error.message, "google returned no organic results for that query");
+  assert.equal(error.details?.stalledAtDeadline, undefined);
+  assert.equal(
+    callsFor(fake, "/snapshot").length,
+    1 + STABLE_ROUNDS,
+    "the budget could still afford the confirmation, so it bought it",
+  );
+});
+
+test("the loop's exit and its stop consume one reading of the deadline, so it cannot leave holding an identical pair and call it a stall", async (t) => {
+  // Whether the budget is spent decides two things: whether the identical-pair stop fires, and whether the
+  // loop runs again. Read twice, they can be handed different sides of the deadline — the stop got
+  // `deadline - 1` and did not fire, the loop top got `deadline` and exited, and the wait ended past a flag
+  // that started at `true` with a byte-identical pair in hand. That is the exact output this branch exists
+  // to eliminate, arriving on roughly one stable slow-gateway wait in 10^4, so the clock is pinned to that
+  // tick rather than raced for. The clock is what is under test, so the page comes from a stub: a real
+  // client's own timing reads would land in the script below.
+  const frames = [];
+  const client = {
+    snapshot: async () => {
+      // The request is what spends the budget, which is the only honest way to advance a clock that is
+      // measuring one: everything before the first poll is still `startedAt`.
+      if (frames.length > 0) polls += 1;
+      const looked = {
+        url: "https://www.google.com/search?q=camoufox",
+        text: GOOGLE_SKELETON,
+        refsCount: 0,
+        truncated: false,
+        totalChars: GOOGLE_SKELETON.length,
+        hasMore: false,
+        nextOffset: GOOGLE_SKELETON.length,
+      };
+      frames.push(looked);
+      return looked;
+    },
+  };
+
+  const startedAt = 1_000_000;
+  const deadline = startedAt + SEARCH_SETTLE_MS;
+  let polls = 0;
+  let straddled = false;
+  const realNow = Date.now;
+  Date.now = () => {
+    if (polls === 0) return startedAt;
+    // The tick in question: one read short of spent, and every read after it at spent.
+    if (!straddled) {
+      straddled = true;
+      return deadline - 1;
+    }
+    return deadline;
+  };
+  t.after(() => {
+    Date.now = realNow;
+  });
+
+  const settled = await snapshotSettled(client, "u1", "tab-1", {
+    budgetMs: SEARCH_SETTLE_MS,
+    pollMs: 1,
+    worthLookingAgain: (looked) => serpWorthAnotherLook(looked, "google"),
+    cancelledMessage: "the settle probe was cancelled",
+  });
+
+  // The premises, so the assertion below is about the loop and not about a wait that never got there.
+  assert.ok(frames.length >= 2, "no pair was ever in hand, so this case proved nothing");
+  assert.ok(
+    frames.every((looked) => looked.text === frames[0].text && looked.totalChars === frames[0].totalChars),
+    "the loop was served one page answering twice, which is the pair the stop is about",
+  );
+  assert.equal(
+    serpWorthAnotherLook(settled.snapshot, "google"),
+    true,
+    "the predicate still wanted a look at the last frame, so only the budget could have ended the wait",
+  );
+  assert.equal(
+    settled.stalledAtDeadline,
+    false,
+    "a page the loop had itself seen byte-identical is not one that was still changing when the budget ran out",
+  );
+  assert.ok(
+    frames.length <= 1 + STABLE_ROUNDS,
+    `${frames.length} snapshots: the loop kept looking after the budget was spent`,
   );
 });
 
@@ -641,6 +778,83 @@ test("the settle loop never keeps looking at a page the classifier says this eng
   const substituted = { url: "https://duckduckgo.com/?q=expressen&ia=web", text: fixture("serp-google-answered-by-duckduckgo.txt") };
   assert.equal(classifySerp(substituted, "google").details.substituted, true, "the classifier refuses it — the premise below is nothing without this");
   assert.equal(serpWorthAnotherLook(substituted, "google"), false, "and the loop does not spend a look on it");
+});
+
+/** Where each engine's own results page is, which is what makes a recorded page an honest frame. */
+const ENGINE_URLS = [
+  ["google", "https://www.google.com/search?q=camoufox"],
+  ["duckduckgo", "https://duckduckgo.com/?q=camoufox"],
+];
+
+/** One look costs more than the whole budget, which is the shape the third stop clause exists for. */
+const OVERSPENT_BUDGET_MS = 10;
+const OVERSPENT_SNAPSHOT_MS = 20;
+
+test("a budget that cannot afford the third look never reports a stall on a page that stopped changing", async (t) => {
+  // The same rule as above, on the frame the budget runs out on. `undecidedVerdict`'s premise — a page that
+  // had answered stable and empty already stopped it — is true because of that clause, not independently of
+  // it, so it is asserted over every recording rather than trusted: at a latency where the third look is
+  // unaffordable, no recording may be called a stall, and a stall is never reported for a frame the loop
+  // itself no longer wanted to look at again.
+  //
+  // Driven through the shared machine with the engine's own predicate rather than through an engine, so the
+  // budget can be smaller than one snapshot here; the message that budget produces is the engine cases'
+  // business, and `"the identical pair that spent the budget is a stop…"` below owns it.
+  const real = globalThis.fetch;
+  t.after(() => {
+    globalThis.fetch = real;
+  });
+
+  for (const [name, url] of ENGINE_URLS) {
+    for (const page of RECORDED_PAGES) {
+      // One read of the recording, so the window asked for and the oracle below are measured on the same
+      // text.
+      const text = fixture(page);
+      const fake = createFakeGateway({
+        pageContents: new Map([[url, text]]),
+        // Derived, not out-guessed: `RECORDED_PAGES` is whatever the directory holds, and a window fixed
+        // above today's biggest recording silently slices tomorrow's.
+        snapshotLimit: text.length + 1,
+        snapshotHangsForMs: OVERSPENT_SNAPSHOT_MS,
+      });
+      globalThis.fetch = fake.fetch;
+      const client = createGatewayClient({ baseUrl: BASE, timeoutMs: 2000 });
+
+      const tab = await client.openTab({ userId: "u1", url });
+      const settled = await snapshotSettled(client, "u1", tab.tabId, {
+        budgetMs: OVERSPENT_BUDGET_MS,
+        pollMs: 5,
+        worthLookingAgain: (looked) => serpWorthAnotherLook(looked, name),
+        cancelledMessage: "the settle probe was cancelled",
+      });
+      await client.closeTabQuietly({ userId: "u1", tabId: tab.tabId });
+      globalThis.fetch = real;
+
+      const label = `${page} read as ${name}`;
+      const wanted = serpWorthAnotherLook({ url, text }, name);
+      const snapshots = fake.state.calls.filter((call) => call.path.includes("/snapshot")).length;
+      assert.equal(
+        settled.snapshot.truncated,
+        false,
+        `${label}: the fake sliced this recording, so every count below is about the fake`,
+      );
+      assert.equal(
+        snapshots,
+        wanted ? 2 : 1,
+        `${label}: wanted another look was ${wanted}, so it cost ${snapshots} snapshots`,
+      );
+      assert.equal(settled.stalledAtDeadline, false, `${label}: a page that answered identical once is not a stall`);
+      // Documentation of the rule rather than a check of it: the line above already pins the flag `false`
+      // for every recording, so this can only fire if that pin goes away. The version that can fail is in
+      // the growing-page case above, the one place the flag is ever `true`.
+      assert.equal(
+        settled.stalledAtDeadline && !serpWorthAnotherLook(settled.snapshot, name),
+        false,
+        `${label}: a stall was reported on a frame the loop had stopped wanting`,
+      );
+      assert.deepEqual(fake.liveTabs(), [], `${label}: the tab outlived the wait`);
+    }
+  }
 });
 
 test("the search settle budget is its own, and smaller than the one a read may spend", () => {
@@ -790,6 +1004,44 @@ test("a gateway that hangs on both engines comes back inside the chain budget, n
     callsFor(fake, "/snapshot").length <= 2,
     `${callsFor(fake, "/snapshot").length} snapshots asked a gateway that had already run out of our patience`,
   );
+});
+
+test("both engines spending their whole settle still lands inside the chain's one wall-clock budget", async (t) => {
+  // The per-engine settle is the largest single thing the walk can spend, and the walk owns exactly one
+  // wall-clock budget for all of it — `SEARCH_CHAIN_BUDGET_IN_DEADLINES` request deadlines. Both numbers
+  // are derived from the one in force here, so the arithmetic is the one at risk rather than a margin
+  // picked to pass: the budget is barely twice what two engines' settle wants, an engine whose settle the
+  // walk truncated shows up as elapsed time under the floor, and a settle the walk failed to bound shows
+  // up over the ceiling.
+  const deadlineMs = SEARCH_SETTLE_MS + 500;
+  const budgetMs = SEARCH_CHAIN_BUDGET_IN_DEADLINES * deadlineMs;
+  const { fake, client } = setup(t, {
+    timeoutMs: deadlineMs,
+    snapshotScripts: new Map([
+      ["https://www.google.com/search?q=camoufox", ROTATING_FRAMES],
+      ["https://duckduckgo.com/?q=camoufox", ROTATING_FRAMES],
+    ]),
+  });
+
+  const startedAt = Date.now();
+  const error = await searchWithFallback("camoufox", [googleEngine(), duckduckgoEngine()], {
+    client,
+    userId: "u1",
+  }).catch((e) => e);
+  const elapsed = Date.now() - startedAt;
+
+  assert.equal(error.code, "empty_results", "two pages with nothing in them is the hop, not the budget running out");
+  assert.deepEqual(
+    error.details.tried.map((step) => `${step.engine}:${step.code}`),
+    ["google:empty_results", "duckduckgo:empty_results"],
+    "and both engines were actually asked, on a page that kept them looking",
+  );
+  assert.ok(
+    elapsed >= 2 * SEARCH_SETTLE_MS,
+    `${elapsed}ms for two engines whose settle is ${SEARCH_SETTLE_MS}ms each: the walk cut a wait short`,
+  );
+  assert.ok(elapsed < budgetMs, `${elapsed}ms is more than the chain's single ${budgetMs}ms budget`);
+  assert.deepEqual(fake.liveTabs(), [], "and neither engine left its tab behind for the next one to find");
 });
 
 test("a search that runs out of its budget is not reported as a search someone cancelled", async (t) => {
