@@ -13,6 +13,7 @@ import { classifySerp, engineOwnsUrl, parseSerp } from "../src/snapshot.ts";
 import { SEARCH_SETTLE_MS, SEARCH_SETTLE_POLL_MS, serpWorthAnotherLook } from "../src/engines/settle.ts";
 import { STABLE_ROUNDS } from "../src/settle.ts";
 import { DEFAULT_CONFIG } from "../src/config.ts";
+import { engineResultPrefixes } from "../scripts/measure-unregistered-pages.mjs";
 
 const BASE = "http://gateway.test:9377";
 
@@ -99,6 +100,75 @@ test("each adapter opens at a page its own credited name owns", async (t) => {
       engineOwnsUrl(engine.name, opened),
       true,
       `${engine.name} opened at ${opened}, which its own name does not own — it would refuse its own results page`,
+    );
+  }
+});
+
+test("an adapter reports only links from the page it was sent to", async (t) => {
+  // G.6. `tests/helpers/fake_gateway.mjs` answers **any** url a test did not register with an invented
+  // article, and that article's one link sits on a host no engine owns — so `src/snapshot.ts` →
+  // `return hostIsEngineDomain(host, rule) && !(rule.wrappers && isWrapper(url));` calls it an organic
+  // result under either engine label. Measured 2026-11-01 by deleting the navigation from
+  // `src/engines/serp.ts` and opening both tabs at their own origin root instead: 347 of 378 tests stayed
+  // green, and the search tool still answered `(via google)` with **1 result, `https://camoufox.com/docs`**.
+  // `engineOwnsUrl` cannot see this: the host it asks about was the engine's own the whole time. So the
+  // caller has to pin the page, which is the shape this repo already uses at
+  // `tests/search-tool.test.mjs` → `the default fake SERP has to carry wrapper urls` — assert the
+  // precondition the case leans on, not the number it produced.
+  // Which page each engine is meant to be sent to, derived by running the adapter — the way
+  // `scripts/measure-unregistered-pages.mjs` does it for the same reason: a results url pasted in here would
+  // keep matching after the engine moved its search url, and this case would go on pinning a page no engine
+  // opens any more.
+  const QUERY = "camoufox";
+  const prefixes = await engineResultPrefixes();
+  const ours = ["https://registered-for-this-test.test/one", "https://registered-for-this-test.test/two"];
+  const page = ours
+    .map((url, index) => `- link "Ours ${index + 1}" [e${index + 1}]:\n  - /url: ${url}\n  - text: a link only this test put here`)
+    .join("\n");
+
+  for (const engine of [googleEngine(), duckduckgoEngine()]) {
+    const prefix = prefixes.get(engine.name);
+    assert.ok(prefix, `${engine.name} never asked to open at a results url, so there is no page to pin here`);
+    const url = `${prefix}${QUERY}`;
+    const registered = setup(t, { pageContents: new Map([[url, page]]) });
+
+    const outcome = await engine.search(QUERY, { client: registered.client, userId: "u1" });
+    const opened = registered.fake.state.calls.find((call) => call.path === "/tabs/open").body.url;
+
+    // Premise zero, and the one that was missing: the tab was opened *at* the page this test registered its
+    // links on. The two premises below only speak about what came back, so an adapter that reached that page
+    // by some other route still satisfied them, and `opened` was read only to be named in a failure message.
+    assert.equal(
+      opened,
+      url,
+      `${engine.name} was sent to ${opened}, not to the ${url} this test put its page at — whatever reported those links, it did not read it here`,
+    );
+
+    // Premise one: the page this test registered is what came back. Without this the loop below would
+    // pass against an engine that reported nothing at all.
+    assert.ok(
+      ours.every((link) => outcome.results.some((result) => result.url === link)),
+      `${engine.name} did not report the two links registered at ${url} (${JSON.stringify(outcome.results.map((r) => r.url))})`,
+    );
+    // The guard: no reported url may come from anywhere else. One that does arrived from the fake's
+    // invented article, which is a page no engine owns and which the host rule reads as organic.
+    for (const result of outcome.results) {
+      assert.ok(
+        ours.includes(result.url),
+        `${engine.name} reported ${result.url} from ${opened}, a page this test never registered — the fake's invented article, whose one link the host rule calls organic`,
+      );
+    }
+
+    // Premise two: the invented page really is reportable as this engine's results. If the fake ever
+    // stops inventing it, the guard above is vacuous and this line says so instead of going green.
+    const bare = setup(t);
+    const stray = await bare.client.openTab({ userId: "u1", url: `${new URL(url).origin}/` });
+    const snapshot = await bare.client.snapshot({ userId: "u1", tabId: stray.tabId });
+    await bare.client.closeTabQuietly({ userId: "u1", tabId: stray.tabId });
+    assert.deepEqual(
+      parseSerp(snapshot, engine.name).results.map((result) => result.url),
+      ["https://camoufox.com/docs"],
+      `the fake no longer invents a ${engine.name} results page at an unregistered url, so the guard above is vacuous — G.6 is closed, retire this case deliberately`,
     );
   }
 });

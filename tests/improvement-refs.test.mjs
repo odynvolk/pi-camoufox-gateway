@@ -21,7 +21,16 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 
-const DOCS = ["docs/improvements/2026-10-18-code.md", "docs/improvements/2026-10-18-functionality.md"];
+/**
+ * The docs with open items, read out of the directory rather than listed: a hand-kept set here is the same
+ * count this file's own comment refuses to keep for the test half, and a new improvements file would join the
+ * scanned set silently the moment the list went stale. Everything under `docs/improvements/` is held to the
+ * gate, which is the stricter reading — a file that stops having open items still makes claims about code.
+ */
+const DOCS = readdirSync("docs/improvements")
+  .filter((name) => name.endsWith(".md"))
+  .map((name) => `docs/improvements/${name}`)
+  .sort();
 /**
  * Everything scanned. The test half is derived, not listed — a hand-kept set of files is a count, and a
  * count is the thing this repo keeps having to re-measure: a new test file would join the suite un-checked
