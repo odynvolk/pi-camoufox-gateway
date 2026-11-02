@@ -5,6 +5,89 @@ items (`A.2`, `B.5`, `D.1`, `E.3`, …) are the open findings in
 [`docs/improvements/2026-10-18-functionality.md`](./docs/improvements/2026-10-18-functionality.md) and
 [`docs/improvements/2026-10-18-code.md`](./docs/improvements/2026-10-18-code.md).
 
+## [0.2.2] - 2026-11-02
+
+Everything merged after v0.2.1 — PRs #24 and #25, and the suite went from 378 passing tests to 393. One of those
+PRs is the reason this release exists: it closes the defect v0.2.1's own Notes section left open and named, the
+`snapshotSettled` stall that let a query with results report that nobody knew whether it had any.
+
+### Fixed
+
+- **A page that stopped changing is no longer called "still rendering".** `camoufox_search` on a slow gateway
+  returned `empty_results` with `details.stalledAtDeadline: true` over the sentence *"google's results page was
+  still rendering when the 600ms wait ran out, so it is not known whether it had results"* — on a page whose two
+  snapshots the loop's own `samePage` comparison had already found **byte-identical**. The adaptive stability
+  stop existed and could never fire: `STABLE_ROUNDS = 2` compares each frame with its *predecessor*, so it needs
+  **three** looks, while the deadline is tested *before* the sleep and before the request. A snapshot one slower
+  than the whole budget left the loop holding a single identical pair and nothing else — and **a stop the budget
+  cannot reach is not a wait**. The loop now commits to that pair once the budget can no longer afford the next
+  look, so `stalledAtDeadline` means exactly one thing: the page was still changing when the budget ran out.
+  That is the only case in which "raise the budget" is honest advice, and it is now the only case the flag can
+  be set in — by structure, not by convention: reaching the loop exit with the flag set requires the stop clause
+  to have been false, which forces one identical pair in hand. `STABLE_ROUNDS` stays at 2, so a fast gateway
+  still earns its third look and behaves exactly as before. Measured on a live gateway (`camofox-browser`
+  1.18.1): the ~10.9 s that ended in an unearned stall now ends at the first identical pair, and all 7 rows of
+  `scripts/measure-stalled-at-deadline.mjs` are honest — `stalledAtDeadline` unset, `code=empty_results`,
+  `framesIdentical=true`, `tabsLeftOpen=0`. `SEARCH_SETTLE_MS` goes 600 → 1500 so the budget can usually afford
+  the looks the engine's own predicate wants: an engine can now spend 1.5 s **plus one request** before the
+  chain hops, where 600 ms expired inside the first re-look on a gateway whose snapshots cost seconds. It stays
+  hard-coded — putting a document's patience on the search critical path is a config key this repo has already
+  decided against (#25).
+- **A test that only passed on the machine that wrote it.** `tests/engines.test.mjs` cited
+  `.context/measure-stalled-at-deadline.mjs`, and every test file is scanned by `tests/improvement-refs.test.mjs`
+  — but `.context/` is gitignored, so the case *"a file named without an anchor still resolves"* was green only
+  where it had been authored: 383 pass / 1 fail in a worktree with no `.context`. The three probes the settle
+  plan tells a reader to run are tracked under `scripts/` now, at the same depth, so their `../src` and
+  `../tests` imports are unchanged (#25).
+
+### Changed
+
+- **One clock reading, shared.** The settle loop's exit and its stop clause each called `Date.now()`
+  independently and could disagree across the deadline — the flag claiming a stall while the loop had seen
+  stability. Both consume a single `expired` boolean read once per look now, pinned by a mutation-proven
+  regression test: reverting the loop top to a fresh reading turns that case red on the flag assertion alone,
+  and the pre-fix file fails on that one assertion with its premise assertions passing. The second `Date.now()`
+  in the stop clause stays (reads are monotone within an iteration, so a later one can only fire the stop
+  sooner), which is why the wording is *one reading, shared* rather than a read count. The worst case remains
+  deadline plus one request, deliberately: bounding the poll request by the remaining budget would abort the
+  very request that proves the page is stable, and reintroduce the false "still rendering" claim as a cap.
+  `src/engines/chain.ts` is untouched and `SEARCH_CHAIN_BUDGET_IN_DEADLINES` is still 2 (#25).
+
+### Notes
+
+- The pinned install example in the README now reads `@v0.2.2`; the tag is cut on merge.
+- `snapshotSettled` is shared with `camoufox_read`, which is why v0.2.1 left this alone. It moves in the honest
+  direction only: a page that answered one identical pair with no budget left for the next look is returned as
+  what it is, rather than flagged as still arriving. `read`'s two protected pins — *"a page still growing when
+  the budget runs out gets the budget named"* and *"…stopped growing there, so it is thin rather than
+  unfinished"* — are untouched and green, and everything this branch added to `tests/session.test.mjs` is
+  additive (#25).
+- **The 2026-10-26 search round came back.** PR #22 landed that round's code and left its planning behind on a
+  branch that was never merged: main had been implementing ADR 0001 for five days with no `docs/adr/` in the
+  repo at all, while two handoffs and a checkpoint cited a plan main could not open. `docs/adr/0001`, the plan
+  and the brainstorm are recovered verbatim with provenance headers. Not imported: `engines/search-url.ts`,
+  `probe-google-urls.mjs` and its test — importing code nobody has run is how a stale premise gets written
+  down. Three claims the recovery itself got wrong were caught in review and corrected in place: the ADR
+  promised a budget divided by the engines left (`chain.ts` gives the first engine the whole budget), `B.10`
+  called 2026-11-01 the first sighting of the bare-page shape (the recovered plan recorded it on 2026-10-26,
+  6 of 6 looks), and the plan came back still ordering a `navigateMacro` that no longer exists (#24).
+- **Three items filed in `docs/improvements/2026-10-18-code.md`, not fixed**: `B.10` (an engine that never
+  answers was reported as one that was too slow — closed by deleting the request, not by fixing it), `B.11`
+  (`extract` is the one client method still on the default retry budget, so a hung gateway costs a schema read
+  two full deadlines) and `G.6`, re-measured rather than restored: the mechanism as filed (the macro and its
+  placeholder url) was deleted by #22, while the claim under it survived — the fake gateway answers any url a
+  test did not register with an invented article whose one `camoufox.com/docs` link the host rule calls
+  organic (#24).
+- **`G.6`'s counts have an instrument.** `scripts/measure-unregistered-pages.mjs` observes `globalThis.fetch`
+  from a `--import` preload, adding nothing to the shared fake; its reading (47 of 387 cases read that invented
+  page, 11 of them as an engine's results page) is committed to
+  `tests/fixtures/measure/invented-page-count.txt` and cross-asserted against the improvement doc and the
+  script's own header, which is the gate that was missing while the doc said 47 and the script said 48. The
+  recorder originally read the case name *after* `await fetch`, so a request abandoned at its deadline was
+  charged to whichever case ran next — every published count before it came from a misattributed ledger. It
+  throws rather than printing zero, and `tests/measure-unregistered-pages.test.mjs` pins both the throw and the
+  readings (#24).
+
 ## [0.2.1] - 2026-10-29
 
 Everything merged after v0.2.0 — PR #22, 21 commits, and the suite went from 353 passing tests to 378. Every
