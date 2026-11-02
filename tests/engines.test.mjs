@@ -13,6 +13,7 @@ import { classifySerp, engineOwnsUrl, parseSerp } from "../src/snapshot.ts";
 import { SEARCH_SETTLE_MS, SEARCH_SETTLE_POLL_MS, serpWorthAnotherLook } from "../src/engines/settle.ts";
 import { STABLE_ROUNDS } from "../src/settle.ts";
 import { DEFAULT_CONFIG } from "../src/config.ts";
+import { engineResultPrefixes } from "../scripts/measure-unregistered-pages.mjs";
 
 const BASE = "http://gateway.test:9377";
 
@@ -114,21 +115,34 @@ test("an adapter reports only links from the page it was sent to", async (t) => 
   // caller has to pin the page, which is the shape this repo already uses at
   // `tests/search-tool.test.mjs` → `the default fake SERP has to carry wrapper urls` — assert the
   // precondition the case leans on, not the number it produced.
-  const SERP_OF = {
-    google: "https://www.google.com/search?q=camoufox",
-    duckduckgo: "https://duckduckgo.com/?q=camoufox",
-  };
+  // Which page each engine is meant to be sent to, derived by running the adapter — the way
+  // `scripts/measure-unregistered-pages.mjs` does it for the same reason: a results url pasted in here would
+  // keep matching after the engine moved its search url, and this case would go on pinning a page no engine
+  // opens any more.
+  const QUERY = "camoufox";
+  const prefixes = await engineResultPrefixes();
   const ours = ["https://registered-for-this-test.test/one", "https://registered-for-this-test.test/two"];
   const page = ours
     .map((url, index) => `- link "Ours ${index + 1}" [e${index + 1}]:\n  - /url: ${url}\n  - text: a link only this test put here`)
     .join("\n");
 
   for (const engine of [googleEngine(), duckduckgoEngine()]) {
-    const url = SERP_OF[engine.name];
+    const prefix = prefixes.get(engine.name);
+    assert.ok(prefix, `${engine.name} never asked to open at a results url, so there is no page to pin here`);
+    const url = `${prefix}${QUERY}`;
     const registered = setup(t, { pageContents: new Map([[url, page]]) });
 
-    const outcome = await engine.search("camoufox", { client: registered.client, userId: "u1" });
+    const outcome = await engine.search(QUERY, { client: registered.client, userId: "u1" });
     const opened = registered.fake.state.calls.find((call) => call.path === "/tabs/open").body.url;
+
+    // Premise zero, and the one that was missing: the tab was opened *at* the page this test registered its
+    // links on. The two premises below only speak about what came back, so an adapter that reached that page
+    // by some other route still satisfied them, and `opened` was read only to be named in a failure message.
+    assert.equal(
+      opened,
+      url,
+      `${engine.name} was sent to ${opened}, not to the ${url} this test put its page at — whatever reported those links, it did not read it here`,
+    );
 
     // Premise one: the page this test registered is what came back. Without this the loop below would
     // pass against an engine that reported nothing at all.
