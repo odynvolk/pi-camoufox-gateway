@@ -5,18 +5,23 @@
 > **Recovered 2026-11-01** from `fix/search-engine-path-and-chain-timeout` (`ab4ed28`), which was never merged —
 > so `main` carried this decision in `src/engines/chain.ts` for five days without the document that records it.
 > Provenance and the artifacts deliberately left behind: `docs/brainstorms/2026-10-26-google-search-reliability.md`.
+> **Code claims below are as-of 2026-10-26**, with two exceptions called out in place: the shape of the chain
+> budget as *shipped*, and the closed-and-deleted item this file used to cite.
 
 ## Context
 
-`src/engines/chain.ts` → `const TERMINAL_CODES` lists `timeout` alongside `gateway_unreachable`, on the
-reasoning recorded beside it: *"transport failures are not an engine problem"*. Measured on a live
+At decision time `src/engines/chain.ts` → `const TERMINAL_CODES` also listed `timeout`, on the reasoning the
+file header recorded: *"transport failures are not an engine problem"*. `timeout` is no longer on that list,
+which is the decision below; the quoted sentence sits in the header docstring, not beside the list, whose own
+comment now says the omission is deliberate. Measured on a live
 gateway with the shipped default config (`engines: [google, duckduckgo]`, `timeoutMs: 30000`), that
 reasoning was true of the code and false of the situation: the google adapter's macro navigation
 exceeded the 30 s request deadline, the chain treated that as the service being down, and the
 duckduckgo adapter — which answers the same query in seconds — was never tried. Every default-configured
 search returned one fault and no results.
 
-Where the 30 s goes is recorded at `docs/improvements/2026-10-18-code.md` → B.9: upstream's
+Where the 30 s goes was recorded at `docs/improvements/2026-10-18-code.md` → B.9, which that file has since
+deleted as closed; upstream's
 google-SERP predicate counts a `google.com/goto?url=`-wrapped title as **no** organic results, so a
 google page that rendered perfectly answers `googleResultsAvailable: false`, and the gateway re-navigates
 the same tab to duckduckgo and then bing — three navigations, one client request, one deadline.
@@ -25,9 +30,14 @@ the same tab to duckduckgo and then bing — three navigations, one client reque
 
 `timeout` stops being terminal inside the chain: an engine that runs out of time records a step in
 `tried` and the chain walks to the next engine. To keep total wall clock bounded rather than multiplied,
-the chain is given one deadline for the whole search (`config.timeoutMs`, read at the top of
-`searchWithFallback`) and divides what is left by the engines left, so the budget is split across
-engines instead of paid once per engine. Each attempt is bounded by a deadline that aborts **its own**
+the chain is given one deadline for the whole search. **What shipped is not the split this paragraph
+promised:** the bound is `src/engines/chain.ts` → `export const SEARCH_CHAIN_BUDGET_IN_DEADLINES = 2;`,
+giving `2 × timeoutMs` for the walk with **no division by the engines left** — one shared signal, one
+`budgetTimer`, and a check before each attempt that reads only whether anything is left, so *"the first
+engine always sees the whole budget"* and an engine that spends two request deadlines (an open that lands
+and a snapshot that never answers) takes the whole walk, leaving the second engine never asked. The
+per-engine slice planned here is not what landed; `B.10` in `docs/improvements/2026-10-18-code.md` records
+the shipped figure at the same seam. Each attempt is bounded by a deadline that aborts **its own**
 controller and relays the caller's signal, per
 `docs/solutions/integration/cleanup-must-not-inherit-the-aborted-signal.md` — a deadline that abandons a
 request mid-flight leaves a tab on the server that no leak assertion can see.
