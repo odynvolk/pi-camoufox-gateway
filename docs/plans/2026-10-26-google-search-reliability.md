@@ -3,8 +3,22 @@
 > **Recovered 2026-11-01** from `fix/search-engine-path-and-chain-timeout` (`ab4ed28`), which was never merged;
 > the round itself landed as PR #22. Provenance and the list of artifacts deliberately left behind are in
 > `docs/brainstorms/2026-10-26-google-search-reliability.md`. Code claims below are as-of 2026-10-26.
+>
+> **Read this before following anything below.** Plans are not scanned by `tests/improvement-refs.test.mjs`, so
+> nothing gates what is written here. Three things in it are false *as instructions* today:
+>
+> - **"`navigateMacro` stays"** — the method no longer exists anywhere in `src/`, and the test this file cites
+>   for its contract coverage, `tests/gateway.test.mjs` → `navigateMacro sends macro and query to the tab`, is
+>   gone with it. What replaced it is recorded at `docs/plans/2026-10-27-google-direct-open-serp.md`.
+> - **U4's anchored citations into `### B.9 …`** name a heading `docs/improvements/2026-10-18-code.md` has
+>   since deleted as closed.
+> - **Five refs are still `path:123`** — `src/gateway.ts:797`, `src/net-policy.ts:176`, `google.ts:14`,
+>   `google.ts:15`, `diagnose-wall.ts:52` — which is the shape that file's own header says was deleted on
+>   purpose, and two of those line numbers no longer point where this file thinks they do.
 
-> Status: executing
+> Status: **complete** — shipped as PR #22 (2026-10-27); the flip that was held for *named unknown 2* landed
+> via `docs/plans/2026-10-27-google-direct-open-serp.md`. It was recovered still marked "executing", which is
+> how a plan that finished a week ago kept issuing instructions.
 
 *Two Strict plan reviews, 2026-10-26 (independent reviewer sessions, 42 and 62 tool uses), both merged.*
 *Round 1 blocked on 3 CRITICALs; round 2 blocked on 2 more. All are applied below, and the two claims the*
