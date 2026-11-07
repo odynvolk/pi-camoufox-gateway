@@ -237,6 +237,39 @@ test("a destination on a host that merely looks like the engine's is a destinati
   );
 });
 
+test("a destination whose query merely carries the wrapper's bytes is published, and no refusal is pinned for it", async (t) => {
+  // The same predicate asked at the other end, where the wrong answer costs a session rather than a line.
+  // The host anchor closed the look-alike-host half of this; the half it left open is a destination the
+  // engine really does host — google's own search page, echoing a wrapped link in its query — which the
+  // shape test read as the wrapper wherever those bytes happened to sit. So the page that never moved was
+  // reported as one that never arrived: `resolved: false`, `resolveError: "stayed on the redirect wrapper"`,
+  // and that refusal cached against the wrapper for 30 seconds, so the caller was told the same untruth
+  // twice without spending a tab on it. The control is the url itself: it is a place, so it is a destination.
+  const wrapper = "https://www.google.com/goto?url=QUERYBYTES";
+  const destination = "https://www.google.com/search?q=https://www.google.com/url?url=CAESstale";
+  const { fake, client } = setup(t, { redirects: new Map([[wrapper, destination]]) });
+  const cache = createCache();
+
+  const [first] = await resolveUrls([result(wrapper, { resolvable: true })], { client, userId: "u1", cache });
+
+  assert.equal(first.resolved, true, "a destination that carries the wrapper's bytes in its query is not on a wrapper");
+  assert.equal(first.url, destination, "the destination is what the gateway reported, bytes and all");
+  assert.equal(first.host, "google.com", "and it is credited with the host the destination sits on");
+  assert.equal(first.resolvable, false, "navigating revealed where it goes, so it is not flagged as needing a navigation");
+  assert.equal(first.resolveError, undefined, "there is no reason to report, so none is invented");
+  assert.equal(client.openTabCount(), 0);
+
+  const opens = fake.state.calls.filter((c) => c.method === "POST" && c.path === "/tabs/open").length;
+  const [second] = await resolveUrls([result(wrapper, { resolvable: true })], { client, userId: "u1", cache });
+  assert.equal(second.resolved, true, "the cache holds the destination, not the 30-second refusal to keep looking");
+  assert.equal(second.url, destination);
+  assert.equal(
+    fake.state.calls.filter((c) => c.method === "POST" && c.path === "/tabs/open").length,
+    opens,
+    "and the second call costs no tab, which is how a wrong answer used to become a durable one",
+  );
+});
+
 test("an unresolved result keeps its url and its host together, because neither moved", async (t) => {
   const wrapper = "https://www.google.com/goto?url=STUCK";
   const { client } = setup(t, { resolveFailures: new Set([wrapper]) });

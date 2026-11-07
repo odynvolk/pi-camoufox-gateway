@@ -579,6 +579,16 @@ test("a terminated host is the same page to every rule in this file", () => {
     assert.equal(verdict.kind, "results", `${url} is a Google page, and was being reported as somebody else's`);
     assert.equal(verdict.results.length, 10, "with all ten of its results");
   }
+  // The wrapper test is now one of those rules, and it is the one this principle nearly did not reach: it
+  // read the host through the normaliser and the shape out of the raw bytes, so `www.google.com.` passed the
+  // host question and then failed the shape one — a terminated host was google's to every rule in this file
+  // except the one that decides whether a link is worth a tab. Reading the parsed pieces is what closes it.
+  assert.equal(isWrapper("https://www.google.com./url?url=AAA"), true, "a terminated host is the engine's, so its redirect is the engine's redirect");
+  assert.equal(
+    isWrapper("https://www.google.com./search?url=AAA"),
+    false,
+    "and the terminator does not turn the engine's own search path into that redirect either",
+  );
   // The wall branch has to survive the terminator too, or the fix trades a false refusal for an
   // undetected consent wall — which is why the host match goes through the shared normaliser.
   // `longConsent` is past `INTERSTITIAL_MAX_CHARS`, so the phrase branch is gated out and the host branch
@@ -798,16 +808,78 @@ test("the wrapper test asks who the url points at before it asks what the url sa
     "https://evil-google.com/goto?url=offer",
     "https://google.com.evil.test/goto?url=offer",
     "https://notgoogle.com/url?url=https://someone-else.test/deal",
+    // The reviewer's own example, and it was already false when the anchor landed — the host answered it,
+    // not the shape. Pinned so the next loosening of the shape test cannot quietly make it true again.
+    "https://someone-else.test/visit?to=https://www.google.com/url?url=CAES",
     "https://www.google.com/goto?query=camoufox",
-    "https://www.google.com./url?url=AAA",
     "not a url",
     "",
   ]) {
-    // The terminated-host entry is the limit of what this can do, and it is the same limit it had before:
-    // the shape test reads bytes, so it only recognises the wrapper spelled the way the engine spells it.
     // An unparseable url is a silence, not an exception — this is asked about whatever a gateway reports.
     assert.equal(isWrapper(url), false, `${url} is not the engine's own redirect`);
   }
+});
+
+test("the wrapper test asks where the wrapper shape sits in the url, not only whether its bytes appear", () => {
+  // The host anchor decides *who*; it cannot decide *where*. The shape test under it read the whole url as
+  // one string, so a url the engine does own was the engine's redirect whenever it merely carried those
+  // bytes — in its query, here, which is where an engine puts a link it is echoing. That is the class the
+  // anchor left open, and it is not harmless: `organicResults` sets `resolvable` from this answer, and
+  // `src/resolve.ts` asks the same question of the destination it is handed and calls a page that never
+  // moved a wrapper that stayed one.
+  //
+  // Two directions are pinned, because the fix is a structural test and both halves of a structure can be
+  // deleted. Requiring the `url` parameter by name (rather than by the bytes `?url=` sitting right after
+  // `goto|url`) is the deliberate widening, and the first two entries below are what it costs.
+  for (const url of [
+    "https://www.google.com/url?other=1&url=AAA",
+    "https://www.google.com/goto?url",
+    "https://www.google.com/url?sa=t&rct=j&url=AAA",
+  ]) {
+    assert.equal(isWrapper(url), true, `${url} is the engine's redirect with its parameter elsewhere in the query`);
+  }
+
+  for (const url of [
+    // A search *for* a wrapped link: google's own host, google's own search path, the wrapper spelled inside
+    // the `q` value. The bytes are there; the redirect is not.
+    "https://www.google.com/search?q=https://www.google.com/url?url=CAESstale",
+    "https://www.google.com/url/redirect?to=https://www.google.com/goto?url=CAESstale",
+    // The other half: a `url` parameter is not the wrapper on its own, or the engine's whole site is one.
+    "https://www.google.com/imgres?imgurl=https://someone-else.test/a.png&url=https://someone-else.test/deal",
+    "https://www.google.com/search?url=https://someone-else.test/deal",
+  ]) {
+    assert.equal(isWrapper(url), false, `${url} carries the wrapper's shape somewhere other than where it lives`);
+  }
+});
+
+test("a google-hosted link whose query merely carries the wrapper's bytes is chrome, not a result to resolve", () => {
+  // The parse-time consequence, which is the one the model sees. Under the byte test both links below were
+  // organic results, and the second was flagged `resolvable: true` — so a `resolve: true` caller spent a tab
+  // on google's own search page, and `src/resolve.ts` asked the same predicate about the destination it got
+  // back and was told it had never left the wrapper. Dropping it here is the right answer twice over: the
+  // link is the engine's own UI, and a link that is not the engine's redirect has nothing for a tab to
+  // reveal. The wrapper alongside it is the control — the scheme guard and the dedupe are not what answers.
+  const bytesInQuery = "https://www.google.com/search?q=https://www.google.com/url?url=CAESstale";
+  const page = {
+    url: "https://www.google.com/search?q=camoufox",
+    text: [
+      '- link "A real result" [e1]:',
+      "  - /url: https://www.google.com/goto?url=AAA",
+      "  - text: An ordinary wrapper, the shape the engine actually serves.",
+      '- link "Search for that link" [e2]:',
+      `  - /url: ${bytesInQuery}`,
+      "  - text: The engine's own search page, echoing a wrapper in its query.",
+    ].join("\n"),
+  };
+
+  const { results } = parseSerp(page, "google");
+
+  assert.deepEqual(
+    results.map((result) => result.url),
+    ["https://www.google.com/goto?url=AAA"],
+    "the wrapper is the one result; the engine's own search page is chrome it never asked to be shown",
+  );
+  assert.equal(results[0].resolvable, true, "control: a url whose *path* is the wrapper is still offered for resolution");
 });
 
 test("a page-supplied link on a host that only looks like the engine's is not offered for resolution", () => {

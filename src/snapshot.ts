@@ -137,17 +137,42 @@ const WRAPPER_HOST = "google.com";
  * looser test there did not require `?url=`, so a destination that merely carries those bytes was still
  * reported as a wrapper (C.5).
  *
- * The host is asked first, and it is the half that carries the trust. The bytes below are not a secret —
- * `https://mygoogle.com/goto?url=offer` is a page that put the engine's redirect shape into its own path —
- * and the two callers that establish no ownership of their own ask it of whatever they were handed:
+ * Two questions, both asked of the parsed url rather than of its bytes. The host carries the trust:
+ * `https://mygoogle.com/goto?url=offer` is a page that put the engine's redirect shape into its own path,
+ * and the two callers that establish no ownership of their own ask this of whatever they were handed —
  * `src/resolve.ts` → `!isWrapper(opened.url)` of a destination the gateway reported, and `organicResults`
  * of a link the page wrote. Without the anchor either could keep a stranger's url as the engine's wrapper,
- * and on the resolve side pin that refusal in the url cache for 30 seconds. An unparseable url is a silence
- * here, as every other host reader in this file treats it: no host, so no wrapper, never a throw.
+ * and on the resolve side pin that refusal in the url cache for 30 seconds.
+ *
+ * The path carries the meaning, and the anchor cannot supply it: the shape test under the anchor used to
+ * read the whole url as one string, so a url the engine does own was its redirect whenever it merely
+ * *mentioned* the wrapper — `https://www.google.com/search?q=https://www.google.com/url?url=…` is google
+ * echoing a wrapped link in its own query, and it was flagged `resolvable`, then refused as "stayed on the
+ * redirect wrapper" when the page it opened turned out to be a page. So the path must *be* `/goto` or
+ * `/url`, and the `url` parameter must be one of the query's own parameters.
+ *
+ * Two deliberate widenings come with reading the pieces instead of the bytes, both pinned in
+ * `tests/snapshot.test.mjs`: the parameter no longer has to sit first (`/url?other=1&url=AAA` is a wrapper
+ * now, as `/url?url=` always was), and it no longer has to carry a value (`/goto?url` is a wrapper, where
+ * the bytes demanded `?url=`). Neither is a claim about a shape Google serves; both are the price of
+ * asking the question structurally, and the false-positive cost is one wasted tab, not a wrong page.
+ *
+ * An unparseable url is a silence here, as every other host reader in this file treats it: no host, so no
+ * wrapper, never a throw.
  */
 export function isWrapper(url: string): boolean {
-  if (!matchesHostRule(hostOf(url), WRAPPER_HOST)) return false;
-  return /google\.com\/(goto|url)\?url=/iu.test(url);
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+  if (!matchesHostRule(normalizeHost(parsed.hostname), WRAPPER_HOST)) return false;
+  // The path compared lower-cased because the byte test it replaces was `/i`, and a wrapper spelled `GOTO`
+  // was recognised before — narrowing that silently would be a second change nobody asked for.
+  const path = parsed.pathname.toLowerCase();
+  if (path !== "/goto" && path !== "/url") return false;
+  return parsed.searchParams.has("url");
 }
 
 /**
