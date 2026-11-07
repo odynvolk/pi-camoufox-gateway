@@ -16,10 +16,10 @@
  * every place that no longer states it — which is the half that was missing. The three places below pinned
  * *each other* (`assert.deepEqual(fencedBlockStartingWith(doc, …), committed)`), so a suite that grew could
  * leave all three stale in perfect agreement: measured 2026-11-02 they said 387 cases while the suite had
- * 407, the doc and this file's header said the same 387, and the suite was green. A trio that only agrees
- * with itself is not a check. `npm run test:measure` runs the second mode.
+ * 407 — 413 by the time this gate landed, because the gate's own cases count — and the suite was green. A
+ * trio that only agrees with itself is not a check. `npm run test:measure` runs the second mode.
  *
- * Today's reading, written to `tests/fixtures/measure/invented-page-count.txt` every time it runs: of 387
+ * Today's reading, written to `tests/fixtures/measure/invented-page-count.txt` every time it runs: of 413
  * cases in the suite, 47 read the fake's invented page and 11 read it as an engine's results page. Those
  * three figures are restated in this comment, in that file, and in
  * `docs/improvements/2026-10-18-code.md` → G.6, and `tests/measure-unregistered-pages.test.mjs` refuses the
