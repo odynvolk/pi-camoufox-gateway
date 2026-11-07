@@ -1,6 +1,6 @@
 # Plan: `camoufox_read` gets a staleness tolerance — `maxAgeMs`
 
-> Status: executing
+> Status: done
 
 Branch: `feat/read-cache-staleness-tolerance`
 Date: 2026-11-07
@@ -83,13 +83,27 @@ interface ReadBound { /** Serve an entry at most this old. Absent = today's beha
 interface CachedEntry<T> { value: T; ageMs: number }
 
 interface Cache<T> {
-  get(key: string, bound?: ReadBound): T | undefined;
-  /** The only reader that reports how old what it returned is. Never deletes a within-TTL entry. */
+  get(key: string): T | undefined;   // narrowed in review — see the amendment below
+  /** The reader that may bound a read by age, and the only one that reports how old what it returned is. Never deletes a within-TTL entry. */
   peek(key: string, bound?: ReadBound): CachedEntry<T> | undefined;
   run(key: string, produce: () => Promise<T>, ttlMs?: number, options?: RunOptions<T> & ReadBound): Promise<T>;
   // size, set, clear unchanged
 }
 ```
+
+**Amendment, landed in review (`cb30973`) and recorded here so this plan matches the code.** `get` does
+**not** take a `bound`, though the block above said it should. Nothing in `src/` ever passed one —
+`src/tools/search.ts` and `src/resolve.ts` call `get(key)`, and `src/tools/read.ts` reads through `peek`
+because it needs the age — so the parameter was a second way to ask a question `peek` answers better, and the
+worse one failed silently: a caller wanting freshness could take `get(key, bound)`, get the bound honoured and
+the age discarded, and never learn they had lost a fact. Removing it makes the type push a caller who needs
+age to the accessor whose name already promises one. ADR 0002's "one place decides" holds either way, because
+`get` delegates.
+
+The same round moved `stageClock` and `opens(fake)` into `tests/helpers/` (`clock.mjs`, and `opens` beside the
+fake whose call log it counts). Both carry an obligation rather than a shorthand — `stageClock`'s value is that
+`t.after` always restores `Date.now`, and a leaked stub makes every TTL and age assertion in three files lie —
+so they are one copy now. `tests/engines.test.mjs`'s inline stub predates this branch and was left alone.
 
 `get` delegates to `peek`; `run`'s internal hit passes the caller's bound through. `ageMs` is
 `Math.max(0, Date.now() - entry.storedAt)` — **R1**: a clock that steps backwards would otherwise hand back a
@@ -97,7 +111,9 @@ negative age, which passes every bound and gets printed to the model as a fact a
 
 ```ts
 // src/tools/read.ts — ReadParams, ReadOutcome
-maxAgeMs?: number;                      // whole ms, 0 or more; refused alongside `fresh`
+maxAgeMs?: number;                      // param: whole ms, 0 or more; refused alongside `fresh`
+maxAgeMs?: number;                      // outcome: the caller's own ask, echoed the way `waitForRequested`
+                                        //   echoes a wait, so renderRead stays a function of the outcome alone
 pageAgeMs?: number;                     // set only when the page came from the cache
 staleSkippedMs?: number;                // age of the cached page the tolerance rejected, forcing a re-fetch
 ```
