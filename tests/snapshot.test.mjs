@@ -769,18 +769,59 @@ test("C.5: no result off any recorded page reaches the printer without a host to
   assert.ok(emitted > 0, "not one result came out of any recorded page, so this compared nothing");
 });
 
-test("C.5: the one url shape that has no host to print is named, not left a rumour", () => {
-  // The exception the property above cannot cover, found while writing it. `isChrome` drops a block whose
-  // host does not parse by asking for the *raw* hostname, and `.` parses — it just normalises to nothing.
-  // So a page whose link carries `/url: https://./x` is emitted with an empty `host`, and with the
-  // unnormalised fallback gone the third line of that result prints nothing where it used to print `.`.
-  // Nothing is gained by either spelling; what is recorded here is that the property above has one hole,
-  // that the hole is cosmetic, and that closing it means `isChrome` judging the normalised host — a
-  // different question to the one that file answers today.
-  const { results } = parseSerp(oneLinkPage("https://./x"), "google");
+test("C.6: the one url shape that has no host to print is dropped, not printed as a blank column", () => {
+  // The exception the recorded-page property above cannot cover, found while writing it. `isChrome` cannot
+  // drop it as chrome, because it is handed the *raw* hostname and `.` is not empty there; `new URL()` accepts
+  // `.` as a hostname, so the parse never fails and `normalizeHost` then empties the single dot label. For
+  // two releases that block was emitted with `host: ""` and printed a third line that said nothing — the
+  // parse-time half of C.6, pinned there as a known limit until 2026-11-07.
+  //
+  // It is dropped now, and dropped rather than rescued with the raw hostname: `.` names no one, and a result
+  // line carrying `.` in its attribution column is a link that *looks* attributed while being attributable
+  // to nobody — which is the failure mode the whole C.4 round was about. The ordinary link beside it is the
+  // control: the drop is a host rule, not this file refusing to emit anything it cannot parse.
+  const page = {
+    url: "https://www.google.com/search?q=camoufox",
+    text: [
+      '- link "Ownerless" [e1]:',
+      "  - /url: https://./x",
+      "  - text: A link whose host is nothing but a dot.",
+      // The same emptiness reached two more ways, through the prefix the column peels: `www..` is empty once
+      // `www.` comes off, and `www...` is left as a bare dot. Neither is empty to the host rules, which is
+      // why the guard asks the printed field and reads its labels.
+      '- link "Prefix and dots" [e2]:',
+      "  - /url: https://www../x",
+      "  - text: A link whose host is nothing but the prefix the column peels, and a terminator.",
+      '- link "Dots left over" [e3]:',
+      "  - /url: https://www.../x",
+      "  - text: The same, with one dot too many to disappear entirely.",
+      '- link "Attributable" [e4]:',
+      "  - /url: https://someone-else.test/deal",
+      "  - text: A link that can be credited to someone.",
+    ].join("\n"),
+  };
 
-  assert.equal(results.length, 1, "an ownerless host is not chrome, so this block is emitted rather than dropped");
-  assert.equal(results[0].host, "", "known limit: the host normalises to nothing, and nothing between here and the printer rescues it");
+  const { results } = parseSerp(page, "google");
+
+  assert.deepEqual(
+    results.map((result) => result.url),
+    ["https://someone-else.test/deal"],
+    "the three ownerless blocks are not results, and their neighbour is",
+  );
+
+  // And a page whose only link is the ownerless one must not be mistaken for a page we could not read: the
+  // block is still a block, so the model is told the engine answered with nothing organic, not that our
+  // parser failed. The engine's own SERP url is what keeps this the second question and not the first —
+  // with `https://./x` as the page url, `engineOwnsUrl` answers before the parse is ever reached.
+  const ownerlessOnly = {
+    url: "https://www.google.com/search?q=camoufox",
+    text: ['- link "Ownerless" [e1]:', "  - /url: https://./x", "  - text: A link whose host is nothing but a dot."].join("\n"),
+  };
+
+  assert.deepEqual(parseSerp(ownerlessOnly, "google").results, [], "on its own it is dropped as well");
+  const verdict = classifySerp(ownerlessOnly, "google");
+  assert.equal(verdict.kind, "error", "with nothing organic left, there is a verdict to report");
+  assert.equal(verdict.code, "empty_results", "and it names the engine answering thinly, not `parse_error`");
 });
 
 test("the wrapper test asks who the url points at before it asks what the url says", () => {

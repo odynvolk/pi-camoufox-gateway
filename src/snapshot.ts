@@ -239,6 +239,23 @@ function organicResults(blocks: LinkBlock[], engine: string): SearchResult[] {
   for (const block of blocks) {
     const url = block.url?.trim();
     if (!url || !/^https?:\/\//iu.test(url)) continue;
+
+    const host = resultHost(url);
+    // A host with no non-empty label attributes nobody, so the block is not a result. `isChrome` cannot
+    // catch it — it is handed the raw hostname, where `.` is not empty — and the printer has no fallback to
+    // rescue it (`src/tools/search.ts` → `return result.host;`), so before this line the model got a result
+    // line whose attribution column was blank: C.6's parse-time half.
+    //
+    // Read over the labels, not `!host`, for the reason that half was already guarded twice for: the shapes
+    // that survive `new URL()` include `www..` (which the `www.` peel leaves empty) and `www...` (which it
+    // leaves as `.`), and both name nobody. Asking `resultHost` rather than `hostOf` is the point — the
+    // column prints the former, and `www.` is not empty to the rules.
+    //
+    // Dropped, not kept with the raw hostname as a last resort: a host of nothing but dots is not an
+    // attribution, and printing it would launder an unattributable link into a line that reads as
+    // attributed — the shape C.4 exists to refuse. The resolve path makes the same promise where it writes
+    // its own url (C.6's other half); this is that promise at this write site.
+    if (!host.split(".").some((label) => label !== "")) continue;
     if (isChrome(engine, url)) continue;
     if (seen.has(url)) continue;
 
@@ -252,7 +269,7 @@ function organicResults(blocks: LinkBlock[], engine: string): SearchResult[] {
     results.push({
       title: block.title || url,
       url,
-      host: resultHost(url),
+      host,
       snippet,
       resolvable: isWrapper(url),
       engine,
