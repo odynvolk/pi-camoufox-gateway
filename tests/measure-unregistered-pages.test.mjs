@@ -12,22 +12,32 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { withFakeGateway } from "./helpers/fake_gateway.mjs";
 import { createGatewayClient } from "../src/gateway.ts";
 import {
   caseNames,
+  CHECK_FLAG,
   classify,
   engineResultPrefixes,
+  findDisagreements,
+  HEADER_STATING,
   inventedPageText,
   KNOWN_CASE,
   pageAtIsInvented,
   pageWasInvented,
   parseReport,
-  REPORT_FIXTURE,
+  PLACES,
+  readDocFigures,
+  readHeadlineFigures,
+  readHeaderFigures,
   readRunSummary,
+  requestedCheck,
+  REPORT_FIXTURE,
   suiteFailures,
   assertSawTheKnownCase,
   suiteTotal,
@@ -283,5 +293,276 @@ test("a run that missed the case it must see is refused, not published as zero",
   assert.throws(
     () => assertSawTheKnownCase(elsewhere, classify(elsewhere, prefixes).asResults),
     /matched no engine's results url/u,
+  );
+});
+
+// ---------------------------------------------------------------------------
+// `--check`: the gate that is to stop the committed reading ageing silently again.
+//
+// The three places that restate the G.6 figures held each other to be true — the doc block, this script's
+// header and the committed fixture — so the trio could agree with itself forever while the suite moved
+// underneath it: measured 2026-11-02, all three said 387 cases while the suite had 407, and the suite was
+// green. What was missing was not a comparison but a *refusal*: a mode that measures, writes nothing, and
+// exits non-zero naming every place that no longer states the reading. That mode is the behaviour below.
+// ---------------------------------------------------------------------------
+
+/**
+ * The instrument's own child run must not start a second instrument.
+ *
+ * `measure()` runs the shipped suite with this preload installed, and the suite runs this file. Without the
+ * guard, every check case below would build a copy and spawn again from inside the measurement — and the
+ * reading published would be one that had measured the instrument measuring itself.
+ */
+const CHECK_ONLY = process.env.CAMOUFOX_MEASURE_INVENTED === "1"
+  ? "the instrument's own child run must not spawn a second instrument"
+  : false;
+
+const REPO = fileURLToPath(new URL("..", import.meta.url));
+/** The four-case suite the check cases measure; see its own header for why `npm test` never runs it. */
+const PROBE = fileURLToPath(new URL("../tests/instrument-probe.mjs", import.meta.url));
+
+/**
+ * A copy of the repo the instrument can measure and rewrite with this tree out of reach.
+ *
+ * `--check` is only evidence if a real child measured a real suite, and the shipped suite is 14 s a run — so
+ * the copy is handed the four-case probe as its suite. Everything the check reads is still a real file in the
+ * copy: the committed fixture, the improvements doc, and this script's own header. That is what lets a case
+ * plant a disagreement in exactly one of the three and watch the other two stay quiet, and lets the same
+ * case prove afterwards that not one byte of the three moved.
+ */
+function scratchInstrument(t) {
+  const root = mkdtempSync(join(tmpdir(), "g6-instrument-"));
+  const dir = join(root, "repo");
+  mkdirSync(join(dir, "tests", "fixtures", "measure"), { recursive: true });
+  for (const entry of ["src", "scripts", "docs"]) {
+    cpSync(join(REPO, entry), join(dir, entry), { recursive: true });
+  }
+  cpSync(join(REPO, "tests", "helpers"), join(dir, "tests", "helpers"), { recursive: true });
+  cpSync(REPORT_FIXTURE, join(dir, "tests", "fixtures", "measure", "invented-page-count.txt"));
+  writeFileSync(join(dir, "package.json"), readFileSync(join(REPO, "package.json")));
+  // The copy runs the shipped `src/`, which imports `typebox`: node resolves up from the copy, so the one
+  // thing a copy cannot afford to duplicate is the install.
+  symlinkSync(join(REPO, "node_modules"), join(dir, "node_modules"));
+  cpSync(PROBE, join(dir, "tests", "instrument-probe.test.mjs"));
+
+  const instrument = {
+    dir,
+    script: join(dir, "scripts", "measure-unregistered-pages.mjs"),
+    fixture: join(dir, "tests", "fixtures", "measure", "invented-page-count.txt"),
+    doc: join(dir, "docs", "improvements", "2026-10-18-code.md"),
+  };
+  instrument.read = (path) => readFileSync(path, "utf8");
+  instrument.write = (path, text) => writeFileSync(path, text, "utf8");
+  /** The three places the check reads, as bytes, so "it wrote nothing" is compared rather than believed. */
+  instrument.bytes = () => Object.fromEntries(
+    ["script", "fixture", "doc"].map((key) => [key, readFileSync(instrument[key])]),
+  );
+  /** Run the instrument in the copy: `--check` mode, or the default write mode when no mode is given. */
+  instrument.run = (mode = "") => {
+    const env = { ...process.env, NODE_ENV: "test" };
+    delete env.NODE_TEST_CONTEXT; // a nested `node --test` would refuse to run any file and exit 0
+    delete env.CAMOUFOX_MEASURE_INVENTED; // the copy is the measurer here, never the measured
+    const run = spawnSync(process.execPath, [instrument.script, ...(mode ? [mode] : [])], {
+      encoding: "utf8",
+      cwd: dir,
+      env,
+      timeout: 180_000,
+    });
+    return { status: run.status, output: `${run.stdout ?? ""}${run.stderr ?? ""}` };
+  };
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  return instrument;
+}
+
+/** The header sentence the script states its own reading in, spelled the way the script spells it. */
+const headerStating = (total, invented, asResults) =>
+  `of ${total}\n * cases in the suite, ${invented} read the fake's invented page and ${asResults} read it as an engine's results page`;
+
+/**
+ * Bring the copy's two restatements up to the reading its instrument just committed.
+ *
+ * This is the same two edits a person makes by hand after a re-measure — the doc's fenced block and the
+ * sentence in this script's header — which is why the block is copied out of the fixture rather than
+ * retyped: the fixture's first three lines *are* the block, and a second spelling of them here would be a
+ * fourth place to keep in agreement.
+ */
+function restate(instrument) {
+  const headline = instrument.read(instrument.fixture).replace(/\n+$/u, "").split("\n").slice(0, 3);
+  const stated = readHeadlineFigures(headline.join("\n"));
+  assert.ok(stated, "the copy's fixture no longer carries three headline lines this can restate from");
+
+  const doc = instrument.read(instrument.doc).split("\n");
+  const at = doc.findIndex((line) => line.startsWith("cases in the suite:"));
+  assert.ok(at >= 0, "the copy's doc carries no G.6 block to restate");
+  doc.splice(at, 3, ...headline);
+  instrument.write(instrument.doc, doc.join("\n"));
+
+  const script = instrument.read(instrument.script);
+  const restated = script.replace(HEADER_STATING, headerStating(stated.total, stated.invented, stated.asResults));
+  assert.notEqual(restated, script, "the header sentence moved, so this restatement silently did nothing");
+  instrument.write(instrument.script, restated);
+
+  // The plant is only a plant if the reader agrees it landed, or a case below could pass on a no-op.
+  assert.deepEqual(readDocFigures(instrument.read(instrument.doc)), stated, "the doc does not now state the fixture's reading");
+  assert.deepEqual(readHeaderFigures(instrument.read(instrument.script)), stated, "the header does not now state the fixture's reading");
+}
+
+/**
+ * A place counts as named only when the check lists it as a disagreement — its path alone on a line.
+ *
+ * A whole-output `includes` would also match the footer, which prints this script's own path inside the
+ * instruction to re-measure. Every assertion about the header below would then pass whether the check had
+ * found the header stale or not — a gate whose positive case is satisfied by the gate's own help text.
+ */
+const named = (output, place) => output.split("\n").some((line) => line.trim() === place);
+
+/** The line the check prints for one figure, so both numbers it cites can be read back rather than assumed. */
+function cited(output, label) {
+  const found = output.match(new RegExp(`${label}:\\s+committed (\\d+)(?: of \\d+)?\\s+measured (\\d+)`, "u"));
+  assert.ok(found, `the check never cited ${label} as committed against measured:\n${output}`);
+  return { committed: Number.parseInt(found[1], 10), measured: Number.parseInt(found[2], 10) };
+}
+
+test("case 13: --check refuses the reading the repo committed, names all three places that still state it, and writes nothing", { skip: CHECK_ONLY }, (t) => {
+  // The gate's own proof, and the point of the unit: nothing here has been re-measured, so the copy carries
+  // exactly what this repo commits today — whatever figure the fixture carries right now — against a suite
+  // that says otherwise. It is run against a copy rather than this tree on purpose: an assertion that the
+  // tree *is* stale would go green the day somebody refreshes it, and a gate that can be satisfied is not
+  // a gate.
+  const instrument = scratchInstrument(t);
+  const committed = readHeadlineFigures(instrument.read(instrument.fixture));
+  assert.ok(committed && committed.total > 0, "the committed reading this case plants has no figures to be stale");
+  const before = instrument.bytes();
+
+  const run = instrument.run(CHECK_FLAG);
+
+  assert.notEqual(run.status, 0, `--check accepted a copy whose three places were never re-measured:\n${run.output}`);
+  for (const place of Object.values(PLACES)) {
+    assert.ok(named(run.output, place), `the check did not name ${place} as a place that disagrees:\n${run.output}`);
+  }
+  // The committed figure against the reading just taken — and the two have to be different numbers, or
+  // naming one of them twice would look exactly like the gate working.
+  const total = cited(run.output, "cases in the suite");
+  assert.equal(total.committed, committed.total, "the figure it named is not the one the copy had committed");
+  assert.notEqual(total.measured, total.committed, "it cited the committed figure against itself");
+  assert.deepEqual(instrument.bytes(), before, `--check wrote to one of the three places it was asked only to read:\n${run.output}`);
+});
+
+test("case 14: after a re-measure --check drops the fixture it refreshed, and passes outright once the doc and the header carry the same reading", { skip: CHECK_ONLY }, (t) => {
+  // Which of the three this covers, stated because it is not all three at once: the fixture is the
+  // instrument's own output, so a write-mode run makes it true again by itself. The doc and this script's
+  // header are restated by hand, so until they follow, the check must still refuse — and must say so about
+  // those two only. Both halves are asserted, because a check that went quiet about everything after a
+  // re-measure would be a gate that had simply stopped checking.
+  const instrument = scratchInstrument(t);
+
+  const measured = instrument.run();
+  assert.equal(measured.status, 0, `the default mode has to keep working, untouched:\n${measured.output}`);
+  const fresh = readHeadlineFigures(measured.output);
+  assert.ok(fresh && fresh.total > 0, `the re-measure published no figures:\n${measured.output}`);
+
+  const halfDone = instrument.run(CHECK_FLAG);
+  assert.notEqual(halfDone.status, 0, `--check passed with only the fixture refreshed and the two hand-restated places left behind:\n${halfDone.output}`);
+  assert.ok(!named(halfDone.output, PLACES.fixture), "it named the fixture, which the re-measure had just made correct");
+  for (const place of [PLACES.doc, PLACES.header]) {
+    assert.ok(named(halfDone.output, place), `it stayed quiet about ${place}, which still stated the old reading:\n${halfDone.output}`);
+  }
+
+  restate(instrument);
+  const before = instrument.bytes();
+  const passing = instrument.run(CHECK_FLAG);
+
+  assert.equal(passing.status, 0, `--check refused a copy whose three places all stated the reading:\n${passing.output}`);
+  assert.deepEqual(instrument.bytes(), before, `--check wrote to a place after all:\n${passing.output}`);
+});
+
+test("case 15: a header planted one figure off is named, and the instrument leaves the file it wrote no part in", { skip: CHECK_ONLY }, (t) => {
+  // The other half of the gate: a disagreement has to be *said*, with both figures, in the place it lives.
+  // The alternative is the behaviour this mode replaces — an instrument that quietly rewrote whatever
+  // disagreed with it, which is what the default mode does and the reason the drift was never visible.
+  const instrument = scratchInstrument(t);
+  const fresh = readHeadlineFigures(instrument.run().output);
+  assert.ok(fresh && fresh.total > 0, "the re-measure published no figures to plant a drift against");
+  restate(instrument);
+
+  const script = instrument.read(instrument.script);
+  const drifted = script.replace(HEADER_STATING, headerStating(fresh.total + 1, fresh.invented, fresh.asResults));
+  assert.notEqual(drifted, script, "the planted drift silently did not land, so nothing below is evidence");
+  instrument.write(instrument.script, drifted);
+  const before = instrument.bytes();
+
+  const run = instrument.run(CHECK_FLAG);
+
+  assert.notEqual(run.status, 0, `--check passed over a header off by one:\n${run.output}`);
+  assert.ok(named(run.output, PLACES.header), `the header was not named:\n${run.output}`);
+  for (const place of [PLACES.fixture, PLACES.doc]) {
+    assert.ok(!named(run.output, place), `it named ${place}, which stated the fresh reading:\n${run.output}`);
+  }
+  const total = cited(run.output, "cases in the suite");
+  assert.equal(total.committed, fresh.total + 1, "the figure it named is not the one planted");
+  assert.equal(total.measured, fresh.total, "it did not cite the reading the suite actually gave");
+  assert.deepEqual(instrument.bytes(), before, `the check rewrote the place it was asked to name:\n${run.output}`);
+});
+
+test("--check is the only thing that turns the instrument into a gate", () => {
+  // Two behaviours in one file, and the suite must never reach the measuring one. Which mode runs is the
+  // whole difference between a reading and a refusal, so it is asserted at the seam rather than inferred.
+  assert.equal(requestedCheck(["node", "scripts/measure-unregistered-pages.mjs"]), false);
+  assert.equal(requestedCheck(["node", "scripts/measure-unregistered-pages.mjs", CHECK_FLAG]), true);
+  assert.equal(requestedCheck(["node", "scripts/measure-unregistered-pages.mjs", "--checked"]), false);
+});
+
+test("the check reads the three figures out of each of the three places, in the shape each one states them", () => {
+  // The fixture holds the printed lines; the doc holds the same three inside a fence; the header holds them
+  // in a sentence. One reader per shape, because a single reader loose enough to read all three is loose
+  // enough to read a figure that is not there — and to report the place as agreeing.
+  const printedLines = [
+    "cases in the suite:                   407, all passing",
+    "read the fake's invented page:        47 of 407",
+    "read it as an engine's results page:  11 of 407",
+  ];
+  const printed = printedLines.join("\n");
+  assert.deepEqual(readHeadlineFigures(printed), { total: 407, invented: 47, inventedOf: 407, asResults: 11, asResultsOf: 407 });
+  assert.deepEqual(readHeadlineFigures(printed.replace(/^cases in the suite.*$/mu, "")), null, "a reading missing a figure is not a reading");
+  assert.deepEqual(readHeadlineFigures("the doc, rewritten, no longer quotes the instrument"), null);
+
+  const block = ["", "```", ...printedLines, "```", ""].join("\n");
+  assert.deepEqual(readDocFigures(block), { total: 407, invented: 47, inventedOf: 407, asResults: 11, asResultsOf: 407 });
+  assert.deepEqual(readDocFigures("a version of the doc with the block taken out"), null, "a doc that stopped quoting the reading is one that disagrees");
+
+  assert.deepEqual(readHeaderFigures(`runs: of 407\n * cases in the suite, 47 read the fake's invented page and 11 read it as an engine's results page.`), {
+    total: 407, invented: 47, inventedOf: 407, asResults: 11, asResultsOf: 407,
+  });
+  assert.deepEqual(readHeaderFigures("a header that stopped stating its own reading"), null);
+});
+
+test("the check names the place whose figures differ, and stays quiet about the ones that do not", () => {
+  const measured = readHeadlineFigures([
+    "cases in the suite:                   407",
+    "read the fake's invented page:        47 of 407",
+    "read it as an engine's results page:  11 of 407",
+  ].join("\n"));
+  const agrees = { ...measured };
+  const staleTotal = { ...measured, total: 387, inventedOf: 387, asResultsOf: 387 };
+  const staleOneFigure = { ...measured, asResults: 12 };
+  // One figure quoted against the wrong denominator is the shape a hand-edited block actually takes, and it
+  // is the shape a comparison of the three headline *lines* would wave through.
+  const wrongDenominator = { ...measured, inventedOf: 384 };
+
+  assert.deepEqual(findDisagreements(measured, new Map([["a", agrees]])), []);
+  assert.deepEqual(
+    findDisagreements(measured, new Map([["fixture", staleTotal], ["doc", agrees], ["header", staleOneFigure]])).map((one) => one.place),
+    ["fixture", "header"],
+    "the places named are not the two that were perturbed",
+  );
+  assert.deepEqual(
+    findDisagreements(measured, new Map([["doc", wrongDenominator]]))[0].labels,
+    ["read the fake's invented page"],
+    "a figure quoted against an outdated total is not the reading",
+  );
+  assert.deepEqual(
+    findDisagreements(measured, new Map([["doc", null]])).map((one) => one.place),
+    ["doc"],
+    "a place that no longer states the reading at all is a disagreement, not a pass",
   );
 });

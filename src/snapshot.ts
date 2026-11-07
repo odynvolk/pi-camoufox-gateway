@@ -81,24 +81,6 @@ function unescapeTitle(raw: string): string {
   return raw.replace(/\\(["\\])/gu, "$1").trim();
 }
 
-/** Host a result belongs to, preferring Google's `cite:` line, which is already human-facing. */
-function hostFrom(cite: string | undefined, url: string): string {
-  const citeUrl = cite?.match(/^(https?:\/\/[^ >]+|www\.[^ >/]+)/iu)?.[1];
-  if (citeUrl) {
-    try {
-      const parsed = new URL(citeUrl.includes("://") ? citeUrl : `https://${citeUrl}`);
-      return normalizeHost(parsed.hostname).replace(/^www\./u, "");
-    } catch {
-      // fall through to the url
-    }
-  }
-  try {
-    return normalizeHost(new URL(url).hostname).replace(/^www\./u, "");
-  } catch {
-    return "";
-  }
-}
-
 /** Split the tree into link blocks, keeping their url/cite/text children. */
 function linkBlocks(text: string): LinkBlock[] {
   const lines = text.split("\n");
@@ -139,8 +121,58 @@ function linkBlocks(text: string): LinkBlock[] {
   return blocks;
 }
 
-function isWrapper(url: string): boolean {
-  return /google\.com\/(goto|url)\?url=/iu.test(url);
+/**
+ * The host the engine's own redirect sits at, and the only one a look-alike path may borrow.
+ *
+ * Literal rather than read off `HOST_RULES`: that table registers how deep a suffix an engine owns — two
+ * for google, which is what makes `www.google.co.uk` its page — while the wrapper below is only ever
+ * spelled on `.com`, so borrowing the table would call a `google.co.uk` path the engine's redirect too.
+ */
+const WRAPPER_HOST = "google.com";
+
+/**
+ * Whether a url is the engine's own redirect wrapper, so only navigating to it reveals where it goes.
+ *
+ * Exported for the resolve path, which asks the same question of its own and gets it the other way: a
+ * looser test there did not require `?url=`, so a destination that merely carries those bytes was still
+ * reported as a wrapper (C.5).
+ *
+ * Two questions, both asked of the parsed url rather than of its bytes. The host carries the trust:
+ * `https://mygoogle.com/goto?url=offer` is a page that put the engine's redirect shape into its own path,
+ * and the two callers that establish no ownership of their own ask this of whatever they were handed —
+ * `src/resolve.ts` → `!isWrapper(opened.url)` of a destination the gateway reported, and `organicResults`
+ * of a link the page wrote. Without the anchor either could keep a stranger's url as the engine's wrapper,
+ * and on the resolve side pin that refusal in the url cache for 30 seconds.
+ *
+ * The path carries the meaning, and the anchor cannot supply it: the shape test under the anchor used to
+ * read the whole url as one string, so a url the engine does own was its redirect whenever it merely
+ * *mentioned* the wrapper — `https://www.google.com/search?q=https://www.google.com/url?url=…` is google
+ * echoing a wrapped link in its own query, and it was flagged `resolvable`, then refused as "stayed on the
+ * redirect wrapper" when the page it opened turned out to be a page. So the path must *be* `/goto` or
+ * `/url`, and the `url` parameter must be one of the query's own parameters.
+ *
+ * Two deliberate widenings come with reading the pieces instead of the bytes, both pinned in
+ * `tests/snapshot.test.mjs`: the parameter no longer has to sit first (`/url?other=1&url=AAA` is a wrapper
+ * now, as `/url?url=` always was), and it no longer has to carry a value (`/goto?url` is a wrapper, where
+ * the bytes demanded `?url=`). Neither is a claim about a shape Google serves; both are the price of
+ * asking the question structurally, and the false-positive cost is one wasted tab, not a wrong page.
+ *
+ * An unparseable url is a silence here, as every other host reader in this file treats it: no host, so no
+ * wrapper, never a throw.
+ */
+export function isWrapper(url: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+  if (!matchesHostRule(normalizeHost(parsed.hostname), WRAPPER_HOST)) return false;
+  // The path compared lower-cased because the byte test it replaces was `/i`, and a wrapper spelled `GOTO`
+  // was recognised before — narrowing that silently would be a second change nobody asked for.
+  const path = parsed.pathname.toLowerCase();
+  if (path !== "/goto" && path !== "/url") return false;
+  return parsed.searchParams.has("url");
 }
 
 /**
@@ -207,6 +239,23 @@ function organicResults(blocks: LinkBlock[], engine: string): SearchResult[] {
   for (const block of blocks) {
     const url = block.url?.trim();
     if (!url || !/^https?:\/\//iu.test(url)) continue;
+
+    const host = resultHost(url);
+    // A host with no non-empty label attributes nobody, so the block is not a result. `isChrome` cannot
+    // catch it — it is handed the raw hostname, where `.` is not empty — and the printer has no fallback to
+    // rescue it (`src/tools/search.ts` → `return result.host;`), so before this line the model got a result
+    // line whose attribution column was blank: C.6's parse-time half.
+    //
+    // Read over the labels, not `!host`, for the reason that half was already guarded twice for: the shapes
+    // that survive `new URL()` include `www..` (which the `www.` peel leaves empty) and `www...` (which it
+    // leaves as `.`), and both name nobody. Asking `resultHost` rather than `hostOf` is the point — the
+    // column prints the former, and `www.` is not empty to the rules.
+    //
+    // Dropped, not kept with the raw hostname as a last resort: a host of nothing but dots is not an
+    // attribution, and printing it would launder an unattributable link into a line that reads as
+    // attributed — the shape C.4 exists to refuse. The resolve path makes the same promise where it writes
+    // its own url (C.6's other half); this is that promise at this write site.
+    if (!host.split(".").some((label) => label !== "")) continue;
     if (isChrome(engine, url)) continue;
     if (seen.has(url)) continue;
 
@@ -220,7 +269,7 @@ function organicResults(blocks: LinkBlock[], engine: string): SearchResult[] {
     results.push({
       title: block.title || url,
       url,
-      host: hostFrom(block.cite, url),
+      host,
       snippet,
       resolvable: isWrapper(url),
       engine,
@@ -413,6 +462,16 @@ function rawHostOf(url: string): string {
 /** The same host as `src/net-policy.ts` spells it: lower-cased, with one FQDN terminator removed. */
 function hostOf(url: string): string {
   return normalizeHost(rawHostOf(url));
+}
+
+/**
+ * The one host reader a result is credited with: it reads the url and nothing else.
+ *
+ * A `cite:` line is page content, and content that can name its own host is content that can name
+ * anybody's; it stays in `SearchResult.cite`, where its name says what it is.
+ */
+export function resultHost(url: string): string {
+  return hostOf(url).replace(/^www\./u, "");
 }
 
 /** A single-label tail: a TLD, alphabetic or punycode. Nothing shaped `com1` or `c` is one. */

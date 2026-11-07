@@ -7,6 +7,7 @@
  */
 
 import { GatewayError } from "./errors.ts";
+import { isWrapper, resultHost } from "./snapshot.ts";
 import type { SearchResult } from "./snapshot.ts";
 import type { GatewayClient } from "./gateway.ts";
 import type { Cache } from "./cache.ts";
@@ -27,7 +28,7 @@ export interface ResolveContext {
 export interface ResolvableResult extends SearchResult {
   /** true = we replaced the url; false = we tried and kept the original. */
   resolved?: boolean;
-  /** Short reason when resolution did not happen. */
+  /** Short reason when resolution did not happen — recorded with the refusal, so a cached refusal says the same thing twice. */
   resolveError?: string;
 }
 
@@ -73,8 +74,28 @@ export async function resolveUrls(
 
     const key = `url:${result.url}`;
     if (cache) {
-      const known = cache.get(key) as { url: string; resolved: boolean } | undefined;
-      if (known) return { ...result, url: known.url, resolved: known.resolved };
+      const known = cache.get(key) as { url: string; resolved: boolean; resolveError?: string } | undefined;
+      // The cache carries the destination and the verdict, and the host is not among them: it is read off the
+      // url again here, so a cached entry cannot bring back a host some older code kept. `resolvable` goes
+      // with the url too — once the destination is in hand, navigating revealed where it goes, and a result
+      // that says otherwise contradicts the field's own description.
+      //
+      // `resolveError` is the one field that does travel, and the test for the exception is which side of the
+      // pair it sits on: it is not derived from the url, it is what the attempt *saw*, and the attempt is not
+      // happening again. So the refusal records its reason and this branch reports it verbatim — an entry
+      // with no recorded reason says nothing, rather than being handed "stayed on the redirect wrapper" by a
+      // branch that never looked. `src/camoufox-gateway.ts` puts the field on the wire, so the two answers a
+      // 30-second window can give have to be one answer.
+      if (known) {
+        return {
+          ...result,
+          url: known.url,
+          resolved: known.resolved,
+          host: resultHost(known.url),
+          resolvable: known.resolved ? false : result.resolvable,
+          resolveError: known.resolved ? undefined : known.resolveError,
+        };
+      }
     }
 
     let tab;
@@ -85,12 +106,26 @@ export async function resolveUrls(
         signal,
       );
       tab = opened.tabId;
-      if (opened.url && !/google\.com\/(goto|url)\?/u.test(opened.url)) {
-        cache?.set(key, { url: opened.url, resolved: true }, ttlMs ?? 600_000);
-        return { ...result, url: opened.url, resolved: true };
+      // A destination has to be a place: `isWrapper` says it is not the engine's own redirect, and a host
+      // says it is somewhere. `src/gateway.ts` → `assertTabUrlAllowed` already refuses a destination whose
+      // host normalises to nothing, so the second condition should be unreachable — but the promise this
+      // file makes to the printer is its own, and a `resolved: true` over an empty host is a result line
+      // with a blank attribution column (`src/tools/search.ts` → `return result.host;`). Checked here
+      // rather than inherited, and the reason below says which half the gateway's answer broke.
+      const destination = opened.url && !isWrapper(opened.url) ? opened.url : "";
+      if (destination && resultHost(destination)) {
+        cache?.set(key, { url: destination, resolved: true }, ttlMs ?? 600_000);
+        // Wherever the url is replaced the host is recomputed in the same statement, so a resolved
+        // result never reports the wrapper it came from — and neither does `resolvable`, which means
+        // "still a wrapper", not "came from one". Nor does a reason: a caller retrying what it was told
+        // was unresolved must not be handed the old attempt's cause next to `resolved: true`.
+        return { ...result, url: destination, resolved: true, host: resultHost(destination), resolvable: false, resolveError: undefined };
       }
-      cache?.set(key, { url: result.url, resolved: false }, 30_000);
-      return { ...result, resolved: false, resolveError: "stayed on the redirect wrapper" };
+      const reason = destination
+        ? `the destination "${destination}" has no host to attribute`
+        : "stayed on the redirect wrapper";
+      cache?.set(key, { url: result.url, resolved: false, resolveError: reason }, 30_000);
+      return { ...result, resolved: false, resolveError: reason };
     } catch (error) {
       // A failed resolution is not cached: the next call should get a fresh chance.
       return { ...result, resolved: false, resolveError: error instanceof Error ? error.message : String(error) };

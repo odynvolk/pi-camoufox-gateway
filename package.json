@@ -43,6 +43,7 @@
   ],
   "scripts": {
     "test": "NODE_ENV=test node --test --import ./tests/helpers/fetch_guard.mjs tests/*.test.mjs",
+    "test:measure": "NODE_ENV=test node scripts/measure-unregistered-pages.mjs --check",
     "test:live": "CAMOUFOX_LIVE=1 node --test tests/live.mjs",
     "typecheck": "tsc --noEmit"
   },

@@ -44,7 +44,11 @@ Canonical vocabulary for this repo. Not a spec — see `docs/brainstorms/` and `
   even decodes `%2e` into one, so `www.google.com.` and `www.google.com` are the same host to a browser —
   and were two different answers here, until that made a real Google results page count as somebody else's.
   Ownership is decided on labels, not on a suffix pattern: a suffix regex admits dots, which is how
-  `www.google.com.evil.test` was once Google's page.
+  `www.google.com.evil.test` was once Google's page. A **result's** host is ours too, never the page's:
+  `resultHost` (`snapshot.ts`) reads it off the url that result shows, and every site that replaces the url —
+  resolve's fresh open, resolve's cache hit — recomputes it in the same statement, because a field a page can
+  write is a field a page can forge. The engine's `cite:` line is page content and stays on the result as
+  `cite`, never as an attribution.
 - **Address guard** — the rule in `net-policy.ts` that refuses tabs at non-http urls, `blockedHosts`
   matches, and internal addresses. Enforced inside `GatewayClient`, at both ends of a navigation: on the
   url handed to `openTab`, and on the destination any response reports — the one `/tabs/open` returns and

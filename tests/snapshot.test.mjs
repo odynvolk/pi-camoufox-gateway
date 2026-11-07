@@ -2,8 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 
-import { classifySerp, detectWall, engineOwnsUrl, extractText, parseSerp } from "../src/snapshot.ts";
+import { classifySerp, detectWall, engineOwnsUrl, extractText, isWrapper, parseSerp } from "../src/snapshot.ts";
 import { ENGINE_NAMES } from "../src/config.ts";
+import { normalizeHost } from "../src/net-policy.ts";
 
 /** Every recorded page, so a budget check picks up a fixture the moment one is added. */
 const FIXTURES = readdirSync(new URL("./fixtures/", import.meta.url), { withFileTypes: true })
@@ -45,7 +46,12 @@ test("parses Google results from a real recorded SERP", () => {
   assert.match(first.url, /^https:\/\/www\.google\.com\/goto\?url=/u, "google urls stay as wrappers");
   assert.equal(first.resolvable, true, "wrappers are resolvable by navigation");
   assert.ok(first.snippet.length > 10);
-  assert.equal(first.host, "camoufox.com");
+  // The url is a `google.com/goto?url=…` wrapper, so the host we may report is google's own — which is the
+  // honest half of C.4 and the less useful half: the destination is in the `cite:` line, still carried
+  // verbatim below, and `resolve: true` is how a caller turns it into the url. The C.4 cases at the foot of
+  // this file hold both halves.
+  assert.equal(first.host, "google.com");
+  assert.equal(first.cite, "https://camoufox.com", "the page's own provenance line survives as itself, not as an attribution");
   for (const result of results) {
     assert.ok(result.url.startsWith("http"), `every result needs a url, got ${result.url}`);
   }
@@ -573,6 +579,16 @@ test("a terminated host is the same page to every rule in this file", () => {
     assert.equal(verdict.kind, "results", `${url} is a Google page, and was being reported as somebody else's`);
     assert.equal(verdict.results.length, 10, "with all ten of its results");
   }
+  // The wrapper test is now one of those rules, and it is the one this principle nearly did not reach: it
+  // read the host through the normaliser and the shape out of the raw bytes, so `www.google.com.` passed the
+  // host question and then failed the shape one — a terminated host was google's to every rule in this file
+  // except the one that decides whether a link is worth a tab. Reading the parsed pieces is what closes it.
+  assert.equal(isWrapper("https://www.google.com./url?url=AAA"), true, "a terminated host is the engine's, so its redirect is the engine's redirect");
+  assert.equal(
+    isWrapper("https://www.google.com./search?url=AAA"),
+    false,
+    "and the terminator does not turn the engine's own search path into that redirect either",
+  );
   // The wall branch has to survive the terminator too, or the fix trades a false refusal for an
   // undetected consent wall — which is why the host match goes through the shared normaliser.
   // `longConsent` is past `INTERSTITIAL_MAX_CHARS`, so the phrase branch is gated out and the host branch
@@ -635,4 +651,285 @@ test("an unreported destination is a fail-open with a name, not a silent one", (
   assert.equal(verdict.kind, "results", "no destination is judged, not refused");
   assert.equal(verdict.results.length, 10, "and the page is parsed as the engine asked for");
   assert.equal(verdict.details?.substituted, undefined, "credited, not substituted — the residual, stated");
+});
+
+// --- C.4: a result's host is ours, read off its own url ------------------------------------------------
+
+/**
+ * The one column a reader uses to decide who a link belongs to was the one field a page could write.
+ *
+ * A result's `host` came from the block's own `cite:` line whenever one parsed, and
+ * `src/tools/search.ts` → `engineLabel` prints that field as the third line of every result the model
+ * reads. A `cite:` line is page content — `linkBlocks` fills it from `CITE_LINE` while scanning the
+ * snapshot, exactly as it fills `text` — so whoever served the page chose the attribution: one link block
+ * at any public host carrying a `cite:` naming `www.google.com` was reported as google's.
+ *
+ * What the honest value costs is stated rather than argued away. On the default path (`resolve` is
+ * opt-in) Google's organic links are all `google.com/goto?url=…` wrappers, so the host that is true is
+ * the same string on all ten results and the cite was the only byte that said which one was github's.
+ * That is a usability cost, not a wrong verdict, and the caller who wants the destination asks for it:
+ * `resolve: true` navigates, and since the host is derived from the url the result ends with, the host
+ * follows it.
+ *
+ * The family was settled already in `docs/solutions/integration/wall-detection-must-be-structural.md`:
+ * host evidence is read off the host, never off bytes a page or a query supplied. `detectWall` and
+ * `classifySerp`'s message were built that way through the same url-reading helper; the per-result column
+ * was the last reader left taking page text.
+ */
+const OFFER = "https://attacker.test/offer";
+/** The attribution a hostile page would have liked to publish. */
+const STOLEN_CITE = "https://www.google.com/official";
+
+/** One organic-shaped link block, as the page that served it wrote it. */
+function oneLinkPage(url, cite) {
+  return {
+    url,
+    text: [
+      '- link "You won" [e1]:',
+      `  - /url: ${url}`,
+      ...(cite ? [`  - cite: ${cite}`] : []),
+      "  - text: Claim your prize.",
+    ].join("\n"),
+  };
+}
+
+/** The host a fixture line names, spelled the way `src/net-policy.ts` spells one. Empty means it named none. */
+function hostNamed(value) {
+  try {
+    return normalizeHost(new URL(value).hostname).replace(/^www\./u, "");
+  } catch {
+    return "";
+  }
+}
+
+test("C.4: a page that cites itself as Google is still reported at the address it is served from", () => {
+  const { results } = parseSerp(oneLinkPage(OFFER, STOLEN_CITE), "google");
+
+  assert.equal(results.length, 1, "the block is nobody's chrome, so there is exactly one result to judge");
+  assert.equal(results[0].host, "attacker.test", "the host is the one the url points at, whatever the page wrote about itself");
+  assert.equal(results[0].cite, STOLEN_CITE, "the cite is still carried verbatim — this demotes the field, it does not delete it");
+});
+
+test("C.4: a cite that tells the truth still reports the host it always did", () => {
+  // The false-positive budget, and the reason this fix cannot be "stop trusting cites": the case a cite
+  // existed to help is an honest one, and it has to come back untouched. Indifference to the field is what
+  // makes that safe — the case above is the same page with the same host claimed by a page that meant it.
+  const honest = parseSerp(oneLinkPage(OFFER, OFFER), "google").results[0];
+  const silent = parseSerp(oneLinkPage(OFFER), "google").results[0];
+
+  assert.equal(honest.host, "attacker.test", "the truthful cite still says what it said before any of this");
+  assert.equal(honest.host, silent.host, "and it says it in exactly the words a page with no cite at all gets");
+});
+
+test("C.4: every host the recorded Google page reports is a host that page links to, not one it merely cites", () => {
+  // From the fixture, not copied into this file: the expected hosts are the ones the page's own `/url:`
+  // lines carry, so the assertion is about which line a host came from rather than about an answer someone
+  // typed in here. The recorded page is the ideal probe because its two sets are disjoint — every organic
+  // url is google's own wrapper, and every `cite:` names somebody else.
+  const recorded = readFixture("serp-google.txt");
+  const { results } = parseSerp(fixture("serp-google.txt", "https://www.google.com/search?q=camoufox"), "google");
+  assert.equal(results.length, 10, "the whole recorded page parsed, or this compares a subset of it");
+
+  const linked = new Set([...recorded.matchAll(/^\s*-\s*\/url:\s*(\S+)/gmu)].map((line) => hostNamed(line[1])));
+  const cited = new Set([...recorded.matchAll(/^\s*-\s*cite:\s*(\S+)/gmu)].map((line) => hostNamed(line[1])));
+  const citedOnly = [...cited].filter((host) => host !== "" && !linked.has(host));
+  assert.ok(
+    citedOnly.length > 0,
+    "every cite on this page also names a linked host, so the guard below compares nothing — retire this line deliberately if the recording changes",
+  );
+
+  for (const result of results) {
+    assert.equal(linked.has(result.host), true, `${result.url} is reported as "${result.host}", which the page cites but never links to`);
+  }
+});
+
+test("C.4: one www. and a trailing dot come off a reported host, and the rest of it survives", () => {
+  // The collapse of two host readers into one must keep the display convention the older one had, or the
+  // fix trades a laundered host for a host printed a different way from every other host in the response.
+  const { results } = parseSerp(oneLinkPage("https://www.Example.test./x"), "google");
+
+  assert.equal(results.length, 1, "an upper-case terminated host is still a place, so it is still a result");
+  assert.equal(results[0].host, "example.test", "case folded, one terminator removed, one `www.` peeled — as before");
+});
+
+test("C.5: no result off any recorded page reaches the printer without a host to print", () => {
+  // The pin that makes deleting `engineLabel`'s `|| new URL(result.url).hostname` fallback honest rather
+  // than convenient. An unreachable branch is not a safety net, but neither is a branch deleted on a
+  // comment: this is the measurement behind the claim. Every recorded page, parsed as every engine we
+  // ship, because the engine decides which links survive the chrome filter.
+  let emitted = 0;
+  for (const name of FIXTURES) {
+    for (const engine of ENGINE_NAMES) {
+      for (const result of parseSerp({ url: "https://www.google.com/search?q=camoufox", text: readFixture(name) }, engine).results) {
+        emitted += 1;
+        assert.notEqual(result.host, "", `${name} as "${engine}" emitted ${result.url} with no host to print`);
+      }
+    }
+  }
+  assert.ok(emitted > 0, "not one result came out of any recorded page, so this compared nothing");
+});
+
+test("C.6: the one url shape that has no host to print is dropped, not printed as a blank column", () => {
+  // The exception the recorded-page property above cannot cover, found while writing it. `isChrome` cannot
+  // drop it as chrome, because it is handed the *raw* hostname and `.` is not empty there; `new URL()` accepts
+  // `.` as a hostname, so the parse never fails and `normalizeHost` then empties the single dot label. For
+  // two releases that block was emitted with `host: ""` and printed a third line that said nothing — the
+  // parse-time half of C.6, pinned there as a known limit until 2026-11-07.
+  //
+  // It is dropped now, and dropped rather than rescued with the raw hostname: `.` names no one, and a result
+  // line carrying `.` in its attribution column is a link that *looks* attributed while being attributable
+  // to nobody — which is the failure mode the whole C.4 round was about. The ordinary link beside it is the
+  // control: the drop is a host rule, not this file refusing to emit anything it cannot parse.
+  const page = {
+    url: "https://www.google.com/search?q=camoufox",
+    text: [
+      '- link "Ownerless" [e1]:',
+      "  - /url: https://./x",
+      "  - text: A link whose host is nothing but a dot.",
+      // The same emptiness reached two more ways, through the prefix the column peels: `www..` is empty once
+      // `www.` comes off, and `www...` is left as a bare dot. Neither is empty to the host rules, which is
+      // why the guard asks the printed field and reads its labels.
+      '- link "Prefix and dots" [e2]:',
+      "  - /url: https://www../x",
+      "  - text: A link whose host is nothing but the prefix the column peels, and a terminator.",
+      '- link "Dots left over" [e3]:',
+      "  - /url: https://www.../x",
+      "  - text: The same, with one dot too many to disappear entirely.",
+      '- link "Attributable" [e4]:',
+      "  - /url: https://someone-else.test/deal",
+      "  - text: A link that can be credited to someone.",
+    ].join("\n"),
+  };
+
+  const { results } = parseSerp(page, "google");
+
+  assert.deepEqual(
+    results.map((result) => result.url),
+    ["https://someone-else.test/deal"],
+    "the three ownerless blocks are not results, and their neighbour is",
+  );
+
+  // And a page whose only link is the ownerless one must not be mistaken for a page we could not read: the
+  // block is still a block, so the model is told the engine answered with nothing organic, not that our
+  // parser failed. The engine's own SERP url is what keeps this the second question and not the first —
+  // with `https://./x` as the page url, `engineOwnsUrl` answers before the parse is ever reached.
+  const ownerlessOnly = {
+    url: "https://www.google.com/search?q=camoufox",
+    text: ['- link "Ownerless" [e1]:', "  - /url: https://./x", "  - text: A link whose host is nothing but a dot."].join("\n"),
+  };
+
+  assert.deepEqual(parseSerp(ownerlessOnly, "google").results, [], "on its own it is dropped as well");
+  const verdict = classifySerp(ownerlessOnly, "google");
+  assert.equal(verdict.kind, "error", "with nothing organic left, there is a verdict to report");
+  assert.equal(verdict.code, "empty_results", "and it names the engine answering thinly, not `parse_error`");
+});
+
+test("the wrapper test asks who the url points at before it asks what the url says", () => {
+  // `isWrapper` was one substring test over the whole url, and the bytes it looks for are not a secret:
+  // `https://mygoogle.com/goto?url=offer` is a page that put the engine's redirect shape into its own
+  // path. That is harmless where the caller has already established host ownership —
+  // `src/snapshot.ts` → `return hostIsEngineDomain(host, rule) && !(rule.wrappers && isWrapper(url));` —
+  // and not where it has not: `src/resolve.ts` → `!isWrapper(opened.url)` asks it of a destination the
+  // gateway reported, and keeps such a destination as a wrapper while caching that refusal for 30 seconds;
+  // `organicResults` asks it of a link the page wrote, and flags the link resolvable, which is what makes
+  // a `resolve: true` caller open a tab for it at all. So the host is now asked of the url itself.
+  //
+  // Anchoring can only shrink what is called a wrapper, so every case that used to answer true still does.
+  for (const url of [
+    "https://www.google.com/url?url=AAA",
+    "https://google.com/goto?url=AAA",
+    "https://Accounts.Google.COM/goto?url=AAA",
+    "https://www.google.com/url?url=https%3A%2F%2Fsomeone-else.test%2Fdeal",
+  ]) {
+    assert.equal(isWrapper(url), true, `${url} is the engine's own redirect`);
+  }
+
+  for (const url of [
+    "https://mygoogle.com/goto?url=offer",
+    "https://evil-google.com/goto?url=offer",
+    "https://google.com.evil.test/goto?url=offer",
+    "https://notgoogle.com/url?url=https://someone-else.test/deal",
+    // The reviewer's own example, and it was already false when the anchor landed — the host answered it,
+    // not the shape. Pinned so the next loosening of the shape test cannot quietly make it true again.
+    "https://someone-else.test/visit?to=https://www.google.com/url?url=CAES",
+    "https://www.google.com/goto?query=camoufox",
+    "not a url",
+    "",
+  ]) {
+    // An unparseable url is a silence, not an exception — this is asked about whatever a gateway reports.
+    assert.equal(isWrapper(url), false, `${url} is not the engine's own redirect`);
+  }
+});
+
+test("the wrapper test asks where the wrapper shape sits in the url, not only whether its bytes appear", () => {
+  // The host anchor decides *who*; it cannot decide *where*. The shape test under it read the whole url as
+  // one string, so a url the engine does own was the engine's redirect whenever it merely carried those
+  // bytes — in its query, here, which is where an engine puts a link it is echoing. That is the class the
+  // anchor left open, and it is not harmless: `organicResults` sets `resolvable` from this answer, and
+  // `src/resolve.ts` asks the same question of the destination it is handed and calls a page that never
+  // moved a wrapper that stayed one.
+  //
+  // Two directions are pinned, because the fix is a structural test and both halves of a structure can be
+  // deleted. Requiring the `url` parameter by name (rather than by the bytes `?url=` sitting right after
+  // `goto|url`) is the deliberate widening, and the first two entries below are what it costs.
+  for (const url of [
+    "https://www.google.com/url?other=1&url=AAA",
+    "https://www.google.com/goto?url",
+    "https://www.google.com/url?sa=t&rct=j&url=AAA",
+  ]) {
+    assert.equal(isWrapper(url), true, `${url} is the engine's redirect with its parameter elsewhere in the query`);
+  }
+
+  for (const url of [
+    // A search *for* a wrapped link: google's own host, google's own search path, the wrapper spelled inside
+    // the `q` value. The bytes are there; the redirect is not.
+    "https://www.google.com/search?q=https://www.google.com/url?url=CAESstale",
+    "https://www.google.com/url/redirect?to=https://www.google.com/goto?url=CAESstale",
+    // The other half: a `url` parameter is not the wrapper on its own, or the engine's whole site is one.
+    "https://www.google.com/imgres?imgurl=https://someone-else.test/a.png&url=https://someone-else.test/deal",
+    "https://www.google.com/search?url=https://someone-else.test/deal",
+  ]) {
+    assert.equal(isWrapper(url), false, `${url} carries the wrapper's shape somewhere other than where it lives`);
+  }
+});
+
+test("a google-hosted link whose query merely carries the wrapper's bytes is chrome, not a result to resolve", () => {
+  // The parse-time consequence, which is the one the model sees. Under the byte test both links below were
+  // organic results, and the second was flagged `resolvable: true` — so a `resolve: true` caller spent a tab
+  // on google's own search page, and `src/resolve.ts` asked the same predicate about the destination it got
+  // back and was told it had never left the wrapper. Dropping it here is the right answer twice over: the
+  // link is the engine's own UI, and a link that is not the engine's redirect has nothing for a tab to
+  // reveal. The wrapper alongside it is the control — the scheme guard and the dedupe are not what answers.
+  const bytesInQuery = "https://www.google.com/search?q=https://www.google.com/url?url=CAESstale";
+  const page = {
+    url: "https://www.google.com/search?q=camoufox",
+    text: [
+      '- link "A real result" [e1]:',
+      "  - /url: https://www.google.com/goto?url=AAA",
+      "  - text: An ordinary wrapper, the shape the engine actually serves.",
+      '- link "Search for that link" [e2]:',
+      `  - /url: ${bytesInQuery}`,
+      "  - text: The engine's own search page, echoing a wrapper in its query.",
+    ].join("\n"),
+  };
+
+  const { results } = parseSerp(page, "google");
+
+  assert.deepEqual(
+    results.map((result) => result.url),
+    ["https://www.google.com/goto?url=AAA"],
+    "the wrapper is the one result; the engine's own search page is chrome it never asked to be shown",
+  );
+  assert.equal(results[0].resolvable, true, "control: a url whose *path* is the wrapper is still offered for resolution");
+});
+
+test("a page-supplied link on a host that only looks like the engine's is not offered for resolution", () => {
+  // The consequence, on the parser side: `resolvable` is what makes a `resolve: true` caller spend a tab on
+  // a url, and it used to be settable by the page. A link here claiming the engine's redirect shape is
+  // still a link on somebody else's host, and no navigation is going to reveal an engine destination in it.
+  const { results } = parseSerp(oneLinkPage("https://mygoogle.com/goto?url=offer"), "google");
+
+  assert.equal(results.length, 1, "the host is not the engine's, so the chrome filter leaves the link alone");
+  assert.equal(results[0].resolvable, false, "and a look-alike path does not make it the engine's redirect");
+  assert.equal(results[0].host, "mygoogle.com", "it is credited with the host it is actually on");
 });

@@ -115,6 +115,25 @@ test("the scheme and shape rules keep their codes", () => {
   assert.equal(codeFor(() => assertTabUrlAllowed("https://example.com", OPEN)), undefined);
 });
 
+test("a host that normalises to nothing is no host to open, in whichever dot-shape the url spelled it", () => {
+  // `!parsed.hostname` was the whole of this check, and `new URL()` hands it `.` rather than `""` for
+  // these: `.` and `..` are accepted as hostnames, and `%2e` is decoded into a terminator. `normalizeHost`
+  // then empties what is left, so the guard called a url with no host openable, `resolve` published it as
+  // a resolved destination, and the attribution column printed nothing
+  // (`docs/improvements/2026-10-18-code.md` → C.6). The verdict therefore has to be taken *after* the
+  // normalisation every other rule in this file compares against — before it, the two disagree about what
+  // the url points at; after it, one condition covers both the empty and the all-dots shape.
+  for (const url of ["https://./x", "https://%2e/x", "https://../x", "http://./"]) {
+    assert.equal(codeFor(() => assertTabUrlAllowed(url, OPEN)), "blocked_url", `${url} has no host, so it is no place to open`);
+    assert.throws(
+      () => assertTabUrlAllowed(url, OPEN),
+      /has no host to open in a browser tab/u,
+      `${url} must be refused for the reason the empty-hostname case already gives`,
+    );
+    assert.equal(codeFor(() => assertTabUrlAllowed(url, OPEN, "destination")), "blocked_url", `${url} is refused as a destination too`);
+  }
+});
+
 test("blockedHosts wins over the address rule so the message names the user's list", () => {
   const error = (() => {
     try {

@@ -9,8 +9,17 @@
  * measurement. This is the instrument. Like `scripts/record-fixtures.py` it never runs from `npm test`.
  *
  * Run:  node scripts/measure-unregistered-pages.mjs
+ *       node scripts/measure-unregistered-pages.mjs --check
  *
- * Today's reading, written to `tests/fixtures/measure/invented-page-count.txt` every time it runs: of 387
+ * Two modes, and the difference between them is the whole point of the second. The default one measures and
+ * commits what it measured. `--check` measures the same reading, **writes nothing**, and exits non-zero naming
+ * every place that no longer states it — which is the half that was missing. The three places below pinned
+ * *each other* (`assert.deepEqual(fencedBlockStartingWith(doc, …), committed)`), so a suite that grew could
+ * leave all three stale in perfect agreement: measured 2026-11-02 they said 387 cases while the suite had
+ * 407 — 413 by the time this gate landed, because the gate's own cases count — and the suite was green. A
+ * trio that only agrees with itself is not a check. `npm run test:measure` runs the second mode.
+ *
+ * Today's reading, written to `tests/fixtures/measure/invented-page-count.txt` every time it runs: of 425
  * cases in the suite, 47 read the fake's invented page and 11 read it as an engine's results page. Those
  * three figures are restated in this comment, in that file, and in
  * `docs/improvements/2026-10-18-code.md` → G.6, and `tests/measure-unregistered-pages.test.mjs` refuses the
@@ -28,9 +37,9 @@
  *   moving its search url moves this measurement with it instead of leaving it matching the old one.
  */
 
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
-import { realpathSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 
 import { createGatewayClient } from "../src/gateway.ts";
@@ -56,6 +65,25 @@ export const KNOWN_CASE = "duckduckgo navigates straight to its query url";
  * every `.txt` there were a recorded page — which this is not.
  */
 export const REPORT_FIXTURE = resolve(import.meta.dirname, "../tests/fixtures/measure/invented-page-count.txt");
+/**
+ * The other two places that restate the reading. Named here rather than passed in, because the doc is the one
+ * `tests/measure-unregistered-pages.test.mjs` already pins and a path the gate and the pin did not share would
+ * be a gate checking some other file than the one the suite cares about.
+ */
+const REPO_ROOT = resolve(import.meta.dirname, "..");
+const DOC_FILE = resolve(REPO_ROOT, "docs/improvements/2026-10-18-code.md");
+const SCRIPT_FILE = fileURLToPath(import.meta.url);
+/** The switch that makes this file a gate instead of a publisher. */
+export const CHECK_FLAG = "--check";
+/**
+ * The three places that carry the reading, keyed by the name `--check` reports them under — repo-relative
+ * paths, so what the gate says a person can open, and so the same string is what the tests assert on.
+ */
+export const PLACES = {
+  fixture: relative(REPO_ROOT, REPORT_FIXTURE),
+  doc: relative(REPO_ROOT, DOC_FILE),
+  header: relative(REPO_ROOT, SCRIPT_FILE),
+};
 
 let article; // what an untouched fake invents for INVENTION_PROBE, asked once per process
 
@@ -329,7 +357,121 @@ export function assertSawTheKnownCase(cases, asResults) {
   }
 }
 
-export async function measure() {
+/**
+ * Was `--check` asked for? Only the exact flag counts: a near miss is a typo, and a typo that silently
+ * publishes the reading it meant to refuse is the failure this mode exists to make impossible.
+ */
+export function requestedCheck(argv) {
+  return argv.slice(2).includes(CHECK_FLAG);
+}
+
+/** The three figures, in the order the instrument prints them, and the keys each one is read into. */
+const HEADLINE_LABELS = [
+  "cases in the suite",
+  "read the fake's invented page",
+  "read it as an engine's results page",
+];
+const FIGURE_KEYS = {
+  "cases in the suite": ["total"],
+  "read the fake's invented page": ["invented", "inventedOf"],
+  "read it as an engine's results page": ["asResults", "asResultsOf"],
+};
+/** The sentence this file states its own reading in — the same one the suite's own pin reads. */
+export const HEADER_STATING = /of (\d+)\n \* cases in the suite, (\d+) read the fake's invented page and (\d+) read it as an engine's results page/u;
+
+/**
+ * The three figures out of text that prints them one per line, as the fixture and the doc's block do.
+ *
+ * Returns null rather than a partial reading: a place that lost a figure has stopped stating the reading, and
+ * a reader that filled the gap with a guess would report it as agreeing.
+ */
+export function readHeadlineFigures(text) {
+  const figures = {};
+  for (const line of String(text).split("\n")) {
+    const found = line.match(
+      /^(cases in the suite|read the fake's invented page|read it as an engine's results page):\s+(\d+)(?: of (\d+))?/u,
+    );
+    if (!found) continue;
+    const [countKey, ofKey] = FIGURE_KEYS[found[1]];
+    figures[countKey] = Number.parseInt(found[2], 10);
+    if (ofKey !== undefined && found[3] !== undefined) figures[ofKey] = Number.parseInt(found[3], 10);
+  }
+  const keys = HEADLINE_LABELS.flatMap((label) => FIGURE_KEYS[label]);
+  return keys.every((key) => figures[key] !== undefined) ? figures : null;
+}
+
+/** The three figures out of the doc's fenced G.6 block, or null when the doc no longer carries one. */
+export function readDocFigures(docText) {
+  const blocks = [];
+  let open;
+  for (const line of String(docText).split("\n")) {
+    if (line.trim() === "```") {
+      if (open) blocks.push(open);
+      open = open ? undefined : [];
+      continue;
+    }
+    if (open) open.push(line);
+  }
+  // Every block rather than the first: the doc has quoted the instrument more than once in its history, and a
+  // gate that read whichever block came first could be quietly reading a stale one.
+  const quoting = blocks.filter((one) => one[0]?.startsWith(`${HEADLINE_LABELS[0]}:`));
+  if (quoting.length !== 1) return null;
+  return readHeadlineFigures(quoting[0].join("\n"));
+}
+
+/** The three figures out of this file's own header sentence, where they are prose rather than lines. */
+export function readHeaderFigures(scriptText) {
+  const stated = String(scriptText).match(HEADER_STATING);
+  if (!stated) return null;
+  const [total, invented, asResults] = stated.slice(1, 4).map((one) => Number.parseInt(one, 10));
+  // The sentence quotes both counts against the total it opens with, so that is the denominator it states.
+  return { total, invented, inventedOf: total, asResults, asResultsOf: total };
+}
+
+function figuresDiffer(stated, measured, label) {
+  const [countKey, ofKey] = FIGURE_KEYS[label];
+  return stated[countKey] !== measured[countKey]
+    || (ofKey !== undefined && stated[ofKey] !== measured[ofKey]);
+}
+
+/** How one figure reads where it is stated: `47 of 407`, or `407` for the total, which has no denominator. */
+function renderFigure(figures, label) {
+  const [countKey, ofKey] = FIGURE_KEYS[label];
+  return ofKey === undefined ? `${figures[countKey]}` : `${figures[countKey]} of ${figures[ofKey]}`;
+}
+
+/**
+ * Which of the places disagree with a fresh reading, and which figures in each of them.
+ *
+ * Figures, not lines: the doc's block and the fixture's head are the same three lines, and comparing whole
+ * lines would let a hand-edited `47 of 384` under a total of 407 through as a match on the count. A place
+ * that states no reading at all is a disagreement — it is the one case where silence cannot mean agreement.
+ */
+export function findDisagreements(measured, places) {
+  const disagreements = [];
+  for (const [place, stated] of places) {
+    if (stated === null || measured === null) {
+      disagreements.push({ place, stated, labels: [...HEADLINE_LABELS] });
+      continue;
+    }
+    const labels = HEADLINE_LABELS.filter((label) => figuresDiffer(stated, measured, label));
+    if (labels.length > 0) disagreements.push({ place, stated, labels });
+  }
+  return disagreements;
+}
+
+const readOrNothing = (path) => (existsSync(path) ? readFileSync(path, "utf8") : "");
+
+/** What each of the three places states today, in the shape that place states it in. */
+export function committedPlaces() {
+  return new Map([
+    [PLACES.fixture, readHeadlineFigures(readOrNothing(REPORT_FIXTURE))],
+    [PLACES.doc, readDocFigures(readOrNothing(DOC_FILE))],
+    [PLACES.header, readHeaderFigures(readOrNothing(SCRIPT_FILE))],
+  ]);
+}
+
+export async function measure({ write = true } = {}) {
   // Built from this file's own location, not from the working directory: the natural way to run this script is
   // by path from somewhere else, and a relative `--import` then resolves against that other cwd and is never
   // found. The failure it produced was a misleading one — "the suite produced no summary", which reads like a
@@ -386,13 +528,55 @@ export async function measure() {
 
   // Committed alongside the number it produced: the doc and this file's own header both restate these
   // figures, and `tests/measure-unregistered-pages.test.mjs` holds all three to the one reading written here.
-  mkdirSync(dirname(REPORT_FIXTURE), { recursive: true });
-  writeFileSync(REPORT_FIXTURE, `${[...published, ...detail].join("\n")}\n`, "utf8");
+  // `--check` comes here for the measurement and nothing else — a gate that refreshed what it was grading is
+  // how the stale trio stayed green, so the write is behind one flag and one flag only.
+  if (write) {
+    mkdirSync(dirname(REPORT_FIXTURE), { recursive: true });
+    writeFileSync(REPORT_FIXTURE, `${[...published, ...detail].join("\n")}\n`, "utf8");
+  }
   return { total, failed, cases, asResults, prefixes, printed, published, detail };
 }
 
+/**
+ * Measure, refuse, and write nothing.
+ *
+ * The exit code is the deliverable: `npm run test:measure` is the gate, and it has to fail for the reason the
+ * figures moved rather than for the reason the instrument broke — which is why a dead runner is thrown on by
+ * `readRunSummary` long before anything here is compared. What it prints names each place and cites the
+ * figure it holds against the one just measured, because "the doc is stale" is a message that gets guessed
+ * at and "the doc says 11, the suite says 12" is one that gets fixed.
+ */
+export async function check() {
+  const reading = await measure({ write: false });
+  const measured = readHeadlineFigures(reading.published.join("\n"));
+  const places = committedPlaces();
+  const disagreements = findDisagreements(measured, places);
+
+  if (disagreements.length === 0) {
+    console.log(`\n--check: all ${places.size} places state the reading above. Nothing was written.`);
+    return 0;
+  }
+  console.log(`\n--check: ${disagreements.length} of ${places.size} places state a reading other than the one above. Nothing was written.`);
+  for (const one of disagreements) {
+    console.log(`  ${one.place}`);
+    if (one.stated === null) {
+      console.log(`      no single fenced block here states the three figures — refresh it, or take this place out of ${PLACES.header}`);
+      continue;
+    }
+    for (const label of one.labels) {
+      console.log(`      ${label}:  committed ${renderFigure(one.stated, label)}   measured ${renderFigure(measured, label)}`);
+    }
+  }
+  console.log(`\nRe-measure with \`node ${PLACES.header}\`, then copy what it prints into the places above.`);
+  return 1;
+}
+
 if (isEntryScript(process.argv[1], import.meta.url)) {
-  await measure();
+  if (requestedCheck(process.argv)) {
+    process.exitCode = await check();
+  } else {
+    await measure();
+  }
 } else if (process.env[MEASURE_ENV] === "1") {
   await installRecorder();
 }

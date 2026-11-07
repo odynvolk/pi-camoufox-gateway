@@ -76,11 +76,13 @@ interface ParsedUrl {
  * `parseHttpUrl` below was happily calling it `www.google.com`. Every host *this file* compares against a
  * rule comes through here.
  *
- * It is not yet true repo-wide, and saying so is the point: `src/tools/search.ts → engineLabel` prints a
- * raw hostname, `src/resolve.ts` matches wrapper bytes rather than a host, and `src/tools/read.ts →
- * pageCacheKey` keys on `new URL().href`. None of them decides ownership today; all of them would be
- * wrong about a terminated host. Recorded in `docs/improvements/2026-10-18-code.md` rather than left for
- * the next reader to discover by being bitten — which is how the P1 above happened.
+ * It is not yet true repo-wide, and saying so is the point. Two of the three readers first named here have
+ * since been routed: `src/tools/search.ts → engineLabel` printed a raw hostname and now prints a host this
+ * file shaped, and `src/resolve.ts` matched wrapper bytes with its own copy of the predicate and now asks
+ * `src/snapshot.ts` → `isWrapper` — both closed under `docs/improvements/2026-10-18-code.md` → `C.5`. What
+ * remains is `src/tools/read.ts → pageCacheKey`, which keys on `new URL().href`; it decides no ownership and
+ * costs only a missed hit, so it is left as found. Recorded here rather than left for the next reader to
+ * discover by being bitten — which is how the P1 above happened.
  */
 export function normalizeHost(hostname: string): string {
   return hostname.toLowerCase().replace(/\.$/u, "");
@@ -96,13 +98,19 @@ function parseHttpUrl(url: string): ParsedUrl {
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     throw new GatewayError("blocked_url", `only http(s) urls can be opened in a browser tab (got "${url}")`);
   }
-  if (!parsed.hostname) {
-    throw new GatewayError("blocked_url", `"${url}" has no host to open in a browser tab`);
-  }
   // `new URL()` keeps the FQDN terminator and even decodes `%2e` into one, so `evil.test.` resolves
   // exactly like `evil.test`. Normalising here — the one place a host is read, shared with
   // `engineOwnsUrl` — means the host rules and the address rules below can never disagree about what a
   // url points at, and neither can drift from what the browser actually resolved.
+  //
+  // The empty-host check has to read the labels, not `!parsed.hostname`: `new URL()` accepts `.` and `..`
+  // as hostnames and decodes `%2e` into one, while `normalizeHost` removes only the one terminator it
+  // documents — so all of those reach here as a host made of nothing but dots, naming nothing and
+  // resolving nowhere. `resolve` used to publish such a url as a resolved destination with nothing to
+  // attribute it to (C.6).
+  if (!parsed.hostname.split(".").some((label) => label !== "")) {
+    throw new GatewayError("blocked_url", `"${url}" has no host to open in a browser tab`);
+  }
   return { host: normalizeHost(parsed.hostname) };
 }
 

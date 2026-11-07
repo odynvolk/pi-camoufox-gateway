@@ -71,8 +71,22 @@ function normalizeQuery(query: string): string {
   return query.trim().replace(/\s+/gu, " ").toLocaleLowerCase();
 }
 
+/**
+ * The attribution column, and it has one source.
+ *
+ * No fallback here, and none is missing: `organicResults` refuses a url that is not `^https?://` and
+ * `isChrome` refuses a link whose host does not parse, so every result reaching this line has a host.
+ * The resolve path is held to the same thing rather than trusted with it —
+ * `src/resolve.ts` → `if (destination && resultHost(destination)) {` will not publish a destination that
+ * has no host to print here. `tests/snapshot.test.mjs` measures the parser half rather than trusting this
+ * sentence: every block whose host has no non-empty label is dropped where it is built — `https://./x`, and
+ * the two shapes the `www.` peel leaves behind, `www..` and `www...` — so nothing arrives here needing a
+ * pad. A placeholder is absent on purpose: no result can reach this line without a host, so a fallback would
+ * be a branch no test can enter, and a printed stand-in turns a missing attribution into an attribution-shaped
+ * column — the failure this file exists to make loud would become survivable.
+ */
 function engineLabel(result: SearchResult): string {
-  return result.host || new URL(result.url).hostname;
+  return result.host;
 }
 
 export function formatResults(outcome: {
