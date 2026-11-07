@@ -76,8 +76,10 @@ function normalizeQuery(query: string): string {
  *
  * No fallback here, and none is missing: `organicResults` refuses a url that is not `^https?://` and
  * `isChrome` refuses a link whose host does not parse, so every result reaching this line has a host.
- * `tests/snapshot.test.mjs` measures that rather than trusting this sentence, and names the one shape it
- * does not cover.
+ * The resolve path is held to the same thing rather than trusted with it —
+ * `src/resolve.ts` → `if (destination && resultHost(destination)) {` will not publish a destination that
+ * has no host to print here. `tests/snapshot.test.mjs` measures the parser half rather than trusting this
+ * sentence, and names the one shape it does not cover.
  */
 function engineLabel(result: SearchResult): string {
   return result.host;

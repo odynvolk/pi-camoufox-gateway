@@ -247,22 +247,79 @@ test("every resolution path closes the tab it opened, the two failure paths incl
   }
 });
 
-test("a resolved result's host is the host of the url it shows, and a destination whose host empties is named", async (t) => {
-  // The property the third line of every result depends on. On the parser side an ownerless block is
-  // dropped upstream; on this side the only thing between a malformed gateway-reported destination and a
-  // blank column is a guard in another module, so the property is pinned here rather than inherited.
-  //
-  // `https://./x` is that shape: `new URL()` accepts `.` as a host and `normalizeHost` then empties it,
-  // so `resultHost` legitimately returns "" and the result comes back `resolved: true` with an empty
-  // host. Nothing in `resolve.ts` guards it, so this case records it rather than pretending it is caught.
+test("a destination whose host empties is refused by the client, and the result keeps the wrapper it came from", async (t) => {
+  // The property the third line of every result depends on, end to end. `https://./x` is the shape:
+  // `new URL()` accepts `.` as a hostname, so the parse never fails and `normalizeHost` then empties the
+  // single dot label — `resultHost` legitimately returns "". It used to come back `resolved: true` with
+  // that empty host, cached for ten minutes as a destination (`docs/improvements/2026-10-18-code.md` →
+  // C.6, pinned here until 2026-11-03 and guarded since). The refusal happens in the destination half of
+  // the url guard, so `resolve` sees a thrown error and takes its existing unresolved path.
   const wrapper = "https://www.google.com/goto?url=EMPTY";
   const destination = "https://./x";
-  const { client } = setup(t, { redirects: new Map([[wrapper, destination]]) });
+  const { fake, client } = setup(t, { redirects: new Map([[wrapper, destination]]) });
+  const cache = createCache();
 
-  const [resolved] = await resolveUrls([result(wrapper, { resolvable: true })], { client, userId: "u1" });
+  const [resolved] = await resolveUrls([result(wrapper, { resolvable: true })], { client, userId: "u1", cache });
 
-  assert.equal(resolved.resolved, true, "the gateway reported a destination that is not a wrapper");
-  assert.equal(resolved.url, destination);
-  assert.equal(resolved.host, resultHost(resolved.url), "whatever the host is, it is the host of this url");
-  assert.equal(resolved.host, "", "named, not laundered: an empty host here is net-policy's shape, not a kept-over wrapper host");
+  assert.equal(resolved.resolved, false, "a destination with no host is never published as a destination");
+  assert.equal(resolved.url, wrapper, "the url we were given is the url still being shown");
+  assert.equal(resolved.host, "google.com", "and the host is read off that url, so the column is never blank");
+  assert.equal(resolved.resolvable, true, "nothing revealed where the wrapper goes, so it is still one");
+  assert.match(resolved.resolveError ?? "", /no host to open in a browser tab/u, "the model is told what was wrong with the destination");
+  assert.deepEqual(fake.liveTabs(), [], "the refused tab was closed, as every refused destination is");
+
+  const [cached] = await resolveUrls([result(wrapper, { resolvable: true })], { client, userId: "u1", cache });
+  assert.equal(cached.resolved, false, "a refusal is not turned into a destination by the cache");
+  assert.equal(cached.host, "google.com");
 });
+
+test("a client that reports a destination with no host is answered with a refusal, not a blank attribution column", async () => {
+  // The local invariant, on its own: `src/gateway.ts` → `assertTabUrlAllowed(result.url, this.urlPolicy, "destination")`
+  // is the first line of defence here, and the case above covers that line. This one asks what
+  // `resolveUrls` itself promises, with a client that never refused anything — an older client, a stub, a
+  // future path that skips the check. It must never publish `resolved: true` over a host of `""`: the
+  // third line of every result is `result.host`, and `src/tools/search.ts` → `return result.host;` has no
+  // fallback because nothing may need one.
+  const wrapper = "https://www.google.com/goto?url=EMPTY-BYPASS";
+  const client = reportingClient("https://./x");
+  const cache = createCache();
+  const original = result(wrapper, { resolvable: true });
+
+  const [resolved] = await resolveUrls([original], { client, userId: "u1", cache });
+
+  assert.equal(resolved.resolved, false, "a destination with no host is not a destination we can hand back");
+  assert.equal(resolved.url, wrapper, "the url never moved, so nothing was resolved");
+  assert.notEqual(resolved.host, "", "the one shape the printer cannot survive is the one this line must refuse to publish");
+  assert.equal(resolved.host, resultHost(wrapper), "the host that was there is the host that stays");
+  assert.equal(resolved.resolvable, true, "and it is still flagged as a wrapper, because nothing revealed where it goes");
+  assert.match(resolved.resolveError ?? "", /no host/u, "the refusal says what was wrong with the destination it was given");
+  assert.deepEqual(client.closed, ["t1"], "the tab that reported it was still a tab, and still had to be closed");
+
+  const [cached] = await resolveUrls([result(wrapper, { resolvable: true })], { client, userId: "u1", cache });
+  assert.equal(cached.resolved, false, "the refusal is what the cache holds, not the ownerless destination");
+  assert.equal(cached.url, wrapper, "and it is cached against the url we still show");
+});
+
+/**
+ * A client that reports whatever it is told to, and guards nothing.
+ *
+ * `src/gateway.ts` is where the destination check lives, so a case that has to reach `resolveUrls` with a
+ * destination the real client would have refused cannot go through the real client. Deliberately not the
+ * fake gateway: the fake is honest, and this case needs a gateway that lies.
+ */
+function reportingClient(destination) {
+  const opened = [];
+  const closed = [];
+  return {
+    opened,
+    closed,
+    openTabCount: () => opened.length - closed.length,
+    async openTab({ url }) {
+      opened.push(url);
+      return { tabId: "t1", url: destination };
+    },
+    async closeTabQuietly({ tabId }) {
+      closed.push(tabId);
+    },
+  };
+}

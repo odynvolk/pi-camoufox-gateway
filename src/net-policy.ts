@@ -98,13 +98,19 @@ function parseHttpUrl(url: string): ParsedUrl {
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     throw new GatewayError("blocked_url", `only http(s) urls can be opened in a browser tab (got "${url}")`);
   }
-  if (!parsed.hostname) {
-    throw new GatewayError("blocked_url", `"${url}" has no host to open in a browser tab`);
-  }
   // `new URL()` keeps the FQDN terminator and even decodes `%2e` into one, so `evil.test.` resolves
   // exactly like `evil.test`. Normalising here — the one place a host is read, shared with
   // `engineOwnsUrl` — means the host rules and the address rules below can never disagree about what a
   // url points at, and neither can drift from what the browser actually resolved.
+  //
+  // The empty-host check has to read the labels, not `!parsed.hostname`: `new URL()` accepts `.` and `..`
+  // as hostnames and decodes `%2e` into one, while `normalizeHost` removes only the one terminator it
+  // documents — so all of those reach here as a host made of nothing but dots, naming nothing and
+  // resolving nowhere. `resolve` used to publish such a url as a resolved destination with nothing to
+  // attribute it to (C.6).
+  if (!parsed.hostname.split(".").some((label) => label !== "")) {
+    throw new GatewayError("blocked_url", `"${url}" has no host to open in a browser tab`);
+  }
   return { host: normalizeHost(parsed.hostname) };
 }
 

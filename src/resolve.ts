@@ -98,15 +98,25 @@ export async function resolveUrls(
         signal,
       );
       tab = opened.tabId;
-      if (opened.url && !isWrapper(opened.url)) {
-        cache?.set(key, { url: opened.url, resolved: true }, ttlMs ?? 600_000);
+      // A destination has to be a place: `isWrapper` says it is not the engine's own redirect, and a host
+      // says it is somewhere. `src/gateway.ts` → `assertTabUrlAllowed` already refuses a destination whose
+      // host normalises to nothing, so the second condition should be unreachable — but the promise this
+      // file makes to the printer is its own, and a `resolved: true` over an empty host is a result line
+      // with a blank attribution column (`src/tools/search.ts` → `return result.host;`). Checked here
+      // rather than inherited, and the reason below says which half the gateway's answer broke.
+      const destination = opened.url && !isWrapper(opened.url) ? opened.url : "";
+      if (destination && resultHost(destination)) {
+        cache?.set(key, { url: destination, resolved: true }, ttlMs ?? 600_000);
         // Wherever the url is replaced the host is recomputed in the same statement, so a resolved
         // result never reports the wrapper it came from — and neither does `resolvable`, which means
         // "still a wrapper", not "came from one".
-        return { ...result, url: opened.url, resolved: true, host: resultHost(opened.url), resolvable: false };
+        return { ...result, url: destination, resolved: true, host: resultHost(destination), resolvable: false };
       }
+      const reason = destination
+        ? `the destination "${destination}" has no host to attribute`
+        : "stayed on the redirect wrapper";
       cache?.set(key, { url: result.url, resolved: false }, 30_000);
-      return { ...result, resolved: false, resolveError: "stayed on the redirect wrapper" };
+      return { ...result, resolved: false, resolveError: reason };
     } catch (error) {
       // A failed resolution is not cached: the next call should get a fresh chance.
       return { ...result, resolved: false, resolveError: error instanceof Error ? error.message : String(error) };
