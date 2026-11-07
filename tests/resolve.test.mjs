@@ -137,6 +137,7 @@ test("a resolved wrapper reports the host of its destination, not the wrapper's"
   assert.equal(resolved.resolved, true);
   assert.equal(resolved.url, "https://someone-else.test/deal", "the url is the destination");
   assert.equal(resolved.host, "someone-else.test", "and the host followed it");
+  assert.equal(resolved.resolvable, false, "and it stopped being a wrapper the moment the destination arrived");
 });
 
 test("the cache hit reads the host off the destination it cached, and opens no tab to do it", async (t) => {
@@ -158,6 +159,7 @@ test("the cache hit reads the host off the destination it cached, and opens no t
   assert.equal(cached.resolved, true);
   assert.equal(cached.url, "https://someone-else.test/deal");
   assert.equal(cached.host, "someone-else.test", "the second call reports the host of the url it now shows");
+  assert.equal(cached.resolvable, false, "and the cached answer is not still flagged as needing a navigation");
 });
 
 test("a destination whose url merely contains the bytes google.com/goto? is resolved, not called a wrapper", async (t) => {
@@ -187,6 +189,7 @@ test("an unresolved result keeps its url and its host together, because neither 
   assert.equal(resolved.url, wrapper, "the url never moved");
   assert.equal(resolved.host, original.host, "so neither did the host read off it");
   assert.equal(resolved.host, "google.com", "the wrapper's own host is the truth about the url being shown");
+  assert.equal(resolved.resolvable, true, "and it is still a wrapper — nothing revealed where it goes");
 });
 
 test("every resolution path closes the tab it opened, the two failure paths included", async (t) => {

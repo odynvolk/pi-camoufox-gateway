@@ -77,7 +77,17 @@ export async function resolveUrls(
       const known = cache.get(key) as { url: string; resolved: boolean } | undefined;
       // The cache carries the destination and nothing else, so the host is read off it again here rather
       // than travelling with the value: a cached entry cannot bring back a host some older code kept.
-      if (known) return { ...result, url: known.url, resolved: known.resolved, host: resultHost(known.url) };
+      // `resolvable` goes with the url too: once the destination is in hand, navigating revealed where it
+      // goes, and a result that says otherwise contradicts the field's own description.
+      if (known) {
+        return {
+          ...result,
+          url: known.url,
+          resolved: known.resolved,
+          host: resultHost(known.url),
+          resolvable: known.resolved ? false : result.resolvable,
+        };
+      }
     }
 
     let tab;
@@ -91,8 +101,9 @@ export async function resolveUrls(
       if (opened.url && !isWrapper(opened.url)) {
         cache?.set(key, { url: opened.url, resolved: true }, ttlMs ?? 600_000);
         // Wherever the url is replaced the host is recomputed in the same statement, so a resolved
-        // result never reports the wrapper it came from.
-        return { ...result, url: opened.url, resolved: true, host: resultHost(opened.url) };
+        // result never reports the wrapper it came from — and neither does `resolvable`, which means
+        // "still a wrapper", not "came from one".
+        return { ...result, url: opened.url, resolved: true, host: resultHost(opened.url), resolvable: false };
       }
       cache?.set(key, { url: result.url, resolved: false }, 30_000);
       return { ...result, resolved: false, resolveError: "stayed on the redirect wrapper" };

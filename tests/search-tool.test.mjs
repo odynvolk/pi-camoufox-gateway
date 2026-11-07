@@ -253,7 +253,10 @@ test("resolution is narrated, and only when something is being resolved", async 
 
   const resolving = [];
   const out = await tool.search({ query: "camoufox", resolve: true, onProgress: (note) => resolving.push(note) });
-  const wrapped = out.results.filter((r) => r.resolvable).length;
+  // Read off what resolution reported, not off `resolvable`: a url that was a wrapper going in stops being
+  // one on the way out, so `resolved` (present only where a wrapper was attempted) is the population the
+  // note counted.
+  const wrapped = out.results.filter((r) => r.resolved === true || r.resolved === false).length;
   assert.ok(wrapped > 0, "the default fake SERP has to carry wrapper urls, or this proves nothing");
   assert.ok(resolving.includes(`resolving ${wrapped} urls`), `no count note in ${JSON.stringify(resolving)}`);
 

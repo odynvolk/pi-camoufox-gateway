@@ -308,8 +308,17 @@ npm install
 npm test          # unit + fixture tests, no network access
 npm run typecheck
 npm run test:live # live smoke test against the configured gateway
+npm run test:measure # refuse a committed G.6 reading that no longer matches a fresh measurement
 python3 scripts/record-fixtures.py  # re-record snapshots after a gateway or Google change
 ```
+
+`npm run test:measure` is the one command here that is not part of `npm test`, and that is deliberate: it
+runs the whole suite a second time under a preload to count how often the fake gateway answers a url nobody
+registered, which costs ~15 s a run to check three numbers. It writes nothing — it exits non-zero naming
+every place still stating the old figures (`tests/fixtures/measure/invented-page-count.txt`, the block in
+`docs/improvements/2026-10-18-code.md` → G.6, and the script's own header). Run it after any change to the
+case count, and before publishing. `scripts/measure-unregistered-pages.mjs` without `--check` is the mode
+that refreshes all three.
 
 Requires **Node ≥ 23**: the tests import `src/*.ts` directly, which depends on Node's native type
 stripping. On 20 or 21 you get `ERR_UNKNOWN_FILE_EXTENSION` instead of a test failure.

@@ -408,7 +408,14 @@ function restate(instrument) {
 }
 
 /** Did the check name this place as one that disagrees? */
-const named = (output, place) => output.includes(place);
+/**
+ * A place counts as named only when the check lists it as a disagreement — its path alone on a line.
+ *
+ * A whole-output `includes` would also match the footer, which prints this script's own path inside the
+ * instruction to re-measure. Every assertion about the header below would then pass whether the check had
+ * found the header stale or not — a gate whose positive case is satisfied by the gate's own help text.
+ */
+const named = (output, place) => output.split("\n").some((line) => line.trim() === place);
 
 /** The line the check prints for one figure, so both numbers it cites can be read back rather than assumed. */
 function cited(output, label) {
@@ -419,9 +426,10 @@ function cited(output, label) {
 
 test("case 13: --check refuses the reading the repo committed, names all three places that still state it, and writes nothing", { skip: CHECK_ONLY }, (t) => {
   // The gate's own proof, and the point of the unit: nothing here has been re-measured, so the copy carries
-  // exactly what this repo commits today — 387 cases in all three places — against a suite that says
-  // otherwise. It is run against a copy rather than this tree on purpose: an assertion that the tree *is*
-  // stale would go green the day somebody refreshes it, and a gate that can be satisfied is not a gate.
+  // exactly what this repo commits today — whatever figure the fixture carries right now — against a suite
+  // that says otherwise. It is run against a copy rather than this tree on purpose: an assertion that the
+  // tree *is* stale would go green the day somebody refreshes it, and a gate that can be satisfied is not
+  // a gate.
   const instrument = scratchInstrument(t);
   const committed = readHeadlineFigures(instrument.read(instrument.fixture));
   assert.ok(committed && committed.total > 0, "the committed reading this case plants has no figures to be stale");
@@ -433,8 +441,8 @@ test("case 13: --check refuses the reading the repo committed, names all three p
   for (const place of Object.values(PLACES)) {
     assert.ok(named(run.output, place), `the check did not name ${place} as a place that disagrees:\n${run.output}`);
   }
-  // 387 against the reading just taken — and the two have to be different numbers, or naming one of them
-  // twice would look exactly like the gate working.
+  // The committed figure against the reading just taken — and the two have to be different numbers, or
+  // naming one of them twice would look exactly like the gate working.
   const total = cited(run.output, "cases in the suite");
   assert.equal(total.committed, committed.total, "the figure it named is not the one the copy had committed");
   assert.notEqual(total.measured, total.committed, "it cited the committed figure against itself");

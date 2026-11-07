@@ -76,11 +76,13 @@ interface ParsedUrl {
  * `parseHttpUrl` below was happily calling it `www.google.com`. Every host *this file* compares against a
  * rule comes through here.
  *
- * It is not yet true repo-wide, and saying so is the point: `src/tools/search.ts → engineLabel` prints a
- * raw hostname, `src/resolve.ts` matches wrapper bytes rather than a host, and `src/tools/read.ts →
- * pageCacheKey` keys on `new URL().href`. None of them decides ownership today; all of them would be
- * wrong about a terminated host. Recorded in `docs/improvements/2026-10-18-code.md` rather than left for
- * the next reader to discover by being bitten — which is how the P1 above happened.
+ * It is not yet true repo-wide, and saying so is the point. Two of the three readers first named here have
+ * since been routed: `src/tools/search.ts → engineLabel` printed a raw hostname and now prints a host this
+ * file shaped, and `src/resolve.ts` matched wrapper bytes with its own copy of the predicate and now asks
+ * `src/snapshot.ts` → `isWrapper` — both closed under `docs/improvements/2026-10-18-code.md` → `C.5`. What
+ * remains is `src/tools/read.ts → pageCacheKey`, which keys on `new URL().href`; it decides no ownership and
+ * costs only a missed hit, so it is left as found. Recorded here rather than left for the next reader to
+ * discover by being bitten — which is how the P1 above happened.
  */
 export function normalizeHost(hostname: string): string {
   return hostname.toLowerCase().replace(/\.$/u, "");
