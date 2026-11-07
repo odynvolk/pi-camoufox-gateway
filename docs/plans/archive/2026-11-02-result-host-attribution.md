@@ -394,4 +394,10 @@ exit 0. Where the plan turned out to be wrong, stated so the next plan does not 
 - `SearchResultSchema`'s `host` had no description while its six siblings do. A field with no stated source
   is how this defect stayed plausible, which is why Decision 3 is not polish.
 - The scout subagent assigned to this recon wedged mid-thought (53 tool calls, no progress in 5 minutes) and
-  the recon was done directly; noted so the run history does not read as if it contributed.
+  the recon was done directly instead; noted so the run history does not read as if it contributed. It did
+  eventually return, ~17 minutes later and after both review rounds had closed — 54 tool calls describing
+  `hostFrom`, `resolve.ts:88`'s private regex and the hand-written `host: "example.test"` fixture, all of which
+  this branch had deleted by then. It was **not** ingested: reading a ~190k-token brief of pre-fix code at 89%
+  context buys nothing, and a superseded input is not a second opinion. Its wedging is worth separating from
+  the interesting finding in U5 — that scout's model got lost in a long think, which a timeout would not have
+  fixed; the fix was noticing the tool-use counter had not moved between two checks.
