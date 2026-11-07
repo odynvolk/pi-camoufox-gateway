@@ -330,10 +330,23 @@ test("C.4: the third line of a result names the host we read off its url, and no
   // rather than a url pasted in here — and registering the page is what keeps the case off G.6's
   // invented-page count, the same reason `tests/engines.test.mjs` registers its own two links.
   const prefixes = await engineResultPrefixes();
-  const resultsUrl = `${prefixes.get("google")}${encodeURIComponent(QUERY)}`;
-  const { tool } = setup(t, { pageContents: new Map([[resultsUrl, page]]) });
+  const prefix = prefixes.get("google");
+  assert.ok(prefix, "google never asked to open at a results url, so there is no page to register for it here");
+  const resultsUrl = `${prefix}${encodeURIComponent(QUERY)}`;
+  const { fake, tool } = setup(t, { pageContents: new Map([[resultsUrl, page]]) });
 
   const out = await tool.search({ query: QUERY });
+
+  // Premise zero, the shape `tests/engines.test.mjs` → `an adapter reports only links from the page it was sent to` uses.
+  // Everything below reads `out`, so a case that never reached its own page would still testify — about
+  // the page the fake invented — and which line goes red there depends on how many links that invented
+  // page happens to carry, not on this one.
+  const opened = fake.state.calls.find((call) => call.path === "/tabs/open").body.url;
+  assert.equal(
+    opened,
+    resultsUrl,
+    `google was sent to ${opened}, not to the ${resultsUrl} this test put its page at — whatever printed these lines, it did not read them here`,
+  );
 
   assert.equal(out.engine, "google", "the page registered here is the one google served, or these lines are about something else");
   assert.equal(out.results.length, 1, "the one block on that page is the result under test");
