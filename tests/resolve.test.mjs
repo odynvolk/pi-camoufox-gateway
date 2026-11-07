@@ -352,3 +352,82 @@ function reportingClient(destination) {
     },
   };
 }
+
+test("the same wrapper asked twice inside the negative-cache window says why twice, in the same words", async (t) => {
+  // `resolveError` is on the wire (`src/camoufox-gateway.ts` → `resolveError: Type.Optional(Type.String(`),
+  // and the fresh path always sets it, so a caller that asked once got "stayed on the redirect wrapper" and
+  // a caller that asked again 5 seconds later got nothing — the same wrapper, the same cause, two different
+  // answers. The reason is now recorded with the refusal and replayed from there, which is the only way the
+  // read path can report what was *found* rather than what it would have said.
+  const wrapper = "https://www.google.com/goto?url=STUCK_TWICE";
+  const { fake, client } = setup(t, { resolveFailures: new Set([wrapper]) });
+  const cache = createCache();
+
+  const [first] = await resolveUrls([result(wrapper, { resolvable: true })], { client, userId: "u1", cache });
+  const opens = fake.state.calls.filter((c) => c.method === "POST" && c.path === "/tabs/open").length;
+  const [second] = await resolveUrls([result(wrapper, { resolvable: true })], { client, userId: "u1", cache });
+
+  assert.equal(
+    fake.state.calls.filter((c) => c.method === "POST" && c.path === "/tabs/open").length,
+    opens,
+    "the second ask is the cache answering, which is the whole point of the 30 second window",
+  );
+  assert.equal(first.resolved, false);
+  assert.equal(second.resolved, false);
+  assert.ok(first.resolveError, "a refusal has to arrive with a reason in the first place");
+  assert.equal(second.resolveError, first.resolveError, "and the cached refusal arrives with that same reason");
+  assert.match(second.resolveError, /stayed on the redirect wrapper/u, "replayed from the entry, and it still says what happened");
+});
+
+test("a cached refusal replays the reason that was recorded, not one the read path finds for it", async () => {
+  // The half the wrapper case cannot reach: if the read path simply re-derives a plausible cause, the
+  // wrapper case stays green, because a wrapper *is* what stayed wrapped there. So this refusal has a
+  // different cause — the gateway reported a destination and that destination had no host — and the second
+  // answer has to say that, not the sentence some other branch would have earned.
+  const wrapper = "https://www.google.com/goto?url=EMPTY_REASON";
+  const client = reportingClient("https://./x");
+  const cache = createCache();
+
+  const [first] = await resolveUrls([result(wrapper, { resolvable: true })], { client, userId: "u1", cache });
+  const [second] = await resolveUrls([result(wrapper, { resolvable: true })], { client, userId: "u1", cache });
+
+  assert.equal(first.resolved, false);
+  assert.equal(second.resolved, false);
+  assert.match(first.resolveError ?? "", /no host/u, "the fresh answer names the destination it was given");
+  assert.equal(second.resolveError, first.resolveError, "and the cached answer carries the recorded one");
+  assert.doesNotMatch(
+    second.resolveError ?? "",
+    /stayed on the redirect wrapper/u,
+    "nothing stayed on a wrapper here — the gateway did report a destination, so a read path that guesses says something untrue",
+  );
+  assert.equal(client.opened.length, 1, "and the second ask cost no tab, which is why the reason had to travel");
+});
+
+test("an answer that carried a reason, asked again after the wrapper resolved, carries the destination and no reason", async () => {
+  // The other direction of the same field, and the same mistake the `resolvable` ternary made: a reason is
+  // derived from whether the url moved, so wherever `resolved` is set to true the reason is written too.
+  // Reachable by any caller that retries what it was told was unresolved — which is the natural thing to do
+  // with `resolveError`, and the shape the wire schema invites: `resolved: true` next to "why it stayed
+  // wrapped" is one of those two being a lie.
+  const wrapper = "https://www.google.com/goto?url=RETRIED";
+  const destination = "https://someone-else.test/deal";
+  const [refused] = await resolveUrls([result(wrapper, { resolvable: true })], {
+    client: reportingClient(wrapper),
+    userId: "u1",
+    cache: createCache(),
+  });
+  assert.equal(refused.resolved, false);
+  assert.match(refused.resolveError ?? "", /stayed on the redirect wrapper/u, "the first attempt failed and said so");
+
+  const cache = createCache();
+  const [retried] = await resolveUrls([refused], { client: reportingClient(destination), userId: "u1", cache });
+  const [replayed] = await resolveUrls([refused], { client: reportingClient(destination), userId: "u1", cache });
+
+  for (const [name, answer] of [["the fresh open", retried], ["the cache hit", replayed]]) {
+    assert.equal(answer.resolved, true, `${name} resolved it`);
+    assert.equal(answer.url, destination, `${name} shows the destination`);
+    assert.equal(answer.host, "someone-else.test", `${name} reads the host off that destination`);
+    assert.equal(answer.resolvable, false, `${name} no longer claims the url still needs a navigation`);
+    assert.equal(answer.resolveError, undefined, `${name} has no reason to report, so it reports none`);
+  }
+});

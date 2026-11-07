@@ -28,7 +28,7 @@ export interface ResolveContext {
 export interface ResolvableResult extends SearchResult {
   /** true = we replaced the url; false = we tried and kept the original. */
   resolved?: boolean;
-  /** Short reason when resolution did not happen. */
+  /** Short reason when resolution did not happen — recorded with the refusal, so a cached refusal says the same thing twice. */
   resolveError?: string;
 }
 
@@ -74,11 +74,18 @@ export async function resolveUrls(
 
     const key = `url:${result.url}`;
     if (cache) {
-      const known = cache.get(key) as { url: string; resolved: boolean } | undefined;
-      // The cache carries the destination and nothing else, so the host is read off it again here rather
-      // than travelling with the value: a cached entry cannot bring back a host some older code kept.
-      // `resolvable` goes with the url too: once the destination is in hand, navigating revealed where it
-      // goes, and a result that says otherwise contradicts the field's own description.
+      const known = cache.get(key) as { url: string; resolved: boolean; resolveError?: string } | undefined;
+      // The cache carries the destination and the verdict, and the host is not among them: it is read off the
+      // url again here, so a cached entry cannot bring back a host some older code kept. `resolvable` goes
+      // with the url too — once the destination is in hand, navigating revealed where it goes, and a result
+      // that says otherwise contradicts the field's own description.
+      //
+      // `resolveError` is the one field that does travel, and the test for the exception is which side of the
+      // pair it sits on: it is not derived from the url, it is what the attempt *saw*, and the attempt is not
+      // happening again. So the refusal records its reason and this branch reports it verbatim — an entry
+      // with no recorded reason says nothing, rather than being handed "stayed on the redirect wrapper" by a
+      // branch that never looked. `src/camoufox-gateway.ts` puts the field on the wire, so the two answers a
+      // 30-second window can give have to be one answer.
       if (known) {
         return {
           ...result,
@@ -86,6 +93,7 @@ export async function resolveUrls(
           resolved: known.resolved,
           host: resultHost(known.url),
           resolvable: known.resolved ? false : result.resolvable,
+          resolveError: known.resolved ? undefined : known.resolveError,
         };
       }
     }
@@ -109,13 +117,14 @@ export async function resolveUrls(
         cache?.set(key, { url: destination, resolved: true }, ttlMs ?? 600_000);
         // Wherever the url is replaced the host is recomputed in the same statement, so a resolved
         // result never reports the wrapper it came from — and neither does `resolvable`, which means
-        // "still a wrapper", not "came from one".
-        return { ...result, url: destination, resolved: true, host: resultHost(destination), resolvable: false };
+        // "still a wrapper", not "came from one". Nor does a reason: a caller retrying what it was told
+        // was unresolved must not be handed the old attempt's cause next to `resolved: true`.
+        return { ...result, url: destination, resolved: true, host: resultHost(destination), resolvable: false, resolveError: undefined };
       }
       const reason = destination
         ? `the destination "${destination}" has no host to attribute`
         : "stayed on the redirect wrapper";
-      cache?.set(key, { url: result.url, resolved: false }, 30_000);
+      cache?.set(key, { url: result.url, resolved: false, resolveError: reason }, 30_000);
       return { ...result, resolved: false, resolveError: reason };
     } catch (error) {
       // A failed resolution is not cached: the next call should get a fresh chance.

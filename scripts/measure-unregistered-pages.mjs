@@ -19,7 +19,7 @@
  * 407 — 413 by the time this gate landed, because the gate's own cases count — and the suite was green. A
  * trio that only agrees with itself is not a check. `npm run test:measure` runs the second mode.
  *
- * Today's reading, written to `tests/fixtures/measure/invented-page-count.txt` every time it runs: of 414
+ * Today's reading, written to `tests/fixtures/measure/invented-page-count.txt` every time it runs: of 422
  * cases in the suite, 47 read the fake's invented page and 11 read it as an engine's results page. Those
  * three figures are restated in this comment, in that file, and in
  * `docs/improvements/2026-10-18-code.md` → G.6, and `tests/measure-unregistered-pages.test.mjs` refuses the
