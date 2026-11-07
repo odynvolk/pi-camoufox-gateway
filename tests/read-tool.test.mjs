@@ -1003,3 +1003,283 @@ test("a forced read still cannot smuggle a thin page into the cache", async (t) 
   await tool.read({ url, fresh: true });
   assert.equal(cache.get("read:https://example.com/article:0"), undefined);
 });
+
+// --- a per-call staleness tolerance (`maxAgeMs`) ------------------------------------------------
+
+const MINUTE = 60_000;
+const ARTICLE = "https://example.com/article";
+const ARTICLE_KEY = "read:https://example.com/article:0";
+
+/**
+ * Stage a clock the test turns by hand — the idiom `tests/cache.test.mjs` and `tests/engines.test.mjs`
+ * use, because a minute-scale page age must never be waited for. `src/cache.ts` reads `Date.now()` in
+ * both the read path and `set`, so one saved-and-restored stub dates an entry and ages it.
+ *
+ * A read under a frozen clock has to ask for a page fat enough to settle on the first snapshot: the
+ * settle loop's deadline is read from this same clock, so a thin page would never reach it.
+ */
+function stageClock(t, start) {
+  const realNow = Date.now;
+  let now = start;
+  Date.now = () => now;
+  t.after(() => {
+    Date.now = realNow;
+  });
+  return {
+    /** Move to `ms` after the start. */
+    advance: (ms) => {
+      now = start + ms;
+    },
+  };
+}
+
+test("fresh and maxAgeMs together are refused, naming which of the two to drop", async (t) => {
+  const { fake, tool } = setup(t);
+
+  // They answer one question — now or not, versus how stale is fine — and `fresh` is strictly stronger,
+  // so a call carrying both has a tolerance that does nothing. Refusing beats making it a decoration.
+  await assert.rejects(
+    () => tool.read({ url: ARTICLE, fresh: true, maxAgeMs: 60_000 }),
+    (error) => {
+      assert.equal(error.code, "unsupported");
+      assert.match(error.message, /"fresh"/u, "it has to say which of the two to drop");
+      assert.match(error.message, /"maxAgeMs"/u, "and name both, not just that one is wrong");
+      return true;
+    },
+  );
+
+  assert.equal(opens(fake), 0, "the refusal comes before the navigation, not after it");
+  assert.equal(fake.state.calls.filter((c) => c.path.endsWith("/snapshot")).length, 0, "and no page was read to be refused");
+
+  // `0` again, because the pair guard is the second place a truthiness test could quietly un-pair them:
+  // `if (params.maxAgeMs)` walks straight past the combination it exists to refuse.
+  await assert.rejects(
+    () => tool.read({ url: ARTICLE, fresh: true, maxAgeMs: 0 }),
+    (error) => {
+      assert.equal(error.code, "unsupported", "0 is a tolerance, so it is still the pair that cannot be honoured");
+      return true;
+    },
+  );
+  assert.equal(opens(fake), 0, "and that refusal is placed the same way");
+});
+
+test("a maxAgeMs the age comparison cannot order is refused before the page is fetched", async (t) => {
+  // A stored page whose destination the policy now refuses, sitting under exactly the key these calls
+  // look up: were the tolerance guard placed after the lookup, every assertion below would be refused
+  // for the *wrong* reason (`host_blocked`). That is how a guard ends up behind the fetch it exists to
+  // prevent — the placement is the claim, not the predicate.
+  const { fake, tool, cache } = setup(t, { blockedHosts: ["internal.test"] });
+  cache.set(
+    ARTICLE_KEY,
+    { url: "https://internal.test/report", text: "a stored page", refsCount: 0, truncated: false, totalChars: 11, hasMore: false, nextOffset: 11 },
+    10 * MINUTE,
+  );
+
+  // One case per failure mode: a fraction, a value below the floor, the two unordered numbers, the two
+  // strings a model produces (a plain number formatted, a thousands separator), and a non-number.
+  for (const maxAgeMs of [1.5, -1, NaN, "60000", "1,000", {}, Infinity]) {
+    await assert.rejects(
+      () => tool.read({ url: ARTICLE, maxAgeMs }),
+      (error) => {
+        assert.equal(error.code, "unsupported", `${label(maxAgeMs)} was accepted as a tolerance`);
+        assert.match(error.message, /^"maxAgeMs"/u, "and it names the argument at fault, with the value printed");
+        return true;
+      },
+      label(maxAgeMs),
+    );
+  }
+
+  assert.equal(opens(fake), 0, "neither tab was opened, not even to be refused");
+  assert.equal(fake.state.calls.filter((c) => c.path.endsWith("/snapshot")).length, 0, "and no page was read to say it would not be read");
+
+  // The floor is `0`, and it is the one falsy value the contract accepts: `0` is where "navigate now"
+  // starts, the same floor `offset` keeps because that is where a page starts.
+  const zero = await tool.read({ url: ARTICLE, maxAgeMs: 0 });
+  assert.equal(zero.fromCache, undefined, "0 is a tolerance, not an omitted one");
+  assert.equal(opens(fake), 1, "and the smallest legal tolerance navigates");
+});
+
+test("maxAgeMs of 0 is seen as 0 and navigates past an entry inside its TTL", async (t) => {
+  const { fake, tool, cache } = setup(t);
+  const clock = stageClock(t, 1_000_000);
+  fake.state.snapshotScripts.set(ARTICLE, [page("THE STORED COPY")]);
+
+  const first = await tool.read({ url: ARTICLE });
+  assert.equal(first.text.includes("THE STORED COPY"), true);
+  assert.notEqual(cache.get(ARTICLE_KEY), undefined, "there has to be a live entry to navigate past");
+  const afterFirst = opens(fake);
+
+  // Inside `cache.pageMs`, and nobody asked for `fresh` — so only the tolerance can move this call.
+  clock.advance(4 * MINUTE);
+  fake.state.snapshotScripts.set(ARTICLE, [page("THE REFETCHED COPY")]);
+  const zero = await tool.read({ url: ARTICLE, maxAgeMs: 0 });
+
+  // Truthiness is the mutation this exists for: `if (params.maxAgeMs)` reads 0 as absent, the bound is
+  // dropped, and the four-minute-old page answers a call that said "nothing this old". Asserted through
+  // the navigation, because that is the half the caller pays for and can be observed.
+  assert.equal(opens(fake), afterFirst + 1, "0 has to reach the cache as the number 0");
+  assert.equal(zero.text.includes("THE REFETCHED COPY"), true, "and the page it fetches is the answer");
+  assert.equal(zero.fromCache, undefined, "a navigated page must not be labelled as cached");
+
+  // The other half: after the lookup misses, `deps.cache.run` answers from its *own* internal hit. A
+  // bound applied to the lookup and forgotten in `run` is betrayed right here — and this is the case
+  // that keeps U1's `ReadBound` on `run` in place.
+  clock.advance(MINUTE);
+  const again = await tool.read({ url: ARTICLE, maxAgeMs: 0 });
+  assert.equal(opens(fake), afterFirst + 2, "every 0 tolerance navigates, not only the first");
+  assert.equal(again.fromCache, undefined);
+});
+
+test("a cached page inside the tolerance costs the gateway nothing", async (t) => {
+  const { fake, tool } = setup(t);
+  const clock = stageClock(t, 1_000_000);
+
+  const first = await tool.read({ url: ARTICLE });
+  const afterFirst = opens(fake);
+  clock.advance(4 * MINUTE);
+  const second = await tool.read({ url: ARTICLE, maxAgeMs: 5 * MINUTE });
+
+  assert.equal(afterFirst, 1, "the first read must actually have navigated, or this proves nothing");
+  assert.equal(opens(fake), afterFirst, "a cached page must not open a tab");
+  assert.equal(second.fromCache, true);
+  assert.equal(second.text, first.text);
+});
+
+test("a page over the tolerance costs exactly one navigation, and the next read at it costs none", async (t) => {
+  const { fake, tool } = setup(t);
+  const clock = stageClock(t, 1_000_000);
+  fake.state.snapshotScripts.set(ARTICLE, [page("THE OLDER COPY")]);
+
+  const first = await tool.read({ url: ARTICLE });
+  assert.equal(first.text.includes("THE OLDER COPY"), true, "the entry the tolerance is about to reject");
+  const afterFirst = opens(fake);
+
+  clock.advance(4 * MINUTE);
+  fake.state.snapshotScripts.set(ARTICLE, [page("THE NEWER COPY")]);
+  const over = await tool.read({ url: ARTICLE, maxAgeMs: MINUTE });
+  assert.equal(opens(fake), afterFirst + 1, "over tolerance, so exactly one navigation — not zero, not two");
+  assert.equal(over.text.includes("THE NEWER COPY"), true, "and the answer is the page it went and got, not the one it skipped");
+
+  // The re-fetch replaced the entry, so the tolerance is not a permanent miss on a page that is now
+  // young. A bound that put the page permanently out of reach would cost this third read a tab.
+  const afterSecond = opens(fake);
+  const again = await tool.read({ url: ARTICLE, maxAgeMs: MINUTE });
+  assert.equal(opens(fake), afterSecond, "the same tolerance now hits, because what it refused was replaced");
+  assert.equal(again.fromCache, true);
+});
+
+test("a tolerance above cache.pageMs is accepted, and behaves like the default", async (t) => {
+  const { fake, tool, config } = setup(t);
+  const clock = stageClock(t, 1_000_000);
+  const pageMs = config.cache.pageMs;
+
+  await tool.read({ url: ARTICLE });
+  const afterFirst = opens(fake);
+  // Still inside the TTL: `pageMs` stays the outer bound on trust, a tolerance only ever asks for less.
+  clock.advance(pageMs - 30_000);
+
+  const out = await tool.read({ url: ARTICLE, maxAgeMs: pageMs * 3 });
+
+  // Not refused, unlike `search.maxResults` above the page width: that came back clamped, so it was a
+  // question the code could not answer. Every unexpired entry qualifying here *is* today's behaviour,
+  // so the ask is honourable and refusing it would turn down a request we can carry out.
+  assert.equal(opens(fake), afterFirst, "accepted, and honoured as a hit");
+  assert.equal(out.fromCache, true);
+});
+
+test("a page the tolerance accepted is still refused when the policy has since narrowed", async (t) => {
+  const finalUrl = "https://internal.test/report";
+  const { fake, tool, config } = setup(t, { redirects: new Map([["https://public.test/r", finalUrl]]) });
+  const clock = stageClock(t, 1_000_000);
+
+  const first = await tool.read({ url: "https://public.test/r" });
+  assert.equal(first.url, finalUrl);
+
+  // Same case as the plain cache hit above, with a tolerance in play: a generous `maxAgeMs` bounds
+  // *which* stored page may answer, it cannot re-authorise the one it picked.
+  config.blockedHosts = ["internal.test"];
+  clock.advance(4 * MINUTE);
+
+  const error = await tool.read({ url: "https://public.test/r", maxAgeMs: 9 * MINUTE }).catch((e) => e);
+
+  assert.equal(error.code, "host_blocked", "the new path may not walk around the destination guard");
+  assert.equal(error.details.stage, "destination", "and the refusal still says it was the destination");
+  assert.equal(opens(fake), 1, "the cache was hit, and refused, before any navigation");
+});
+
+test("fresh:false alongside a tolerance is a working call, not an over-refusal", async (t) => {
+  const { fake, tool } = setup(t);
+  const clock = stageClock(t, 1_000_000);
+
+  await tool.read({ url: ARTICLE, fresh: false });
+  const afterFirst = opens(fake);
+  clock.advance(2 * MINUTE);
+
+  const out = await tool.read({ url: ARTICLE, fresh: false, maxAgeMs: 5 * MINUTE });
+
+  // The pair guard fires on `fresh === true` only. An explicit `false` is the caller saying *not now*,
+  // which is exactly the call a tolerance belongs on; refusing it is a guard that answers a question
+  // nobody asked.
+  assert.equal(out.fromCache, true, "an explicit false must not be read as a freshness ask");
+  assert.equal(opens(fake), afterFirst, "and it must not cost a navigation");
+});
+
+test("a tolerance is inert where there is no cache key", async (t) => {
+  const { fake, tool, cache } = setup(t);
+  stageClock(t, 1_000_000);
+
+  // `schema` needs refs that die at the next navigation and `waitFor` is a question a page fetched
+  // earlier cannot answer, so neither has a key: both navigate whatever the tolerance says, and neither
+  // writes anything a plain read would not have written.
+  await tool.read({ url: ARTICLE, waitFor: "#nothing", maxAgeMs: 5 * MINUTE });
+  await tool.read({ url: ARTICLE, schema: { type: "object", properties: { title: { type: "string", "x-ref": "e1" } } }, maxAgeMs: 5 * MINUTE });
+
+  assert.equal(opens(fake), 2, "both navigate, and neither errors on the tolerance it was given");
+  assert.equal(cache.size, 0, "and neither put anything in the cache");
+
+  await tool.read({ url: ARTICLE });
+  assert.equal(opens(fake), 3);
+  const waited = await tool.read({ url: ARTICLE, waitFor: "#nothing", maxAgeMs: 60 * MINUTE });
+  assert.equal(opens(fake), 4, "a tolerance may not reach into the cache on a path that has no key");
+  assert.equal(waited.fromCache, undefined);
+});
+
+test("two reads under a tolerance still share one navigation", async (t) => {
+  const { fake, tool } = setup(t);
+
+  const [first, second] = await Promise.all([
+    tool.read({ url: ARTICLE, maxAgeMs: 5 * MINUTE }),
+    tool.read({ url: ARTICLE, maxAgeMs: 5 * MINUTE }),
+  ]);
+
+  // pi issues tool calls in parallel, and one shared page must stay one shared page however each
+  // caller feels about its age.
+  assert.equal(opens(fake), 1, "a tolerance is a filter on the answer, not a reason to fetch twice");
+  assert.equal(first.text.includes("content"), true);
+  assert.equal(second.text.includes("content"), true);
+});
+
+test("a re-fetch the tolerance forced can fail without taking the stale page away", async (t) => {
+  // The ADR's payoff, tested rather than asserted: skipping left the entry in place, so a gateway that
+  // is down cannot destroy — by way of one caller's tight ask — a page a looser ask could still read.
+  // Had the tight bound *deleted* it, the last two assertions would be a second navigation and a refusal.
+  const { fake, tool } = setup(t);
+  const clock = stageClock(t, 1_000_000);
+  fake.state.snapshotScripts.set(ARTICLE, [page("STILL READABLE")]);
+
+  const first = await tool.read({ url: ARTICLE });
+  assert.equal(first.text.includes("STILL READABLE"), true, "the page a looser tolerance still has a use for");
+  clock.advance(4 * MINUTE);
+
+  fake.state.failures.set("POST /tabs/open", 1);
+  const error = await tool.read({ url: ARTICLE, maxAgeMs: MINUTE }).catch((e) => e);
+  assert.equal(error.code, "gateway_error", "the failed re-fetch surfaces as the usual gateway error");
+  const afterFailure = opens(fake);
+
+  fake.state.snapshotScripts.set(ARTICLE, [page("NEVER FETCHED")]);
+  const loose = await tool.read({ url: ARTICLE, maxAgeMs: 9 * MINUTE });
+
+  assert.equal(loose.fromCache, true, "the skipped page survived the fetch that never landed");
+  assert.equal(loose.text.includes("STILL READABLE"), true);
+  assert.equal(opens(fake), afterFailure, "and nothing was fetched to get it");
+});

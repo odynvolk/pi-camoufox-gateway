@@ -35,6 +35,12 @@ export interface ReadParams {
   schema?: Record<string, unknown>;
   /** Ignore the page cache and navigate. Otherwise a page is served from it for `cache.pageMs`. */
   fresh?: boolean;
+  /**
+   * Accept a stored page this young; older than this, navigate. Whole milliseconds, `0` or more, and
+   * `0` means navigate — `fresh` spelled in the unit every other duration here speaks. Refused
+   * alongside `fresh`, which answers the same question more strongly.
+   */
+  maxAgeMs?: number;
   signal?: AbortSignal;
   /** What this read is doing right now, for the tool UI. */
   onProgress?: (note: string) => void;
@@ -180,6 +186,27 @@ function assertOffsetUsable(offset: number): void {
     "unsupported",
     `"offset" must be a whole number of characters counting from 0, got ${describeArgument(offset)} — ` +
       "continue from the nextOffset a previous read returned",
+  );
+}
+
+/**
+ * Refuse a `maxAgeMs` the age comparison cannot order, before the lookup it was meant to bound.
+ *
+ * The same arithmetic failure `maxChars` paid for: an unordered value does not fail the comparison, it
+ * quietly passes it. `"1,000"` — a model formatting a thousands separator, and this repo has no request
+ * validation to stop it — would have been read as "no bound" by one shape of guard and "0" by another,
+ * which is a freshness answer decided by a typo.
+ *
+ * `0` is legal, because that is where "navigate now" starts — the floor `assertOffsetUsable` keeps for
+ * the same reason, that the value is a count rather than a budget.
+ */
+function assertMaxAgeUsable(maxAgeMs: number): void {
+  if (isCountUsable(maxAgeMs, 0)) return;
+
+  throw new GatewayError(
+    "unsupported",
+    `"maxAgeMs" must be a whole number of milliseconds, 0 or more, got ${describeArgument(maxAgeMs)} — ` +
+      "omit it to take any unexpired page, or use fresh to navigate",
   );
 }
 
@@ -429,6 +456,25 @@ export function readTool(deps: ReadToolDeps) {
     // Before anything is fetched or cached: a schema with no refs to fill is not a question a page —
     // fresh or stored — could answer.
     if (params.schema) assertSchemaUsable(params.schema);
+    // The same placement, for the same reason: a tolerance the comparison cannot order is not a bound,
+    // and one that cannot be honoured has no answer worth a lookup or a round trip.
+    if (params.maxAgeMs !== undefined) {
+      // `!== undefined`, never truthiness — `0` is legal and falsy, and reading it as absent would send
+      // the one case invented to be deterministic back to being decided by timing.
+      assertMaxAgeUsable(params.maxAgeMs);
+      // `=== true` only, so `fresh: false` next to a tolerance stays the working call it should be. The
+      // two answer one question and `fresh` is strictly stronger, so accepting both makes the tolerance a
+      // decoration; naming both is what makes the refusal the caller can act on.
+      if (params.fresh === true) {
+        throw new GatewayError(
+          "unsupported",
+          '"fresh" and "maxAgeMs" answer the same question — drop one: "fresh" always navigates, "maxAgeMs" '
+            + "navigates only past its tolerance",
+        );
+      }
+    }
+    // One bound, built once, for both readers of the entry: the lookup below and `run`'s own internal hit.
+    const bound = params.maxAgeMs !== undefined ? { maxAgeMs: params.maxAgeMs } : undefined;
 
     // A stored snapshot can only answer a plain read. Extraction needs refs, which die at the next
     // navigation, and a `waitFor` is a question a page fetched earlier cannot answer. Neither reads
@@ -442,7 +488,7 @@ export function readTool(deps: ReadToolDeps) {
     // older page back. The common late finisher is a page still growing at its deadline, and that one
     // is thin by construction, so it writes nothing.
     if (key && !params.fresh) {
-      const stored = deps.cache.get(key) as SnapshotResult | undefined;
+      const stored = deps.cache.get(key, bound) as SnapshotResult | undefined;
       if (stored) {
         // Re-checked, not trusted. `blockedHosts` and `allowPrivateHosts` are config the user can
         // change between two calls; the stored page cannot have changed with them, so it is measured
@@ -489,7 +535,9 @@ export function readTool(deps: ReadToolDeps) {
           return page.snapshot;
         },
         config.cache.pageMs,
-        { shouldStore: (value) => storable(value as SnapshotResult) },
+        // The bound rides into `run` too, or the ask is betrayed: the lookup above has just missed, and
+        // `run` would answer from its own internal hit with the very page this caller said was too old.
+        { shouldStore: (value) => storable(value as SnapshotResult), ...bound },
       )) as SnapshotResult;
       return outcomeFrom(snapshot, params, { fallbackUrl, ...meta, fromCache: false });
     }
