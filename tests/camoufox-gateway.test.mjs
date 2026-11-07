@@ -18,7 +18,8 @@ import { Check } from "typebox/value";
 import registerExtension from "../src/camoufox-gateway.ts";
 import { DEFAULT_CONFIG, ENGINE_NAMES, MAX_SEARCH_RESULTS } from "../src/config.ts";
 import { describeAge, READ_DESCRIPTION, SEARCH_DESCRIPTION } from "../src/extension.ts";
-import { withFakeGateway } from "./helpers/fake_gateway.mjs";
+import { withFakeGateway, opens } from "./helpers/fake_gateway.mjs";
+import { stageClock } from "./helpers/clock.mjs";
 
 function stubPi() {
   const tools = [];
@@ -751,31 +752,6 @@ test("a search names the engine it is trying, before it tries it", async (t) => 
 // --- what a cached page says about its age ------------------------------------------------------
 
 const MINUTE = 60_000;
-
-/**
- * A clock the test turns by hand, so a page can be four minutes old without anyone waiting.
- *
- * The same idiom `tests/read-tool.test.mjs` uses for the same reason. The cache is inside the extension
- * here and cannot be seeded from outside, so the clock is the only way to date an entry.
- */
-function stageClock(t, start) {
-  const realNow = Date.now;
-  let now = start;
-  Date.now = () => now;
-  t.after(() => {
-    Date.now = realNow;
-  });
-  return {
-    advance: (ms) => {
-      now = start + ms;
-    },
-  };
-}
-
-/** Navigation is the cost being measured: one tab open per read the cache did not answer. */
-function opens(fake) {
-  return fake.state.calls.filter((c) => c.method === "POST" && c.path === "/tabs/open").length;
-}
 
 test("a cached read tells the model the page's age, and the tolerance it met", async (t) => {
   withConfigFile(t, { gatewayUrl: "http://gateway.test:9377" });

@@ -3,7 +3,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { withFakeGateway } from "./helpers/fake_gateway.mjs";
+import { withFakeGateway, opens } from "./helpers/fake_gateway.mjs";
+import { stageClock } from "./helpers/clock.mjs";
 import { testConfig } from "./helpers/config.mjs";
 import { createGatewayClient } from "../src/gateway.ts";
 import { createCache } from "../src/cache.ts";
@@ -791,11 +792,6 @@ test("the poll interval never outlasts the settle budget", async (t) => {
 
 // --- the page cache (`cache.pageMs` had no page-cache consumer at all) -------------------------
 
-/** Navigation is the cost: one tab open per read that is not served from cache. */
-function opens(fake) {
-  return fake.state.calls.filter((c) => c.method === "POST" && c.path === "/tabs/open").length;
-}
-
 /**
  * A page a read will actually keep.
  *
@@ -1009,29 +1005,6 @@ test("a forced read still cannot smuggle a thin page into the cache", async (t) 
 const MINUTE = 60_000;
 const ARTICLE = "https://example.com/article";
 const ARTICLE_KEY = "read:https://example.com/article:0";
-
-/**
- * Stage a clock the test turns by hand — the idiom `tests/cache.test.mjs` and `tests/engines.test.mjs`
- * use, because a minute-scale page age must never be waited for. `src/cache.ts` reads `Date.now()` in
- * both the read path and `set`, so one saved-and-restored stub dates an entry and ages it.
- *
- * A read under a frozen clock has to ask for a page fat enough to settle on the first snapshot: the
- * settle loop's deadline is read from this same clock, so a thin page would never reach it.
- */
-function stageClock(t, start) {
-  const realNow = Date.now;
-  let now = start;
-  Date.now = () => now;
-  t.after(() => {
-    Date.now = realNow;
-  });
-  return {
-    /** Move to `ms` after the start. */
-    advance: (ms) => {
-      now = start + ms;
-    },
-  };
-}
 
 test("fresh and maxAgeMs together are refused, naming which of the two to drop", async (t) => {
   const { fake, tool } = setup(t);

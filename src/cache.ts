@@ -37,8 +37,9 @@ export interface CachedEntry<T> {
 }
 
 export interface Cache<T> {
-  get(key: string, bound?: ReadBound): T | undefined;
-  /** The only reader that reports how old what it returned is. Never deletes a within-TTL entry. */
+  /** The plain read: no bound, no age. A caller that needs either wants `peek`. */
+  get(key: string): T | undefined;
+  /** The reader that may bound a read by age, and the only one that reports how old what it returned is. Never deletes a within-TTL entry. */
   peek(key: string, bound?: ReadBound): CachedEntry<T> | undefined;
   set(key: string, value: T, ttlMs?: number): void;
   /** One in-flight producer per key. Failures are never stored. */
@@ -70,8 +71,8 @@ export function createCache<T = unknown>(): Cache<T> {
   }
 
   return {
-    get(key: string, bound?: ReadBound): T | undefined {
-      return this.peek(key, bound)?.value;
+    get(key: string): T | undefined {
+      return this.peek(key)?.value;
     },
 
     peek(key: string, bound?: ReadBound): CachedEntry<T> | undefined {

@@ -13,6 +13,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { createCache, MAX_ENTRIES } from "../src/cache.ts";
+import { stageClock } from "./helpers/clock.mjs";
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -103,29 +104,6 @@ test("a value shouldStore rejects does not block the next producer for that key"
   assert.deepEqual(cache.get("k"), { v: 2 });
 });
 
-/**
- * Stage a clock the test turns by hand, the way `tests/engines.test.mjs` does. Restoration is the
- * harness's job, because a leaked stub would make every TTL assertion in this file lie.
- */
-function stageClock(t, start) {
-  const realNow = Date.now;
-  let now = start;
-  Date.now = () => now;
-  t.after(() => {
-    Date.now = realNow;
-  });
-  return {
-    /** Move to `ms` after the start. */
-    advance: (ms) => {
-      now = start + ms;
-    },
-    /** Move anywhere, including backwards — which is the case a clock cannot promise not to do. */
-    setTo: (ms) => {
-      now = ms;
-    },
-  };
-}
-
 const MINUTE = 60_000;
 
 test("peek reports how old the entry it returned is", (t) => {
@@ -149,8 +127,8 @@ test("a tight bound rejects an entry and leaves it for a looser reader", (t) => 
 
   // Two calls on one cache — the ADR's whole assertion. An implementation that deletes what its own
   // bound rejected passes the first line and fails the second.
-  assert.equal(cache.get("page", { maxAgeMs: MINUTE }), undefined, "over tolerance, so not this caller's answer");
-  assert.equal(cache.get("page", { maxAgeMs: 5 * MINUTE }), "value", "the entry is still there to be read");
+  assert.equal(cache.peek("page", { maxAgeMs: MINUTE })?.value, undefined, "over tolerance, so not this caller's answer");
+  assert.equal(cache.peek("page", { maxAgeMs: 5 * MINUTE })?.value, "value", "the entry is still there to be read");
 });
 
 test("an over-tolerance entry is skipped, not evicted; an expired one still goes", (t) => {
@@ -162,7 +140,7 @@ test("an over-tolerance entry is skipped, not evicted; an expired one still goes
   clock.advance(2 * MINUTE);
 
   assert.equal(cache.get("expired"), undefined);
-  assert.equal(cache.get("stale", { maxAgeMs: MINUTE }), undefined);
+  assert.equal(cache.peek("stale", { maxAgeMs: MINUTE })?.value, undefined);
 
   // The expired key is gone and the merely-stale one is held, which is the pair the ADR draws: expiry
   // is the cache's own rule and evicts, a caller's tolerance is not and does not.
@@ -177,7 +155,7 @@ test("maxAgeMs of 0 never serves, not even an entry stored in the same milliseco
 
   // The premise: nothing advanced the clock, so the entry is as young as an entry can be.
   assert.equal(cache.peek("page")?.ageMs, 0);
-  assert.equal(cache.get("page", { maxAgeMs: 0 }), undefined, "0 means navigate, so never a hit");
+  assert.equal(cache.peek("page", { maxAgeMs: 0 })?.value, undefined, "0 means navigate, so never a hit");
 });
 
 test("run honours the bound on its own hit and stores what it produced", async (t) => {
@@ -247,7 +225,7 @@ test("an entry stamped in the future reports age 0, not a negative", (t) => {
   clock.setTo(1_000_000); // an hour behind the stamp it is being read against
 
   assert.equal(cache.peek("page")?.ageMs, 0, "an age cannot go below the moment it is asked at");
-  assert.equal(cache.get("page", { maxAgeMs: 0 }), undefined, "so it cannot sail through the tightest bound");
+  assert.equal(cache.peek("page", { maxAgeMs: 0 })?.value, undefined, "so it cannot sail through the tightest bound");
 });
 
 test("an unbounded get and run behave exactly as they always did", async (t) => {

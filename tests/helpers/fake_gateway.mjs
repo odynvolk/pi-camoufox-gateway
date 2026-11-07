@@ -361,6 +361,16 @@ export function createFakeGateway(options = {}) {
   };
 }
 
+/**
+ * How many times this fake was asked to navigate — the cost a cached read is supposed to avoid.
+ *
+ * One `POST /tabs/open` per read the cache did not answer, so a test about cache hits counts these
+ * rather than trusting the snapshot it got back.
+ */
+export function opens(fake) {
+  return fake.state.calls.filter((c) => c.method === "POST" && c.path === "/tabs/open").length;
+}
+
 /** Install the fake gateway on globalThis.fetch for the duration of a test. */
 export function withFakeGateway(t, options = {}) {
   const { assertNoTabLeak = true, ...gatewayOptions } = options;
