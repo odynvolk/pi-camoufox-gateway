@@ -71,7 +71,7 @@ Searches through the browser and returns ranked titles, urls and snippets.
 - `resolve: true` turns Google's `google.com/goto?url=…` wrappers into final urls. It costs one
   extra page load per result and runs at most three tabs at a time, so it is off by default.
 
-### `camoufox_read(url, maxChars?, offset?, waitFor?, schema?, fresh?)`
+### `camoufox_read(url, maxChars?, offset?, waitFor?, schema?, fresh?, maxAgeMs?)`
 
 Loads a page in the browser and returns its text.
 
@@ -118,7 +118,16 @@ Loads a page in the browser and returns its text.
   the same `offset` comes back without opening a tab, and the output says it was served from cache.
   `maxChars` does not split the cache — it is a slice of a page already held — but `offset` does,
   because the gateway returns a window rather than a page. Requests carrying `waitFor` or `schema`
-  always navigate: a stored snapshot can neither confirm a selector nor supply live refs.
+  always navigate: a stored snapshot can neither confirm a selector nor supply live refs. The cache is
+  an in-process map that lives and dies with the pi session, so a `maxAgeMs` longer than the session
+  holding it is inert — it is never reached, and never refused for being long.
+- **`maxAgeMs` answers the other freshness question — how old is acceptable — where `fresh` answers now
+  or not.** A stored page younger than it answers with no tab opened, an older one is re-fetched and the
+  output says so and names the age that cost it, and the page the tolerance rejected is left in place, so
+  a looser ask afterwards still gets it. `0` means navigate, which is what `fresh` does. The two are
+  refused together, because `fresh` is strictly stronger and accepting both makes the tolerance a
+  decoration. It asks for *less* than the TTL, never more: `cache.pageMs` stays the outer bound on how
+  long anything is trusted.
 - **A cached page is re-checked on the way out**, against the same destination rule that ran when it
   was stored. Narrowing `blockedHosts` or turning `allowPrivateHosts` off takes effect on the next
   read, not when the entry expires. Thin pages are never stored, so an unfinished render cannot

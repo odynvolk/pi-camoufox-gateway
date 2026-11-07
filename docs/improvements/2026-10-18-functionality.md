@@ -20,6 +20,13 @@ not ship: it closed on measurement, and what closed it is written up under "Deli
 instead of being deleted with it, because the sentence it was founded on is still upstream and still
 true-sounding.
 
+2.6 is the one shipped item that stayed, and it stayed deliberately: closed **in place** — heading, label and
+prose kept, `### X.n — closed: …`, the form
+[2026-10-18-code.md](./2026-10-18-code.md) uses for every correctness item. Deleting it would have thrown
+away the two things a reader cannot recover from the code — why the tolerance is milliseconds and not Jina's
+seconds, and why the age is printed on a hit nobody asked for — and 2.7 below is filed under its name, so an
+item with a successor citing it cannot be deleted and stay readable. Tier 2 now has no 2.4 and a closed 2.6.
+
 Evidence base: a full functional profile of `src/`, plus the gateway's own recorded OpenAPI
 contract. "Reachable" below means *the gateway does this today and we simply don't call it* — a
 stronger claim than "needs upstream work", and worth keeping the two separate.
@@ -201,18 +208,79 @@ reduces turn count."
 
 ---
 
-### 2.6 Say how stale is acceptable, not whether to refresh
+### 2.6 — closed: Say how stale is acceptable, not whether to refresh
 
-The one half of the per-call cache bypass that did not ship. `fresh: true` answers *now or not*; what
-research actually asks is *how much staleness is fine* — 30 minutes of SERP age is right for a survey
-question and wrong for "what's the latest", and a boolean cannot say which was meant.
+Shipped on `feat/read-cache-staleness-tolerance` (2026-11-07) as `maxAgeMs` on `camoufox_read`
+(`docs/plans/2026-11-07-read-cache-staleness-tolerance.md`). It was the one half of the per-call cache
+bypass that did not ship: `fresh: true` answers *now or not*; what research actually asks is *how much
+staleness is fine* — 30 minutes of SERP age is right for a survey question and wrong for "what's the
+latest", and a boolean cannot say which was meant.
 
 Prior art: Jina expresses freshness as `x-cache-tolerance: <seconds>` — staleness tolerance rather
 than a boolean — with `x-no-cache` for the hard override. `fresh` is the `x-no-cache` half; the
-tolerance half is this.
+tolerance half is this, and it is milliseconds rather than Jina's seconds: milliseconds is what every other
+duration here speaks, and a lone seconds-valued knob is how a misread `30` becomes 30 ms.
 
-**Scope:** small, and it is widening an existing param rather than adding one. **Reachable:** purely
-client-side.
+**The parameter was the last part, and the item was blocked on a question nothing could answer.**
+`src/cache.ts` → `interface Entry<T>` dated an entry by its expiry and nothing else, so "how old is this
+page?" had no source: `cache.pageMs` says when to stop trusting an entry, and nothing recorded when it was
+fetched. The feature is one field and one comparison — `storedAt` written only where an entry is stored, and
+`src/cache.ts` → `const ageMs = Math.max(0, now - entry.storedAt);` applied in the read path, where
+`expiresAt` is applied today. The clamp is the clock-that-stepped-backwards case: a negative age passes
+every bound and gets printed to a model as a fact about a page nobody can place.
+
+**Age is a bound, not an eviction** — `docs/adr/0002-staleness-is-a-read-bound-not-an-eviction.md`. An
+expired entry is deleted; an over-tolerance one is skipped and left where it is, because deleting is a
+mutation triggered by *one caller's* tight ask: the page a looser ask could still have used is gone, and the
+re-fetch it forced can fail. That property is measured, not claimed —
+`tests/read-tool.test.mjs` → `a re-fetch the tolerance forced can fail without taking the stale page away`,
+with `tests/cache.test.mjs` → `a tight bound rejects an entry and leaves it for a looser reader` on the cache
+itself.
+
+**Two asks are refused rather than rounded**, both before anything is fetched, code `unsupported`, in the
+`maxChars` idiom: `fresh` alongside a tolerance
+(`tests/read-tool.test.mjs` → `fresh and maxAgeMs together are refused, naming which of the two to drop`),
+and anything the age comparison cannot order — `1.5`, `-1`, `NaN`, `"60000"`, `"1,000"`, `{}`, `Infinity`
+(`a maxAgeMs the age comparison cannot order is refused before the page is fetched`). `0` is legal and means
+navigate, and is tested as `0` and not as absent
+(`maxAgeMs of 0 is seen as 0 and navigates past an entry inside its TTL`) — a truthiness test reads the one
+deterministic case as "no bound" and hands it back to timing. A tolerance above `cache.pageMs` is **accepted
+and behaves as the default does**, which is the opposite of `search.maxResults`: there every call came back
+clamped, here every unexpired entry qualifies, so refusing it would turn down an ask the code carries out.
+
+**The claim a model reads is the half that makes the knob usable.** Every cache hit names the page's age,
+whether or not anyone asked (`tests/camoufox-gateway.test.mjs` →
+`a cached read tells the model the page's age, and the tolerance it met`), and an entry the tolerance threw
+away gets its own note naming its age — the only thing that separates "nothing was stored" from "your
+tolerance cost you a navigation"
+(`a re-fetch the tolerance forced says so, where a cold cache says nothing`). The parameter is declared and
+round-tripped rather than assumed:
+`tests/camoufox-gateway.test.mjs` →
+`a maxAgeMs sent as the schema declares it is forwarded, and comes back on the result`.
+
+**Scope:** small, as filed — one integer parameter on the tool that already held the page, one field and one
+comparison in the cache beneath it. **Reachable:** purely client-side, as filed; it is client-side done.
+Per-call only: there is no config key, because a default tolerance would be a policy the caller did not ask
+for. Its sibling is **2.7** below, and having a successor citing its name is why this text stayed.
+
+### 2.7 Say how stale a SERP is acceptable — the same half, on the other tool
+
+2.6 was deliberately kept out of `search`. `src/tools/search.ts` → `const cached = cache.get(key);` reads a
+SERP off the same cache on its own TTL — `cache.serpMs`, 30 min by default — and reports its own `fromCache`,
+but `search` has **no `fresh`**. A tolerance there would be a freshness knob whose sibling does not exist,
+and the pair is what makes either one meaningful: `fresh` is how a caller says *now*, and a tolerance
+standing alone would be the only freshness word the tool has, answering a question nobody asked it.
+
+**The cache side is already generic, so the work is on the tool side.**
+`src/cache.ts` → `export interface ReadBound` is optional on `get`, `peek` and `run`, which is how `read`
+got a bound without `search` or `resolve` changing behaviour —
+`tests/cache.test.mjs` → `an unbounded get and run behave exactly as they always did` is that tripwire. What
+is not done is `read`'s half of it: the guard, the pair refusal, the age in the note, and a decision about
+what `fresh` even means for an engine page — a SERP is not a document, and re-navigating one is how this repo
+met Google's consent wall.
+
+Filed rather than shipped quietly or dropped, which is exactly how this item came to exist at all: 2.6 was
+the unshipped half of a deleted 2.4.
 
 ## Tier 3 — record it, don't build it soon
 

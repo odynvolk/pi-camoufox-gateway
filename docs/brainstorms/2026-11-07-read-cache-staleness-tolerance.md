@@ -9,7 +9,8 @@ tags: [read, cache, freshness, context-budget, item-2.6]
 
 # How stale is acceptable
 
-Item [2.6](../improvements/2026-10-18-functionality.md#26-say-how-stale-is-acceptable-not-whether-to-refresh)
+Item
+[2.6](../improvements/2026-10-18-functionality.md#26--closed-say-how-stale-is-acceptable-not-whether-to-refresh)
 of the functionality ledger: the unshipped half of the per-call cache bypass. `fresh: true` is the
 `x-no-cache` half of Jina's pair and shipped; `x-cache-tolerance: <seconds>` — *how much staleness is
 fine* — did not. A boolean answers **now or not**. Research asks the other question: thirty minutes of

@@ -55,6 +55,16 @@ const ReadSchema = Type.Object({
   fresh: Type.Optional(
     Type.Boolean({ description: "Ignore the page cache and navigate (pages are reused until cache.pageMs passes)" }),
   ),
+  // `Integer` on the same reasoning as `maxChars` and `offset`: the guard refuses a fraction, a negative and
+  // any string, and it refuses this one alongside `fresh`, so the sentence has to say which of the two to
+  // drop. `cache.pageMs` is named and no milliseconds are quoted — the bound this asks to stay under is
+  // the user's own setting, and a resolved default stated here would be a promise a config file can break.
+  maxAgeMs: Type.Optional(
+    Type.Integer({
+      description:
+        "Accept a cached page this old instead of navigating: a whole number of milliseconds, 0 or more — anything else is refused with code unsupported. 0 always navigates, and omitting it takes any page still inside cache.pageMs. Pass fresh instead when you need the page as it is now — the two answer one question and are refused together",
+    }),
+  ),
 });
 
 /**
