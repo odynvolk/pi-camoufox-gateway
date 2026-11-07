@@ -74,12 +74,15 @@ const ToolErrorSchema = Type.Object({
 const SearchResultSchema = Type.Object({
   title: Type.String(),
   url: Type.String({ description: "The result url, still a redirect wrapper while `resolvable` is true" }),
-  host: Type.String(),
+  host: Type.String({
+    description:
+      "The host we read off this url, never one the page named: while `resolvable` is true it is the wrapper's host, not the destination's",
+  }),
   snippet: Type.String(),
   resolvable: Type.Boolean({ description: "True when only navigating to it reveals where it goes" }),
   engine: Type.String(),
   ref: Type.Optional(Type.String({ description: "Snapshot ref, valid until the next navigation" })),
-  cite: Type.Optional(Type.String()),
+  cite: Type.Optional(Type.String({ description: "Display text the page supplied for its own link, shown as-is and never used to attribute one" })),
   resolved: Type.Optional(Type.Boolean({ description: "True when this call replaced a wrapper with its destination" })),
   resolveError: Type.Optional(Type.String({ description: "Why a wrapper stayed wrapped" })),
 });
