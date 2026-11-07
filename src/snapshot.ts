@@ -81,24 +81,6 @@ function unescapeTitle(raw: string): string {
   return raw.replace(/\\(["\\])/gu, "$1").trim();
 }
 
-/** Host a result belongs to, preferring Google's `cite:` line, which is already human-facing. */
-function hostFrom(cite: string | undefined, url: string): string {
-  const citeUrl = cite?.match(/^(https?:\/\/[^ >]+|www\.[^ >/]+)/iu)?.[1];
-  if (citeUrl) {
-    try {
-      const parsed = new URL(citeUrl.includes("://") ? citeUrl : `https://${citeUrl}`);
-      return normalizeHost(parsed.hostname).replace(/^www\./u, "");
-    } catch {
-      // fall through to the url
-    }
-  }
-  try {
-    return normalizeHost(new URL(url).hostname).replace(/^www\./u, "");
-  } catch {
-    return "";
-  }
-}
-
 /** Split the tree into link blocks, keeping their url/cite/text children. */
 function linkBlocks(text: string): LinkBlock[] {
   const lines = text.split("\n");
@@ -139,7 +121,14 @@ function linkBlocks(text: string): LinkBlock[] {
   return blocks;
 }
 
-function isWrapper(url: string): boolean {
+/**
+ * Whether a url is the engine's own redirect wrapper, so only navigating to it reveals where it goes.
+ *
+ * Exported for the resolve path, which asks the same question of its own and gets it the other way: a
+ * looser test there did not require `?url=`, so a destination that merely carries those bytes was still
+ * reported as a wrapper (C.5).
+ */
+export function isWrapper(url: string): boolean {
   return /google\.com\/(goto|url)\?url=/iu.test(url);
 }
 
@@ -220,7 +209,7 @@ function organicResults(blocks: LinkBlock[], engine: string): SearchResult[] {
     results.push({
       title: block.title || url,
       url,
-      host: hostFrom(block.cite, url),
+      host: resultHost(url),
       snippet,
       resolvable: isWrapper(url),
       engine,
@@ -413,6 +402,16 @@ function rawHostOf(url: string): string {
 /** The same host as `src/net-policy.ts` spells it: lower-cased, with one FQDN terminator removed. */
 function hostOf(url: string): string {
   return normalizeHost(rawHostOf(url));
+}
+
+/**
+ * The one host reader a result is credited with: it reads the url and nothing else.
+ *
+ * A `cite:` line is page content, and content that can name its own host is content that can name
+ * anybody's; it stays in `SearchResult.cite`, where its name says what it is.
+ */
+export function resultHost(url: string): string {
+  return hostOf(url).replace(/^www\./u, "");
 }
 
 /** A single-label tail: a TLD, alphabetic or punycode. Nothing shaped `com1` or `c` is one. */

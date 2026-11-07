@@ -71,8 +71,16 @@ function normalizeQuery(query: string): string {
   return query.trim().replace(/\s+/gu, " ").toLocaleLowerCase();
 }
 
+/**
+ * The attribution column, and it has one source.
+ *
+ * No fallback here, and none is missing: `organicResults` refuses a url that is not `^https?://` and
+ * `isChrome` refuses a link whose host does not parse, so every result reaching this line has a host.
+ * `tests/snapshot.test.mjs` measures that rather than trusting this sentence, and names the one shape it
+ * does not cover.
+ */
 function engineLabel(result: SearchResult): string {
-  return result.host || new URL(result.url).hostname;
+  return result.host;
 }
 
 export function formatResults(outcome: {

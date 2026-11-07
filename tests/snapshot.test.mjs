@@ -4,6 +4,7 @@ import { readFileSync, readdirSync } from "node:fs";
 
 import { classifySerp, detectWall, engineOwnsUrl, extractText, parseSerp } from "../src/snapshot.ts";
 import { ENGINE_NAMES } from "../src/config.ts";
+import { normalizeHost } from "../src/net-policy.ts";
 
 /** Every recorded page, so a budget check picks up a fixture the moment one is added. */
 const FIXTURES = readdirSync(new URL("./fixtures/", import.meta.url), { withFileTypes: true })
@@ -45,7 +46,12 @@ test("parses Google results from a real recorded SERP", () => {
   assert.match(first.url, /^https:\/\/www\.google\.com\/goto\?url=/u, "google urls stay as wrappers");
   assert.equal(first.resolvable, true, "wrappers are resolvable by navigation");
   assert.ok(first.snippet.length > 10);
-  assert.equal(first.host, "camoufox.com");
+  // The url is a `google.com/goto?url=…` wrapper, so the host we may report is google's own — which is the
+  // honest half of C.4 and the less useful half: the destination is in the `cite:` line, still carried
+  // verbatim below, and `resolve: true` is how a caller turns it into the url. The C.4 cases at the foot of
+  // this file hold both halves.
+  assert.equal(first.host, "google.com");
+  assert.equal(first.cite, "https://camoufox.com", "the page's own provenance line survives as itself, not as an attribution");
   for (const result of results) {
     assert.ok(result.url.startsWith("http"), `every result needs a url, got ${result.url}`);
   }
@@ -635,4 +641,134 @@ test("an unreported destination is a fail-open with a name, not a silent one", (
   assert.equal(verdict.kind, "results", "no destination is judged, not refused");
   assert.equal(verdict.results.length, 10, "and the page is parsed as the engine asked for");
   assert.equal(verdict.details?.substituted, undefined, "credited, not substituted — the residual, stated");
+});
+
+// --- C.4: a result's host is ours, read off its own url ------------------------------------------------
+
+/**
+ * The one column a reader uses to decide who a link belongs to was the one field a page could write.
+ *
+ * A result's `host` came from the block's own `cite:` line whenever one parsed, and
+ * `src/tools/search.ts` → `engineLabel` prints that field as the third line of every result the model
+ * reads. A `cite:` line is page content — `linkBlocks` fills it from `CITE_LINE` while scanning the
+ * snapshot, exactly as it fills `text` — so whoever served the page chose the attribution: one link block
+ * at any public host carrying a `cite:` naming `www.google.com` was reported as google's.
+ *
+ * What the honest value costs is stated rather than argued away. On the default path (`resolve` is
+ * opt-in) Google's organic links are all `google.com/goto?url=…` wrappers, so the host that is true is
+ * the same string on all ten results and the cite was the only byte that said which one was github's.
+ * That is a usability cost, not a wrong verdict, and the caller who wants the destination asks for it:
+ * `resolve: true` navigates, and since the host is derived from the url the result ends with, the host
+ * follows it.
+ *
+ * The family was settled already in `docs/solutions/integration/wall-detection-must-be-structural.md`:
+ * host evidence is read off the host, never off bytes a page or a query supplied. `detectWall` and
+ * `classifySerp`'s message were built that way through the same url-reading helper; the per-result column
+ * was the last reader left taking page text.
+ */
+const OFFER = "https://attacker.test/offer";
+/** The attribution a hostile page would have liked to publish. */
+const STOLEN_CITE = "https://www.google.com/official";
+
+/** One organic-shaped link block, as the page that served it wrote it. */
+function oneLinkPage(url, cite) {
+  return {
+    url,
+    text: [
+      '- link "You won" [e1]:',
+      `  - /url: ${url}`,
+      ...(cite ? [`  - cite: ${cite}`] : []),
+      "  - text: Claim your prize.",
+    ].join("\n"),
+  };
+}
+
+/** The host a fixture line names, spelled the way `src/net-policy.ts` spells one. Empty means it named none. */
+function hostNamed(value) {
+  try {
+    return normalizeHost(new URL(value).hostname).replace(/^www\./u, "");
+  } catch {
+    return "";
+  }
+}
+
+test("C.4: a page that cites itself as Google is still reported at the address it is served from", () => {
+  const { results } = parseSerp(oneLinkPage(OFFER, STOLEN_CITE), "google");
+
+  assert.equal(results.length, 1, "the block is nobody's chrome, so there is exactly one result to judge");
+  assert.equal(results[0].host, "attacker.test", "the host is the one the url points at, whatever the page wrote about itself");
+  assert.equal(results[0].cite, STOLEN_CITE, "the cite is still carried verbatim — this demotes the field, it does not delete it");
+});
+
+test("C.4: a cite that tells the truth still reports the host it always did", () => {
+  // The false-positive budget, and the reason this fix cannot be "stop trusting cites": the case a cite
+  // existed to help is an honest one, and it has to come back untouched. Indifference to the field is what
+  // makes that safe — the case above is the same page with the same host claimed by a page that meant it.
+  const honest = parseSerp(oneLinkPage(OFFER, OFFER), "google").results[0];
+  const silent = parseSerp(oneLinkPage(OFFER), "google").results[0];
+
+  assert.equal(honest.host, "attacker.test", "the truthful cite still says what it said before any of this");
+  assert.equal(honest.host, silent.host, "and it says it in exactly the words a page with no cite at all gets");
+});
+
+test("C.4: every host the recorded Google page reports is a host that page links to, not one it merely cites", () => {
+  // From the fixture, not copied into this file: the expected hosts are the ones the page's own `/url:`
+  // lines carry, so the assertion is about which line a host came from rather than about an answer someone
+  // typed in here. The recorded page is the ideal probe because its two sets are disjoint — every organic
+  // url is google's own wrapper, and every `cite:` names somebody else.
+  const recorded = readFixture("serp-google.txt");
+  const { results } = parseSerp(fixture("serp-google.txt", "https://www.google.com/search?q=camoufox"), "google");
+  assert.equal(results.length, 10, "the whole recorded page parsed, or this compares a subset of it");
+
+  const linked = new Set([...recorded.matchAll(/^\s*-\s*\/url:\s*(\S+)/gmu)].map((line) => hostNamed(line[1])));
+  const cited = new Set([...recorded.matchAll(/^\s*-\s*cite:\s*(\S+)/gmu)].map((line) => hostNamed(line[1])));
+  const citedOnly = [...cited].filter((host) => host !== "" && !linked.has(host));
+  assert.ok(
+    citedOnly.length > 0,
+    "every cite on this page also names a linked host, so the guard below compares nothing — retire this line deliberately if the recording changes",
+  );
+
+  for (const result of results) {
+    assert.equal(linked.has(result.host), true, `${result.url} is reported as "${result.host}", which the page cites but never links to`);
+  }
+});
+
+test("C.4: one www. and a trailing dot come off a reported host, and the rest of it survives", () => {
+  // The collapse of two host readers into one must keep the display convention the older one had, or the
+  // fix trades a laundered host for a host printed a different way from every other host in the response.
+  const { results } = parseSerp(oneLinkPage("https://www.Example.test./x"), "google");
+
+  assert.equal(results.length, 1, "an upper-case terminated host is still a place, so it is still a result");
+  assert.equal(results[0].host, "example.test", "case folded, one terminator removed, one `www.` peeled — as before");
+});
+
+test("C.5: no result off any recorded page reaches the printer without a host to print", () => {
+  // The pin that makes deleting `engineLabel`'s `|| new URL(result.url).hostname` fallback honest rather
+  // than convenient. An unreachable branch is not a safety net, but neither is a branch deleted on a
+  // comment: this is the measurement behind the claim. Every recorded page, parsed as every engine we
+  // ship, because the engine decides which links survive the chrome filter.
+  let emitted = 0;
+  for (const name of FIXTURES) {
+    for (const engine of ENGINE_NAMES) {
+      for (const result of parseSerp({ url: "https://www.google.com/search?q=camoufox", text: readFixture(name) }, engine).results) {
+        emitted += 1;
+        assert.notEqual(result.host, "", `${name} as "${engine}" emitted ${result.url} with no host to print`);
+      }
+    }
+  }
+  assert.ok(emitted > 0, "not one result came out of any recorded page, so this compared nothing");
+});
+
+test("C.5: the one url shape that has no host to print is named, not left a rumour", () => {
+  // The exception the property above cannot cover, found while writing it. `isChrome` drops a block whose
+  // host does not parse by asking for the *raw* hostname, and `.` parses — it just normalises to nothing.
+  // So a page whose link carries `/url: https://./x` is emitted with an empty `host`, and with the
+  // unnormalised fallback gone the third line of that result prints nothing where it used to print `.`.
+  // Nothing is gained by either spelling; what is recorded here is that the property above has one hole,
+  // that the hole is cosmetic, and that closing it means `isChrome` judging the normalised host — a
+  // different question to the one that file answers today.
+  const { results } = parseSerp(oneLinkPage("https://./x"), "google");
+
+  assert.equal(results.length, 1, "an ownerless host is not chrome, so this block is emitted rather than dropped");
+  assert.equal(results[0].host, "", "known limit: the host normalises to nothing, and nothing between here and the printer rescues it");
 });
