@@ -1283,3 +1283,133 @@ test("a re-fetch the tolerance forced can fail without taking the stale page awa
   assert.equal(loose.text.includes("STILL READABLE"), true);
   assert.equal(opens(fake), afterFailure, "and nothing was fetched to get it");
 });
+
+// --- what a cached page tells the model about itself -------------------------------------------
+
+test("a cached page names its own age, and the tolerance that accepted it", async (t) => {
+  const { fake, tool } = setup(t);
+  const clock = stageClock(t, 1_000_000);
+
+  await tool.read({ url: ARTICLE });
+  const afterFirst = opens(fake);
+  clock.advance(4 * MINUTE);
+
+  const hit = await tool.read({ url: ARTICLE, maxAgeMs: 5 * MINUTE });
+
+  assert.equal(opens(fake), afterFirst, "an aged page must still be a hit, or the age describes a fetch");
+  assert.equal(hit.fromCache, true);
+  // The entry's own age and not the call's: the clock was turned four minutes since the fetch that dated
+  // it, so any number but this one means something other than the entry was read.
+  assert.equal(hit.pageAgeMs, 4 * MINUTE, "only the cache can date a page, so this is the cache's number");
+  // The bound the age was measured against is the caller's own ask, echoed rather than inferred — without
+  // it the note can say a page is old but not that anyone agreed that old was acceptable.
+  assert.equal(hit.maxAgeMs, 5 * MINUTE, "and the note needs the bound this page met");
+});
+
+test("a cached page names its age when no tolerance was offered", async (t) => {
+  const { fake, tool } = setup(t);
+  const clock = stageClock(t, 1_000_000);
+
+  await tool.read({ url: ARTICLE });
+  const afterFirst = opens(fake);
+  clock.advance(2 * MINUTE);
+
+  const hit = await tool.read({ url: ARTICLE });
+
+  assert.equal(opens(fake), afterFirst, "still a hit");
+  assert.equal(hit.fromCache, true);
+  // Said whether or not anyone asked: a model that cannot see a page's age cannot decide whether to ask
+  // for `fresh` next time.
+  assert.equal(hit.pageAgeMs, 2 * MINUTE, "the age is claimed on every hit, not only on a bounded one");
+  // ... and only then. A tolerance nobody sent must not appear as a bound the page was measured against.
+  assert.equal("maxAgeMs" in hit, false, "absent rather than undefined: the note has to tell the two apart");
+});
+
+test("a navigated page claims no age, however it was asked", async (t) => {
+  const { fake, tool } = setup(t);
+  stageClock(t, 1_000_000);
+
+  const cold = await tool.read({ url: ARTICLE });
+  assert.equal(opens(fake), 1);
+  // A page fetched seconds ago has no age to claim, and `0` would be one: it would read as "the cache
+  // held this, and it was fresh", which is a statement about a lookup that never happened.
+  assert.equal("pageAgeMs" in cold, false, "no age, not an age of zero");
+  assert.equal("staleSkippedMs" in cold, false, "and nothing was thrown away to get it");
+  assert.equal("maxAgeMs" in cold, false, "and no tolerance was mentioned");
+
+  // A tolerance the cache had nothing for is still the caller's ask, so it travels back — it simply
+  // cannot produce an age alongside it.
+  const coldWithTolerance = await tool.read({ url: ARTICLE, offset: 500, maxAgeMs: MINUTE });
+  assert.equal(opens(fake), 2, "a different offset is a different key, so this one is cold too");
+  assert.equal(coldWithTolerance.maxAgeMs, MINUTE, "the ask is echoed where the cache had nothing to say");
+  assert.equal("pageAgeMs" in coldWithTolerance, false, "and echoing it does not hand the page an age");
+  assert.equal("staleSkippedMs" in coldWithTolerance, false);
+
+  // The sharpest navigation of the three: a live entry is sitting there and `fresh` walks past it.
+  const forced = await tool.read({ url: ARTICLE, fresh: true });
+  assert.equal(opens(fake), 3);
+  assert.equal(forced.fromCache, undefined);
+  assert.equal("pageAgeMs" in forced, false, "walking past a live entry does not inherit that entry's age");
+});
+
+test("an entry the tolerance rejected is named, and a cold cache is not", async (t) => {
+  const { fake, tool, cache } = setup(t);
+  const clock = stageClock(t, 1_000_000);
+  fake.state.snapshotScripts.set(ARTICLE, [page("THE OLDER COPY")]);
+
+  const first = await tool.read({ url: ARTICLE });
+  assert.equal(first.text.includes("THE OLDER COPY"), true, "the page the tolerance is about to refuse");
+
+  clock.advance(4 * MINUTE);
+  fake.state.snapshotScripts.set(ARTICLE, [page("THE NEWER COPY")]);
+  const dropped = await tool.read({ url: ARTICLE, maxAgeMs: MINUTE });
+
+  assert.equal(opens(fake), 2, "over tolerance, so it paid the navigation");
+  assert.equal(dropped.fromCache, undefined, "the answer it gave came from a fetch");
+  assert.equal("pageAgeMs" in dropped, false, "and a fetched page still has no age of its own");
+  // The age of what was thrown away comes from an unbounded look at the same key — the only thing that
+  // can tell "your tolerance refused one" from "there was never anything here".
+  assert.equal(dropped.staleSkippedMs, 4 * MINUTE, "the rejected page's age, as the cache dated it");
+
+  // The reason the field exists. Same url, same tolerance, same outcome shape, one navigation each: with
+  // nothing to tell them apart, a caller cannot see that one of these cost a page someone else stored.
+  cache.clear();
+  const cold = await tool.read({ url: ARTICLE, maxAgeMs: MINUTE });
+  assert.equal(opens(fake), 3, "this one navigated too");
+  assert.equal(cold.fromCache, undefined, "and the two agree on every claim they both make...");
+  assert.equal("staleSkippedMs" in cold, false, "...except this one, which is the whole difference");
+  assert.notEqual(
+    dropped.staleSkippedMs,
+    cold.staleSkippedMs,
+    "so the two reads are distinguishable from the output alone, which is all the caller ever gets",
+  );
+
+  // `0` is an age, and a falsy one: an entry stored under this frozen clock is this millisecond's, so a
+  // zero tolerance refuses a page whose age is exactly `0` — a claim a truthiness test would drop.
+  cache.clear();
+  await tool.read({ url: ARTICLE });
+  const zero = await tool.read({ url: ARTICLE, maxAgeMs: 0 });
+  assert.equal(zero.staleSkippedMs, 0, "the page it refused really was there, and it really was that young");
+  assert.equal("staleSkippedMs" in zero, true, "present-and-zero, not absent");
+});
+
+test("a page served from another call's navigation claims no age", async (t) => {
+  const { fake, tool } = setup(t);
+  stageClock(t, 1_000_000);
+
+  const [producer, sharer] = await Promise.all([
+    tool.read({ url: ARTICLE, maxAgeMs: 5 * MINUTE }),
+    tool.read({ url: ARTICLE, maxAgeMs: 5 * MINUTE }),
+  ]);
+
+  assert.equal(opens(fake), 1, "one navigation and two callers, which is what `run` is for");
+  for (const [who, out] of [["the producer", producer], ["the sharer", sharer]]) {
+    // `cache.run` serves this caller from its own internal hit, whose age no per-call reader can date.
+    // There is no `fromCache` there, so there must be no age sentence either: the claim may not reach
+    // past what the cache was asked to vouch for.
+    assert.equal(out.fromCache, undefined, `${who} must not be labelled a cache hit`);
+    assert.equal("pageAgeMs" in out, false, `${who} must not claim an age it cannot evidence`);
+    assert.equal("staleSkippedMs" in out, false, `${who} threw nothing away`);
+    assert.equal(out.maxAgeMs, 5 * MINUTE, `${who} still echoes the tolerance it was given`);
+  }
+});

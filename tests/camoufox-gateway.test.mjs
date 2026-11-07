@@ -15,7 +15,7 @@ import { join } from "node:path";
 
 import registerExtension from "../src/camoufox-gateway.ts";
 import { DEFAULT_CONFIG, ENGINE_NAMES, MAX_SEARCH_RESULTS } from "../src/config.ts";
-import { READ_DESCRIPTION, SEARCH_DESCRIPTION } from "../src/extension.ts";
+import { describeAge, READ_DESCRIPTION, SEARCH_DESCRIPTION } from "../src/extension.ts";
 import { withFakeGateway } from "./helpers/fake_gateway.mjs";
 
 function stubPi() {
@@ -673,4 +673,172 @@ test("a search names the engine it is trying, before it tries it", async (t) => 
   );
 
   assert.deepEqual(notes, ['searching "camoufox" with google', 'searching "camoufox" with duckduckgo']);
+});
+
+// --- what a cached page says about its age ------------------------------------------------------
+
+const MINUTE = 60_000;
+
+/**
+ * A clock the test turns by hand, so a page can be four minutes old without anyone waiting.
+ *
+ * The same idiom `tests/read-tool.test.mjs` uses for the same reason. The cache is inside the extension
+ * here and cannot be seeded from outside, so the clock is the only way to date an entry.
+ */
+function stageClock(t, start) {
+  const realNow = Date.now;
+  let now = start;
+  Date.now = () => now;
+  t.after(() => {
+    Date.now = realNow;
+  });
+  return {
+    advance: (ms) => {
+      now = start + ms;
+    },
+  };
+}
+
+/** Navigation is the cost being measured: one tab open per read the cache did not answer. */
+function opens(fake) {
+  return fake.state.calls.filter((c) => c.method === "POST" && c.path === "/tabs/open").length;
+}
+
+test("a cached read tells the model the page's age, and the tolerance it met", async (t) => {
+  withConfigFile(t, { gatewayUrl: "http://gateway.test:9377" });
+  const fake = withFakeGateway(t);
+  const { byName } = registered();
+  const { ctx } = session("pi-age-and-tolerance");
+  const clock = stageClock(t, 1_000_000);
+
+  const first = await byName.camoufox_read.execute("id", { url: "https://example.test/" }, undefined, undefined, ctx);
+  assert.equal(first.isError, undefined, "the read that filled the cache has to have worked");
+  clock.advance(4 * MINUTE);
+
+  // The schema entry for `maxAgeMs` is U4's; what is under test here is only that a note can name the
+  // bound the caller set, which is why the argument is passed straight through `execute`.
+  const hit = await byName.camoufox_read.execute("id", { url: "https://example.test/", maxAgeMs: 5 * MINUTE }, undefined, undefined, ctx);
+
+  assert.equal(opens(fake), 1, "a page inside the tolerance cost no second navigation");
+  assert.equal(hit.structuredContent.fromCache, true);
+  // Both numbers have to reach the prose. A model that cannot see a page's age cannot decide whether to
+  // ask for `fresh`, and a model that cannot see the bound it set cannot tell a hit it approved from one
+  // it merely got.
+  assert.match(hit.content[0].text, /this copy is 240s old/u, "the age is in the text a model reads, not only in details");
+  assert.match(hit.content[0].text, /within your 300s tolerance/u, "and so is the tolerance that accepted it");
+  assert.equal(hit.structuredContent.pageAgeMs, 4 * MINUTE, "the stored value stays milliseconds; only the printed form is trimmed");
+  assert.equal(hit.structuredContent.maxAgeMs, 5 * MINUTE, "and the caller's own ask travels with it");
+  assertDeclaredBy(byName.camoufox_read.outputSchema, hit.structuredContent, "an aged camoufox_read");
+});
+
+test("a cached read with no tolerance says the age and invents no bound", async (t) => {
+  withConfigFile(t, { gatewayUrl: "http://gateway.test:9377" });
+  const fake = withFakeGateway(t);
+  const { byName } = registered();
+  const { ctx } = session("pi-age-no-tolerance");
+  const clock = stageClock(t, 1_000_000);
+
+  await byName.camoufox_read.execute("id", { url: "https://example.test/" }, undefined, undefined, ctx);
+  clock.advance(2 * MINUTE);
+  const hit = await byName.camoufox_read.execute("id", { url: "https://example.test/" }, undefined, undefined, ctx);
+
+  assert.equal(opens(fake), 1, "the age sentence must not cost a navigation to produce");
+  // The other half of the pair: the age is said on every hit, and the tolerance only on a bounded one.
+  // A note that named a bound nobody set would be the output claiming more than the call said.
+  assert.match(hit.content[0].text, /this copy is 120s old/u, "the age is claimed whether or not anyone asked");
+  assert.equal(/tolerance|maxAgeMs/iu.test(hit.content[0].text), false, "and no bound is mentioned when none was set");
+  assert.equal("maxAgeMs" in hit.structuredContent, false, "absent, not undefined");
+  assertDeclaredBy(byName.camoufox_read.outputSchema, hit.structuredContent, "an unbounded camoufox_read");
+});
+
+test("a re-fetch the tolerance forced says so, where a cold cache says nothing", async (t) => {
+  withConfigFile(t, { gatewayUrl: "http://gateway.test:9377" });
+  const fake = withFakeGateway(t);
+  const { byName } = registered();
+  const { ctx } = session("pi-tolerance-dropped");
+  const clock = stageClock(t, 1_000_000);
+
+  await byName.camoufox_read.execute("id", { url: "https://example.test/" }, undefined, undefined, ctx);
+  clock.advance(4 * MINUTE);
+  const dropped = await byName.camoufox_read.execute("id", { url: "https://example.test/", maxAgeMs: MINUTE }, undefined, undefined, ctx);
+
+  assert.equal(opens(fake), 2, "the tolerance spent a navigation, and the note is what makes that visible");
+  assert.match(
+    dropped.content[0].text,
+    /\[re-fetched: the stored page was 240s old, over your maxAgeMs\]/u,
+    "the note says it was re-fetched and names the age that cost it",
+  );
+  assert.equal(dropped.structuredContent.staleSkippedMs, 4 * MINUTE, "the same fact, as a number, for a script");
+  assert.equal(/this copy is 240s old/u.test(dropped.content[0].text), false, "the page it answered with was just fetched, so it has no age");
+
+  // The reason the note exists at all: a guard rejection and a cold cache used to be the same output.
+  const cold = await byName.camoufox_read.execute("id", { url: "https://other.test/", maxAgeMs: MINUTE }, undefined, undefined, ctx);
+  assert.equal(opens(fake), 3, "a cold cache costs the same navigation...");
+  assert.equal(/re-fetched:/u.test(cold.content[0].text), false, "...and this sentence is the only thing that tells them apart");
+  assert.equal("staleSkippedMs" in cold.structuredContent, false, "nothing was rejected, so nothing is claimed");
+  assertDeclaredBy(byName.camoufox_read.outputSchema, cold.structuredContent, "a cold camoufox_read");
+});
+
+test("the age fields are declared by the output schema, and absent on a plain read", async (t) => {
+  // `assertDeclaredBy` only sees a field a call actually produced, so a field declared and never copied,
+  // or copied and never declared, needs the schema read directly — and a field copied on a call that had
+  // nothing to say about it needs the key to be *absent*, the way `fromCache` is held to.
+  withConfigFile(t, { gatewayUrl: "http://gateway.test:9377" });
+  withFakeGateway(t);
+  const { byName } = registered();
+  const { ctx } = session("pi-age-fields-declared");
+
+  const declared = Object.keys(byName.camoufox_read.outputSchema.properties);
+  for (const field of ["pageAgeMs", "staleSkippedMs", "maxAgeMs"]) {
+    assert.ok(declared.includes(field), `${field} is a field the boundary copies, so it must be declared`);
+  }
+
+  const read = await byName.camoufox_read.execute("id", { url: "https://example.test/" }, undefined, undefined, ctx);
+  assert.equal(read.isError, undefined);
+  for (const field of ["pageAgeMs", "staleSkippedMs", "maxAgeMs"]) {
+    assert.equal(field in read.structuredContent, false, `${field} must be absent on a read that has nothing to claim about it`);
+  }
+  assertDeclaredBy(byName.camoufox_read.outputSchema, read.structuredContent, "a plain camoufox_read");
+});
+
+test("the age lives inside the cache note, and the notes keep their order", async (t) => {
+  // Four notes, in the order a model meets them: `fromCache`, `cappedAt`, `thinAfterWait`, `waitNote`.
+  // The age is one more fact of the cache claim, not a fifth claim, so it has to sit inside the first
+  // note — and adding it may not shuffle the note that comes after it.
+  withConfigFile(t, { gatewayUrl: "http://gateway.test:9377", read: { maxCharsCeiling: 20_000 } });
+  withFakeGateway(t, { pageContents: new Map([["https://big.test/", "b".repeat(30_000)]]), snapshotLimit: 30_000 });
+  const { byName } = registered();
+  const { ctx } = session("pi-note-order");
+  const clock = stageClock(t, 1_000_000);
+
+  const args = { url: "https://big.test/", maxChars: 40_000 };
+  const first = await byName.camoufox_read.execute("id", args, undefined, undefined, ctx);
+  assert.equal(first.isError, undefined, "the read that fills the cache has to have worked");
+  clock.advance(2 * MINUTE);
+  const cached = await byName.camoufox_read.execute("id", args, undefined, undefined, ctx);
+  const text = cached.content[0].text;
+
+  const cacheNote = text.indexOf("[served from the page cache");
+  const capNote = text.indexOf("[maxChars capped at");
+  assert.ok(cacheNote >= 0, `no cache note in ${JSON.stringify(text.slice(-600))}`);
+  assert.ok(capNote >= 0, `no cap note in ${JSON.stringify(text.slice(-600))}`);
+  assert.ok(cacheNote < capNote, "the cache claim still leads, as it did before the age joined it");
+
+  const age = text.indexOf("this copy is 120s old");
+  assert.ok(age > cacheNote && age < capNote, "the age sits inside the cache note, one fact of the same claim");
+  assert.equal(/^\[this copy is/mu.test(text), false, "and never became a note of its own");
+});
+
+test("the age helper trims a sub-second age to milliseconds, the unit everything here stores", () => {
+  // The value a script reads is milliseconds and stays milliseconds; this only decides what a model has
+  // to squint at. One helper, two shapes, because `waiting ${outcome.settledInMs}ms` already prints raw
+  // ms elsewhere and a duration library would be a second way to say the same thing.
+  assert.equal(describeAge(900), "900ms");
+});
+
+test("the age helper switches to seconds from one second up, and rounds up", () => {
+  assert.equal(describeAge(240_000), "240s");
+  // Rounded *up*: a page aged down is a page claimed younger than it is, and the whole point of the
+  // sentence is to let the model judge staleness it cannot measure itself.
+  assert.equal(describeAge(1_500), "2s");
 });

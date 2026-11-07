@@ -254,6 +254,18 @@ function outcomeToDetails(outcome: SearchOutcome): SearchDetails {
   return rest;
 }
 
+/**
+ * How old, in the shape a model reads it.
+ *
+ * Milliseconds is what is stored, what every other duration here is, and what a structured caller gets;
+ * this only trims what a model has to squint at. Seconds from one second up, rounded *up* — an age
+ * rounded down is a page claimed younger than it is, and judging staleness is the only reason the
+ * sentence exists.
+ */
+export function describeAge(ms: number): string {
+  return ms < 1_000 ? `${ms}ms` : `${Math.ceil(ms / 1_000)}s`;
+}
+
 function renderRead(outcome: ReadOutcome): string {
   const header = `URL: ${outcome.url}${outcome.truncated ? ` (showing ${outcome.text.length} of ${outcome.totalChars} chars)` : ""}`;
   const footer = outcome.nextOffset !== null ? `\n\n[continue with offset=${outcome.nextOffset}]` : "";
@@ -264,9 +276,24 @@ function renderRead(outcome: ReadOutcome): string {
   // only the answer when it ran out while the page was still growing.
   const notes: string[] = [];
   // Name the cache before anything a cached page can mislead about: the model cannot tell a page it
-  // fetched from one it did not, and `fresh` is the only lever that changes that.
+  // fetched from one it did not, and `fresh` is the only lever that changes that. The age rides inside
+  // this note rather than getting one of its own, because it is the same claim with one more fact — and
+  // the fact the model cannot get any other way. The tolerance is named only when the caller set one: a
+  // bound nobody asked for would be the output claiming more than it was told.
   if (outcome.fromCache) {
-    notes.push("[served from the page cache — the page was not re-fetched; read again with fresh:true to force a navigation]");
+    const why =
+      outcome.pageAgeMs === undefined
+        ? "the page was not re-fetched"
+        : `this copy is ${describeAge(outcome.pageAgeMs)} old${
+            outcome.maxAgeMs === undefined ? "" : `, within your ${describeAge(outcome.maxAgeMs)} tolerance`
+          }, and the page was not re-fetched`;
+    notes.push(`[served from the page cache — ${why}; read again with fresh:true to force a navigation]`);
+  }
+  // "Nothing was stored" and "your tolerance threw a page away" were the same output, and they cost
+  // different amounts: one of them spent a navigation on a page someone else had already fetched. Say
+  // which, and name the age that did it — the same job `cappedAt` does for a budget.
+  if (outcome.staleSkippedMs !== undefined) {
+    notes.push(`[re-fetched: the stored page was ${describeAge(outcome.staleSkippedMs)} old, over your maxAgeMs]`);
   }
   // A capped budget is a different situation from a short page. The header already says how much came
   // back; what the model cannot infer from it is that the ceiling — not the page, and not its own

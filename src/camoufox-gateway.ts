@@ -118,6 +118,9 @@ const ReadOutputSchema = Type.Object({
   waitForRequested: Type.Optional(Type.Boolean()),
   waitNote: Type.Optional(Type.String({ description: "What a `waitFor` did not achieve, in words" })),
   fromCache: Type.Optional(Type.Boolean()),
+  maxAgeMs: Type.Optional(Type.Number({ description: "This call's staleness tolerance, as it was asked for" })),
+  pageAgeMs: Type.Optional(Type.Number({ description: "How old the cached page was when it answered, in ms, as the cache dated it" })),
+  staleSkippedMs: Type.Optional(Type.Number({ description: "How old the stored page was that this tolerance rejected, forcing the navigation" })),
   cappedAt: Type.Optional(Type.Number({ description: "read.maxCharsCeiling, when it is what bounded this call" })),
   extracted: Type.Optional(Type.Record(Type.String(), Type.Any(), { description: "A schema extraction's data" })),
   error: Type.Optional(ToolErrorSchema),
@@ -254,6 +257,9 @@ function readResult(args: ReadToolArgs, outcome: ReadToolResult) {
       ...(details.waitForRequested === undefined ? {} : { waitForRequested: details.waitForRequested }),
       ...(details.waitNote === undefined ? {} : { waitNote: details.waitNote }),
       ...(details.fromCache === undefined ? {} : { fromCache: details.fromCache }),
+      ...(details.maxAgeMs === undefined ? {} : { maxAgeMs: details.maxAgeMs }),
+      ...(details.pageAgeMs === undefined ? {} : { pageAgeMs: details.pageAgeMs }),
+      ...(details.staleSkippedMs === undefined ? {} : { staleSkippedMs: details.staleSkippedMs }),
       ...(details.cappedAt === undefined ? {} : { cappedAt: details.cappedAt }),
       // The one field this function cannot vouch for: an extraction is whatever the gateway put under
       // `data`, typed as a record of unknowns. It arrives from `JSON.parse`, so it is JSON by
