@@ -122,13 +122,31 @@ function linkBlocks(text: string): LinkBlock[] {
 }
 
 /**
+ * The host the engine's own redirect sits at, and the only one a look-alike path may borrow.
+ *
+ * Literal rather than read off `HOST_RULES`: that table registers how deep a suffix an engine owns — two
+ * for google, which is what makes `www.google.co.uk` its page — while the wrapper below is only ever
+ * spelled on `.com`, so borrowing the table would call a `google.co.uk` path the engine's redirect too.
+ */
+const WRAPPER_HOST = "google.com";
+
+/**
  * Whether a url is the engine's own redirect wrapper, so only navigating to it reveals where it goes.
  *
  * Exported for the resolve path, which asks the same question of its own and gets it the other way: a
  * looser test there did not require `?url=`, so a destination that merely carries those bytes was still
  * reported as a wrapper (C.5).
+ *
+ * The host is asked first, and it is the half that carries the trust. The bytes below are not a secret —
+ * `https://mygoogle.com/goto?url=offer` is a page that put the engine's redirect shape into its own path —
+ * and the two callers that establish no ownership of their own ask it of whatever they were handed:
+ * `src/resolve.ts` → `!isWrapper(opened.url)` of a destination the gateway reported, and `organicResults`
+ * of a link the page wrote. Without the anchor either could keep a stranger's url as the engine's wrapper,
+ * and on the resolve side pin that refusal in the url cache for 30 seconds. An unparseable url is a silence
+ * here, as every other host reader in this file treats it: no host, so no wrapper, never a throw.
  */
 export function isWrapper(url: string): boolean {
+  if (!matchesHostRule(hostOf(url), WRAPPER_HOST)) return false;
   return /google\.com\/(goto|url)\?url=/iu.test(url);
 }
 

@@ -200,6 +200,35 @@ test("a destination whose url merely contains the bytes google.com/goto? is reso
   assert.equal(resolved.host, "maps.google.com");
 });
 
+test("a destination on a host that merely looks like the engine's is a destination, and no refusal is pinned for it", async (t) => {
+  // `isWrapper` used to answer from bytes alone, so a gateway reporting this destination was answered
+  // "still wrapped": the wrapper was kept, `resolved: false`, `resolvable` stayed true, and that refusal sat
+  // in the url cache for 30 seconds — a caller asking again got the same wrong answer without spending a
+  // tab, which is the part of this that outlived the one call that found it.
+  const wrapper = "https://www.google.com/goto?url=LOOKALIKE";
+  const destination = "https://mygoogle.com/goto?url=offer";
+  const { fake, client } = setup(t, { redirects: new Map([[wrapper, destination]]) });
+  const cache = createCache();
+
+  const [first] = await resolveUrls([result(wrapper, { resolvable: true })], { client, userId: "u1", cache });
+
+  assert.equal(first.resolved, true, "a destination nobody owns a wrapper shape on is a destination");
+  assert.equal(first.url, destination);
+  assert.equal(first.host, "mygoogle.com", "and it is credited with the host it is actually on");
+  assert.equal(first.resolveError, undefined, "nothing stayed wrapped, so there is no reason to report");
+  assert.equal(client.openTabCount(), 0);
+
+  const opens = fake.state.calls.filter((c) => c.method === "POST" && c.path === "/tabs/open").length;
+  const [second] = await resolveUrls([result(wrapper, { resolvable: true })], { client, userId: "u1", cache });
+  assert.equal(second.resolved, true, "the cache holds the destination, not a refusal to keep looking");
+  assert.equal(second.host, "mygoogle.com");
+  assert.equal(
+    fake.state.calls.filter((c) => c.method === "POST" && c.path === "/tabs/open").length,
+    opens,
+    "and the second call costs no tab",
+  );
+});
+
 test("an unresolved result keeps its url and its host together, because neither moved", async (t) => {
   const wrapper = "https://www.google.com/goto?url=STUCK";
   const { client } = setup(t, { resolveFailures: new Set([wrapper]) });

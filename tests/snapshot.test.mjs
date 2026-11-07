@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 
-import { classifySerp, detectWall, engineOwnsUrl, extractText, parseSerp } from "../src/snapshot.ts";
+import { classifySerp, detectWall, engineOwnsUrl, extractText, isWrapper, parseSerp } from "../src/snapshot.ts";
 import { ENGINE_NAMES } from "../src/config.ts";
 import { normalizeHost } from "../src/net-policy.ts";
 
@@ -771,4 +771,52 @@ test("C.5: the one url shape that has no host to print is named, not left a rumo
 
   assert.equal(results.length, 1, "an ownerless host is not chrome, so this block is emitted rather than dropped");
   assert.equal(results[0].host, "", "known limit: the host normalises to nothing, and nothing between here and the printer rescues it");
+});
+
+test("the wrapper test asks who the url points at before it asks what the url says", () => {
+  // `isWrapper` was one substring test over the whole url, and the bytes it looks for are not a secret:
+  // `https://mygoogle.com/goto?url=offer` is a page that put the engine's redirect shape into its own
+  // path. That is harmless where the caller has already established host ownership —
+  // `src/snapshot.ts` → `return hostIsEngineDomain(host, rule) && !(rule.wrappers && isWrapper(url));` —
+  // and not where it has not: `src/resolve.ts` → `!isWrapper(opened.url)` asks it of a destination the
+  // gateway reported, and keeps such a destination as a wrapper while caching that refusal for 30 seconds;
+  // `organicResults` asks it of a link the page wrote, and flags the link resolvable, which is what makes
+  // a `resolve: true` caller open a tab for it at all. So the host is now asked of the url itself.
+  //
+  // Anchoring can only shrink what is called a wrapper, so every case that used to answer true still does.
+  for (const url of [
+    "https://www.google.com/url?url=AAA",
+    "https://google.com/goto?url=AAA",
+    "https://Accounts.Google.COM/goto?url=AAA",
+    "https://www.google.com/url?url=https%3A%2F%2Fsomeone-else.test%2Fdeal",
+  ]) {
+    assert.equal(isWrapper(url), true, `${url} is the engine's own redirect`);
+  }
+
+  for (const url of [
+    "https://mygoogle.com/goto?url=offer",
+    "https://evil-google.com/goto?url=offer",
+    "https://google.com.evil.test/goto?url=offer",
+    "https://notgoogle.com/url?url=https://someone-else.test/deal",
+    "https://www.google.com/goto?query=camoufox",
+    "https://www.google.com./url?url=AAA",
+    "not a url",
+    "",
+  ]) {
+    // The terminated-host entry is the limit of what this can do, and it is the same limit it had before:
+    // the shape test reads bytes, so it only recognises the wrapper spelled the way the engine spells it.
+    // An unparseable url is a silence, not an exception — this is asked about whatever a gateway reports.
+    assert.equal(isWrapper(url), false, `${url} is not the engine's own redirect`);
+  }
+});
+
+test("a page-supplied link on a host that only looks like the engine's is not offered for resolution", () => {
+  // The consequence, on the parser side: `resolvable` is what makes a `resolve: true` caller spend a tab on
+  // a url, and it used to be settable by the page. A link here claiming the engine's redirect shape is
+  // still a link on somebody else's host, and no navigation is going to reveal an engine destination in it.
+  const { results } = parseSerp(oneLinkPage("https://mygoogle.com/goto?url=offer"), "google");
+
+  assert.equal(results.length, 1, "the host is not the engine's, so the chrome filter leaves the link alone");
+  assert.equal(results[0].resolvable, false, "and a look-alike path does not make it the engine's redirect");
+  assert.equal(results[0].host, "mygoogle.com", "it is credited with the host it is actually on");
 });
