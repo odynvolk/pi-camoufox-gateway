@@ -7,6 +7,7 @@
  */
 
 import { GatewayError } from "./errors.ts";
+import { isWrapper, resultHost } from "./snapshot.ts";
 import type { SearchResult } from "./snapshot.ts";
 import type { GatewayClient } from "./gateway.ts";
 import type { Cache } from "./cache.ts";
@@ -74,7 +75,9 @@ export async function resolveUrls(
     const key = `url:${result.url}`;
     if (cache) {
       const known = cache.get(key) as { url: string; resolved: boolean } | undefined;
-      if (known) return { ...result, url: known.url, resolved: known.resolved };
+      // The cache carries the destination and nothing else, so the host is read off it again here rather
+      // than travelling with the value: a cached entry cannot bring back a host some older code kept.
+      if (known) return { ...result, url: known.url, resolved: known.resolved, host: resultHost(known.url) };
     }
 
     let tab;
@@ -85,9 +88,11 @@ export async function resolveUrls(
         signal,
       );
       tab = opened.tabId;
-      if (opened.url && !/google\.com\/(goto|url)\?/u.test(opened.url)) {
+      if (opened.url && !isWrapper(opened.url)) {
         cache?.set(key, { url: opened.url, resolved: true }, ttlMs ?? 600_000);
-        return { ...result, url: opened.url, resolved: true };
+        // Wherever the url is replaced the host is recomputed in the same statement, so a resolved
+        // result never reports the wrapper it came from.
+        return { ...result, url: opened.url, resolved: true, host: resultHost(opened.url) };
       }
       cache?.set(key, { url: result.url, resolved: false }, 30_000);
       return { ...result, resolved: false, resolveError: "stayed on the redirect wrapper" };
