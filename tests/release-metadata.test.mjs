@@ -63,6 +63,20 @@ test("the changelog leads with the version being shipped", () => {
   );
 });
 
+test("nothing above the shipped version pretends to be a release", () => {
+  // The gate above matches version-shaped headings only, so a `## [Unreleased]` section can sit on top of it,
+  // go stale across a cut, and leave the file green — a check that cannot see the thing it claims to police.
+  // This repo writes release notes when it cuts, so the first bracketed heading in the file, whatever it is
+  // bracketed as, is the version package.json ships.
+  const first = /^## \[([^\]]+)\]/mu.exec(changelog)?.[1];
+  assert.ok(first, "no bracketed heading in CHANGELOG.md at all");
+  assert.equal(
+    first,
+    pkg.version,
+    `CHANGELOG.md leads with [${first}] while package.json ships ${pkg.version} — fold the section into the release it describes`,
+  );
+});
+
 test("the changelog ships with the package", () => {
   // `files` is a whitelist, so a changelog left out of it is a file that exists in git and nowhere in
   // the published tarball — the one place a user looking for "what changed" would read it.

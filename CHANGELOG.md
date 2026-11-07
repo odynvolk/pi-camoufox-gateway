@@ -5,67 +5,6 @@ items (`A.2`, `B.5`, `D.1`, `E.3`, …) are the open findings in
 [`docs/improvements/2026-10-18-functionality.md`](./docs/improvements/2026-10-18-functionality.md) and
 [`docs/improvements/2026-10-18-code.md`](./docs/improvements/2026-10-18-code.md).
 
-## [Unreleased]
-
-Everything merged after v0.2.2 — PR #27, the result-host attribution round, and the suite went from 393
-passing tests to 425. It is a round about one column: the `host` on every search result the model reads, and
-every way it could stop being the address the url points at.
-
-### Fixed
-
-- **A result's host is read off its url, never off the page.** `hostFrom` filled `SearchResult.host` from the
-  block's own `cite:` line whenever one parsed, and `src/tools/search.ts` prints that field as the third line
-  of every result — so one link block served from `attacker.test` carrying
-  `- cite: https://www.google.com/official` was reported as `{ url: "https://attacker.test/offer", host: "google.com" }`.
-  One reader remains, `resultHost` (`src/snapshot.ts`), under one rule: wherever `url` is written, `host` is
-  written in the same statement — the parse, `resolve`'s fresh open, and `resolve`'s cache hit, whose cached
-  value never carried a host at all. `cite` stays on the result as page-supplied display text, and
-  `engineLabel`'s `|| new URL(result.url).hostname` fallback was deleted rather than normalised, its
-  unreachability pinned by a case rather than assumed (#27).
-- **One wrapper test, and it reads the url rather than its bytes.** `src/resolve.ts` carried a second,
-  differently-shaped copy of the wrapper question, so `https://maps.google.com/goto?query=camoufox` was
-  reported "stayed on the redirect wrapper" while a wrapper spelled otherwise came back `resolved: true` under
-  a host that said `google.com`; the surviving test was a substring match over the whole url, so
-  `https://mygoogle.com/goto?url=offer` was Google's own redirect and a google-hosted search page that merely
-  carried `google.com/url?url=` inside its `q` value was its own wrapper, refused for 30 seconds by the url
-  cache. `isWrapper` (`src/snapshot.ts`) is exported and answers it once, from the parsed host, the pathname
-  and the query's own parameters (#27).
-- **A cached refusal says why, the second time as well as the first.** Inside the 30-second negative window
-  one wrapper answered the same question twice, differently: the fresh path set `resolveError` and the cache
-  hit returned none — and that field is on the wire the model reads. The reason is now recorded with the
-  refusal and replayed from the entry, never named by the read path, and both success write sites clear it, so
-  a retry of what was reported unresolved cannot come back `resolved: true` *and* "stayed on the redirect
-  wrapper" (#27).
-- **A host that normalises to nothing is no host at all.** `https://./x` parses cleanly, `normalizeHost` then
-  empties the single dot label, and what came back was a destination published `resolved: true` with
-  `host: ""` — written to the url cache as a *resolved* destination for ten minutes — and a result line with a
-  blank attribution column. The address guard now reads the host's labels rather than testing it for emptiness,
-  `resolveUrls` will not publish `resolved: true` over a host with nothing in it, and `organicResults` drops a
-  block whose printed host has no non-empty label (`www..` and `www...` included) rather than printing a dot
-  where a name belongs (#27).
-
-### Changed
-
-- **On the default path the honest host is the less useful-looking one.** `resolve` is opt-in and Google
-  serves organic links as `google.com/goto?url=…`, so an unresolved result now reports `google.com` where the
-  page's own `cite:` used to say `github.com`; ask with `resolve: true` and the host follows the destination it
-  lands on. `SearchResultSchema` now states where `host` and `cite` each came from, because a field with no
-  stated source is how the laundered byte stayed plausible (#27).
-
-### Notes
-
-- `npm run test:measure` is a gate, not a formatter: `scripts/measure-unregistered-pages.mjs --check` measures
-  G.6's three figures, writes nothing, and exits non-zero naming every place still stating something else. The
-  three had been held to *each other* and sat 26 cases stale through a release with the suite green. The
-  committed reading moved with this round's cases: 425 in the suite, 47 reading the fake's invented page, 11
-  reading it as an engine's results page (#27).
-- `scripts/verify-host-live.mjs` is the live check for the column above — one search with `resolve: false` and
-  one with `resolve: true`, failing if any result reports a host that is not the host of its own url. Exit 0
-  honest, 1 a lie found, 2 the probe could not run; the first live run gave 10 rows and 0 lies (#27).
-- Two learnings are recorded under `docs/solutions/`: a derived field is a written field, recompute it at
-  every write site and never let a fixture supply it; and a committed measurement is pinned to a run, never to
-  its own other copies.
-
 ## [0.2.2] - 2026-11-02
 
 Everything merged after v0.2.1 — PRs #24 and #25, and the suite went from 378 passing tests to 393. One of those
