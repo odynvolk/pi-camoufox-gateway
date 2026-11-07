@@ -211,7 +211,7 @@ reduces turn count."
 ### 2.6 — closed: Say how stale is acceptable, not whether to refresh
 
 Shipped on `feat/read-cache-staleness-tolerance` (2026-11-07) as `maxAgeMs` on `camoufox_read`
-(`docs/plans/2026-11-07-read-cache-staleness-tolerance.md`). It was the one half of the per-call cache
+(`docs/plans/archive/2026-11-07-read-cache-staleness-tolerance.md`). It was the one half of the per-call cache
 bypass that did not ship: `fresh: true` answers *now or not*; what research actually asks is *how much
 staleness is fine* — 30 minutes of SERP age is right for a survey question and wrong for "what's the
 latest", and a boolean cannot say which was meant.
@@ -434,8 +434,11 @@ timid.
 - `docs/brainstorms/2026-10-09-pi-camoufox-gateway.md` — original requirements and Option C
 - `docs/plans/archive/2026-10-09-camoufox-search-extension.md` — v1 decisions, incl. what was
   deliberately deferred to v2
-- `docs/solutions/` — every lesson this repo has already paid for. The two newest are
+- `docs/solutions/` — every lesson this repo has already paid for. The three newest are
   `docs/solutions/architecture/derived-field-must-be-written-with-its-source.md` (why C.4's fix is a rule
-  about write sites rather than a better parser) and
+  about write sites rather than a better parser),
   `docs/solutions/testing/committed-measurement-must-be-pinned-to-a-run.md` (why a number committed to this
-  repo has to be re-measured, never hand-edited into agreement with its other copies)
+  repo has to be re-measured, never hand-edited into agreement with its other copies), and
+  `docs/solutions/architecture/single-flight-cache-has-two-read-paths.md` (why a per-call cache policy belongs
+  inside the cache — `run` answers from its own hit, which is the path the caller took *because* it refused).
+  The last one is what 2.7 will need before `search` gets a tolerance of its own.

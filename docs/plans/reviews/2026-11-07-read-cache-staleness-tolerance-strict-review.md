@@ -1,6 +1,6 @@
 # Strict Review — `maxAgeMs` plan (2026-11-07)
 
-Plan: `docs/plans/2026-11-07-read-cache-staleness-tolerance.md` · Mode: **Strict** (CEO steps 1–4 + error/rescue
+Plan: `docs/plans/archive/2026-11-07-read-cache-staleness-tolerance.md` · Mode: **Strict** (CEO steps 1–4 + error/rescue
 map, failure modes, test diagram) · Reviewer: pi, against `8bed93a`.
 
 **Outcome: three gaps found and folded into the plan (R1–R3 below), one honest limitation added as a stated

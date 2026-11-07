@@ -3,7 +3,7 @@
 **Status:** accepted (2026-11-07), implemented on `feat/read-cache-staleness-tolerance` (unit U1)
 
 > Requirement: `docs/brainstorms/2026-11-07-read-cache-staleness-tolerance.md` · Plan unit: U1 of
-> `docs/plans/2026-11-07-read-cache-staleness-tolerance.md`
+> `docs/plans/archive/2026-11-07-read-cache-staleness-tolerance.md`
 
 ## Context
 
