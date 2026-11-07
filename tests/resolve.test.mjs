@@ -31,8 +31,16 @@ test("the fixture derives host from its own url, so it cannot launder the bug it
   // give two hosts, each one the host of its own url, shaped exactly as `resultHost` shapes it.
   assert.equal(result("https://www.Example.test./x").host, "example.test", "`www.` and the FQDN terminator peel here as they do in the source");
   assert.notEqual(result("https://a.test/").host, result("https://b.test/").host, "the helper is not a constant wearing a host");
-  for (const url of ["https://www.Example.test./x", "https://www.google.com/goto?url=AAA", "https://someone-else.test/deal"]) {
-    assert.equal(result(url).host, resultHost(url), "the helper asks the same reader the source asks");
+  // Expected hosts are spelled here, not read back from `resultHost`. Asserting the helper against the very
+  // reader the helper calls is a tautology: it stays green with a broken reader, because both sides move
+  // together — and a shared-but-wrong reader is the exact regression this file exists to catch.
+  const derivedHosts = new Map([
+    ["https://www.Example.test./x", "example.test"],
+    ["https://www.google.com/goto?url=AAA", "google.com"],
+    ["https://someone-else.test/deal", "someone-else.test"],
+  ]);
+  for (const [url, host] of derivedHosts) {
+    assert.equal(result(url).host, host, `the helper derives ${host} from ${url} without being told it`);
   }
 });
 
@@ -319,7 +327,9 @@ test("a client that reports a destination with no host is answered with a refusa
   assert.equal(resolved.resolved, false, "a destination with no host is not a destination we can hand back");
   assert.equal(resolved.url, wrapper, "the url never moved, so nothing was resolved");
   assert.notEqual(resolved.host, "", "the one shape the printer cannot survive is the one this line must refuse to publish");
-  assert.equal(resolved.host, resultHost(wrapper), "the host that was there is the host that stays");
+  // The literal, not `resultHost(wrapper)`: on this path the source returns the fixture's own host, and the
+  // fixture derives it with `resultHost` — so comparing the two asks a function whether it equals itself.
+  assert.equal(resolved.host, "google.com", "the host that was there is the host that stays");
   assert.equal(resolved.resolvable, true, "and it is still flagged as a wrapper, because nothing revealed where it goes");
   assert.match(resolved.resolveError ?? "", /no host/u, "the refusal says what was wrong with the destination it was given");
   assert.deepEqual(client.closed, ["t1"], "the tab that reported it was still a tab, and still had to be closed");
