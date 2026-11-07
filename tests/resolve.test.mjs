@@ -162,6 +162,29 @@ test("the cache hit reads the host off the destination it cached, and opens no t
   assert.equal(cached.resolvable, false, "and the cached answer is not still flagged as needing a navigation");
 });
 
+test("a cached refusal keeps a wrapper flagged as one, because nothing ever revealed where it goes", async (t) => {
+  // The other half of the `resolvable` decision, and the half a fix that only ever clears the flag forgets:
+  // a cached `resolved: false` must leave it set, or a url that failed to resolve once comes back claiming
+  // to be final while still showing the wrapper.
+  const wrapper = "https://www.google.com/goto?url=STUCK_CACHED";
+  const { fake, client } = setup(t, { resolveFailures: new Set([wrapper]) });
+  const cache = createCache();
+
+  await resolveUrls([result(wrapper, { resolvable: true })], { client, userId: "u1", cache });
+  const opensAfterFirst = fake.state.calls.filter((c) => c.method === "POST" && c.path === "/tabs/open").length;
+  const [cached] = await resolveUrls([result(wrapper, { resolvable: true })], { client, userId: "u1", cache });
+
+  assert.equal(
+    fake.state.calls.filter((c) => c.method === "POST" && c.path === "/tabs/open").length,
+    opensAfterFirst,
+    "a cached refusal must not cost a second tab",
+  );
+  assert.equal(cached.resolved, false);
+  assert.equal(cached.url, wrapper, "the refusal is cached, not the destination");
+  assert.equal(cached.resolvable, true, "a refusal is not a destination");
+  assert.equal(cached.host, "google.com", "and the host is still read off the url being shown");
+});
+
 test("a destination whose url merely contains the bytes google.com/goto? is resolved, not called a wrapper", async (t) => {
   // Only the shared `isWrapper` gets this right: it asks for `?url=`, while the copy that lived in
   // `resolve.ts` asked for the bytes alone and judged a legitimate destination still-wrapped.

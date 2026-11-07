@@ -407,7 +407,6 @@ function restate(instrument) {
   assert.deepEqual(readHeaderFigures(instrument.read(instrument.script)), stated, "the header does not now state the fixture's reading");
 }
 
-/** Did the check name this place as one that disagrees? */
 /**
  * A place counts as named only when the check lists it as a disagreement — its path alone on a line.
  *
