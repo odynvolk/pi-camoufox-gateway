@@ -1,13 +1,18 @@
 /**
  * In-process TTL cache with single-flight, for tool results only.
  *
- * Two rules that matter: concurrent identical calls share one upstream attempt (pi can issue
- * parallel tool calls, and a cold cache would otherwise multiply the gateway's work), and only
- * successes are stored — caching a consent wall would make a transient problem look permanent.
+ * Three rules that matter: concurrent identical calls share one upstream attempt (pi can issue
+ * parallel tool calls, and a cold cache would otherwise multiply the gateway's work), only successes
+ * are stored — caching a consent wall would make a transient problem look permanent — and a caller may
+ * bound a read by age. Age is a bound, not an eviction: an expired entry is deleted, an over-tolerance
+ * one is skipped and left in place, because one caller's tight ask may not take away a page a looser one
+ * can still use (`docs/adr/0002-staleness-is-a-read-bound-not-an-eviction.md`).
  */
 
 interface Entry<T> {
   value: T;
+  /** When this value was fetched, which is the only thing that can answer "how old is it?". */
+  storedAt: number;
   expiresAt: number;
 }
 
@@ -16,16 +21,28 @@ export interface RunOptions<T> {
    * Whether a produced value is worth keeping. "The call succeeded" and "this answer is stable" are
    * different questions: a page that has not finished rendering is worth returning to the caller and
    * not worth serving for the rest of the TTL. Defaults to storing every success, which is what the
-   * two-rule contract means by "only successes are stored".
+   * rule about successes means by "only successes are stored".
    */
   shouldStore?: (value: T) => boolean;
 }
 
+export interface ReadBound {
+  /** Serve an entry at most this old. Absent = today's behaviour: unexpired is enough. */
+  maxAgeMs?: number;
+}
+
+export interface CachedEntry<T> {
+  value: T;
+  ageMs: number;
+}
+
 export interface Cache<T> {
-  get(key: string): T | undefined;
+  get(key: string, bound?: ReadBound): T | undefined;
+  /** The only reader that reports how old what it returned is. Never deletes a within-TTL entry. */
+  peek(key: string, bound?: ReadBound): CachedEntry<T> | undefined;
   set(key: string, value: T, ttlMs?: number): void;
   /** One in-flight producer per key. Failures are never stored. */
-  run(key: string, produce: () => Promise<T>, ttlMs?: number, options?: RunOptions<T>): Promise<T>;
+  run(key: string, produce: () => Promise<T>, ttlMs?: number, options?: RunOptions<T> & ReadBound): Promise<T>;
   get size(): number;
   clear(): void;
 }
@@ -53,24 +70,35 @@ export function createCache<T = unknown>(): Cache<T> {
   }
 
   return {
-    get(key: string): T | undefined {
+    get(key: string, bound?: ReadBound): T | undefined {
+      return this.peek(key, bound)?.value;
+    },
+
+    peek(key: string, bound?: ReadBound): CachedEntry<T> | undefined {
       const entry = entries.get(key);
       if (!entry) return undefined;
-      if (entry.expiresAt <= Date.now()) {
+      const now = Date.now();
+      if (entry.expiresAt <= now) {
         entries.delete(key);
         return undefined;
       }
-      return entry.value;
+      // A clock that stepped backwards would otherwise hand back a negative age, which passes every
+      // bound and gets reported as a fact about a page nobody can place.
+      const ageMs = Math.max(0, now - entry.storedAt);
+      // Skip, never evict: the entry outlives this caller's tolerance, so a looser read can still have it.
+      if (bound?.maxAgeMs !== undefined && !(ageMs < bound.maxAgeMs)) return undefined;
+      return { value: entry.value, ageMs };
     },
 
     set(key: string, value: T, ttlMs?: number): void {
-      entries.set(key, { value, expiresAt: Date.now() + (ttlMs ?? DEFAULT_TTL_MS) });
-      prune(Date.now());
+      const now = Date.now();
+      entries.set(key, { value, storedAt: now, expiresAt: now + (ttlMs ?? DEFAULT_TTL_MS) });
+      prune(now);
     },
 
-    async run(key: string, produce: () => Promise<T>, ttlMs?: number, options?: RunOptions<T>): Promise<T> {
-      const hit = this.get(key);
-      if (hit !== undefined) return hit;
+    async run(key: string, produce: () => Promise<T>, ttlMs?: number, options?: RunOptions<T> & ReadBound): Promise<T> {
+      const hit = this.peek(key, options);
+      if (hit !== undefined) return hit.value;
 
       const existing = inflight.get(key);
       if (existing) return await existing;
