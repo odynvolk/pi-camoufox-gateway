@@ -329,7 +329,8 @@ keeps it there.
 | Mutations | the four named above | each red on its own assertion, output recorded in the commit |
 | Property | U3 case 13: no `resolved: true` result with an empty `host` | green, and red when the `host:` is dropped |
 | Instrument | `NODE_ENV=test npm run test:measure` (U5) | fails before the re-measure, passes after |
-| Live spot check *(optional, same gateway as last round)* | `CAMOUFOX_GATEWAY_URL=http://192.168.8.110:9377 node -e …` — one search with `resolve: true`, printing `url`/`host` per result | no result whose `host` is not the host of its own `url`. **Inline override only — never edit config or `.env`** |
+| Live spot check | `CAMOUFOX_GATEWAY_URL=http://192.168.8.110:9377 node scripts/verify-host-live.mjs` — one search with `resolve: false` and one with `resolve: true`, printing `host`/`url`/`cite` per result | **ran: 10 rows, 0 lies**, both paths. It also shows Decision A's cost in the raw: unresolved rows print `host="google.com"` beside `cite="https://github.com › daijro › ca…"`. **Inline override only — never edit config or `.env`** |
+| Live suite | `CAMOUFOX_LIVE=1 npm run test:live` | **4 pass / 1 fail / 1 skipped** — `live: resolve turns wrappers into final urls` fails on a `goto` wrapper that never redirects. **Reproduced identically on `main`**, so it is the recorded live-google degradation, not this branch |
 
 Formatting and lint are the last step once everything is green, per the repo's standing instructions.
 
@@ -339,6 +340,33 @@ One sentence has to be true afterwards: **nothing in a search response can name 
 report.** `host` comes from `url`, the `url` it is derived from is the one being shown, and the only place
 page-supplied text about provenance survives is the field that already carries it verbatim and is named for
 what it is — `cite`.
+
+## Execution record
+
+All five units landed on `fix/result-host-attribution` (`c0b04bd` plan, `c645989` U1+U2, `cb24117` U3,
+`8b8cc0b` U5, `a9e2028` U4). Final: **413 pass / 0 fail**, `tsc --noEmit` clean, `npm run test:measure`
+exit 0. Where the plan turned out to be wrong, stated so the next plan does not repeat them:
+
+- **"U3–U5 touch no file another unit touches" was false.** `tests/improvement-refs.test.mjs` reads
+  `docs/improvements/*` refs as code, so any unit that *deletes cited code* inherits that doc's ref line. U2
+  and U3 both hit it at 1-fail and both were ruled: repoint what your own deletion broke, leave the item's
+  claims to the doc unit.
+- **U1 was not "append only".** `tests/snapshot.test.mjs:48` asserted `host === "camoufox.com"` on a `goto`
+  wrapper — the laundered byte, written into the suite as an expectation. Converted to the truth plus a
+  `cite` assertion, in the B.9 tradition. A plan that promises append-only invites a plan author to not look
+  for pins that assert the bug.
+- **U2 case 6's premise had a hole.** `isChrome` is handed the *raw* hostname, so `https://./x` survives it and
+  comes back `host: ""`. Pre-existing, cosmetic, pinned in `C.6` rather than guarded.
+- **U3 case 7 cannot be written RED-first as written** — "fix the helper, with a case asserting the helper
+  derives" is self-satisfying the moment the helper derives. The failing-first evidence had to be taken with
+  the old helper deliberately restored (6 red, 2 of them the helper's own pin).
+- **U5's "Dependencies: none" was wrong twice.** It depends on the doc's *shape* (exactly one fenced block
+  starting `cases in the suite:`), and adding its own cases moved the figure the instrument publishes — the
+  trio is 413 now, not the 407 the unit started against. A plan that adds test cases to a repo with a
+  committed suite count must schedule the refresh in the same unit.
+- **Decision 3 overstated its premise.** `host` and `cite` were not the only undescribed fields — `title`,
+  `snippet` and `engine` have no stated source either. Only the two in scope were described; `engine` is
+  page-influenced text too, and nothing says so.
 
 ## Review record
 
