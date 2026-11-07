@@ -1,6 +1,6 @@
 # Plan: a search result's `host` is ours, derived from the url — never text the page supplied
 
-> Status: executing
+> Status: done
 
 Branch: `fix/result-host-attribution`
 Date: 2026-11-02
