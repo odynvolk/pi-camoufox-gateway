@@ -55,9 +55,10 @@ model ask for *less, and the right thing*, per call.
 **Outcome:** one search call returns ranked results *with* readable text, instead of 10 urls the
 model must chase one at a time.
 
-Each result today costs a full extra tool call **and** a fresh navigation, because every continuation
-re-navigates (`src/tools/read.ts`, `172-175`, `226-228`). Turn count is the dominant cost of a research
-question, and this is where it's paid.
+Each result today costs a full extra tool call **and** a fresh navigation, because a different url is a
+different tab (`src/tools/read.ts` → `const tab = await client.openTab({ userId, url: params.url, signal: params.signal });`;
+the cache below it keys on url *and* offset, so a continuation is not a second read of a held page). Turn
+count is the dominant cost of a research question, and this is where it's paid.
 
 Jina's search endpoint exists precisely for this gap:
 
@@ -365,4 +366,8 @@ timid.
 - `docs/brainstorms/2026-10-09-pi-camoufox-gateway.md` — original requirements and Option C
 - `docs/plans/archive/2026-10-09-camoufox-search-extension.md` — v1 decisions, incl. what was
   deliberately deferred to v2
-- `docs/solutions/` — wall detection and cleanup-signal lessons already learned
+- `docs/solutions/` — every lesson this repo has already paid for. The two newest are
+  `docs/solutions/architecture/derived-field-must-be-written-with-its-source.md` (why C.4's fix is a rule
+  about write sites rather than a better parser) and
+  `docs/solutions/testing/committed-measurement-must-be-pinned-to-a-run.md` (why a number committed to this
+  repo has to be re-measured, never hand-edited into agreement with its other copies)
