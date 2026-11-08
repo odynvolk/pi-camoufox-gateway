@@ -14,7 +14,8 @@ import { classifySerp, engineOwnsUrl, parseSerp } from "../src/snapshot.ts";
 import { SEARCH_SETTLE_MS, SEARCH_SETTLE_POLL_MS, serpWorthAnotherLook } from "../src/engines/settle.ts";
 import { STABLE_ROUNDS } from "../src/settle.ts";
 import { DEFAULT_CONFIG } from "../src/config.ts";
-import { engineResultPrefixes } from "../scripts/measure-unregistered-pages.mjs";
+import { engineResultPrefixes, inventedPageText } from "../scripts/measure-unregistered-pages.mjs";
+import { enginePage, engineResultsUrl } from "./helpers/engine_page.mjs";
 
 const BASE = "http://gateway.test:9377";
 
@@ -76,11 +77,28 @@ test("google closes its tab even when the snapshot fails", async (t) => {
 });
 
 test("duckduckgo navigates straight to its query url", async (t) => {
-  const { fake, client } = setup(t);
+  // The assertion this case never had, and the reason the hole survived: the result credited to duckduckgo has
+  // to come from a page somebody registered, not from the article the fake invents for a url nobody did (G.6).
+  // What the invention *would* have been read as is derived from the fake rather than pasted in here, so the
+  // guard below announces itself as vacuous the day the invention stops carrying a link, instead of going green
+  // for nothing.
+  const page = await enginePage("duckduckgo", "camoufox anti-detect", DUCKDUCKGO_SERP);
+  const strays = parseSerp({ url: page.url, text: await inventedPageText(page.url) }, "duckduckgo").results.map((result) => result.url);
+  assert.ok(
+    strays.length > 0,
+    "the fake no longer invents a page that parses as duckduckgo results, so the guard below is vacuous — G.6 is closed, retire this premise deliberately",
+  );
+
+  const { fake, client } = setup(t, page.fakeOptions);
 
   const outcome = await duckduckgoEngine().search("camoufox anti-detect", { client, userId: "u1" });
 
-  assert.ok(outcome.results.length > 0);
+  assert.ok(outcome.results.length > 0, "and the result it reports is a recorded page's, not the invention's");
+  assert.equal(
+    outcome.results.some((result) => strays.includes(result.url)),
+    false,
+    `duckduckgo's results (${JSON.stringify(outcome.results.map((result) => result.url))}) came from the article the fake invents at an unregistered url, not from a page anybody registered`,
+  );
   const opened = fake.state.calls.find((c) => c.path === "/tabs/open");
   assert.match(opened.body.url, /^https:\/\/duckduckgo\.com\/\?q=camoufox/u);
   assert.equal(callsFor(fake, "/navigate").length, 0, "no macro or extra navigation for ddg");
@@ -93,10 +111,19 @@ test("each adapter opens at a page its own credited name owns", async (t) => {
   // credited for a page it does not host, chrome-filtered by that engine's own host list. So ask each
   // adapter where it actually opened, and hold that url to the name it reports.
   for (const engine of [googleEngine(), duckduckgoEngine()]) {
-    const { fake, client } = setup(t);
+    // A page per engine, at the url that engine's own adapter asks for. This case credits an engine with a page,
+    // so the page has to be one somebody put there: the article the fake invents at an unregistered url carries
+    // a link on a foreign host, which either engine's chrome rule would hand back as an organic result (G.6).
+    const page = await enginePage(engine.name, "camoufox", engine.name === "google" ? GOOGLE_SERP : DUCKDUCKGO_SERP);
+    const { fake, client } = setup(t, page.fakeOptions);
     await engine.search("camoufox", { client, userId: "u1" });
 
     const opened = fake.state.calls.find((call) => call.path === "/tabs/open").body.url;
+    assert.equal(
+      opened,
+      page.url,
+      `${engine.name} was sent to ${opened}, not to the ${page.url} this case registered its page at — the ownership claim below would be about a page nobody put here`,
+    );
     assert.equal(
       engineOwnsUrl(engine.name, opened),
       true,
@@ -204,7 +231,8 @@ test("a page we cannot read as a results list is parse_error, not empty_results"
   assert.ok(error.details?.excerpt, "the failure carries an excerpt so the diagnosis is possible");
 });
 test("falls through to duckduckgo when google hits a consent wall", async (t) => {
-  const { client } = setup(t, { consentWallOn: new Set(["u1"]) });
+  const page = await enginePage("duckduckgo", "camoufox", DUCKDUCKGO_SERP);
+  const { client } = setup(t, { consentWallOn: new Set(["u1"]), ...page.fakeOptions });
   const google = googleEngine();
   const ddg = duckduckgoEngine();
 
@@ -216,7 +244,10 @@ test("falls through to duckduckgo when google hits a consent wall", async (t) =>
 });
 
 test("reports empty_results and keeps trying the chain", async (t) => {
-  const { client } = setup(t);
+  // The engine that answers has to answer with something: the last enabled engine in the chain coming back
+  // empty is a throw, not a pass, so duckduckgo gets a recorded SERP here rather than the invented article.
+  const page = await enginePage("duckduckgo", "camoufox", DUCKDUCKGO_SERP);
+  const { client } = setup(t, page.fakeOptions);
   const empty = {
     name: "empty",
     search: async () => ({ results: [] }),
@@ -317,7 +348,8 @@ test("one slow engine may not abort the whole search", async (t) => {
   // *down* is still terminal through `gateway_unreachable`, which the case above keeps. Reported with the
   // timeout still terminal: one slow google cost 2 × 30s (a retryable timeout spends the retry budget)
   // and the call came back `tried: [{"engine":"google","code":"timeout"}]` with duckduckgo never asked.
-  const { client } = setup(t);
+  const page = await enginePage("duckduckgo", "camoufox", DUCKDUCKGO_SERP);
+  const { client } = setup(t, page.fakeOptions);
   const slow = {
     name: "google",
     search: async () => {
@@ -906,7 +938,8 @@ test("a SERP that answers on the first look costs exactly the requests it always
   // this dropped, the macro hop, is the one that measured 31s against the real gateway.
   assert.equal(google.fake.state.calls.filter((call) => call.path !== "/").length, 3);
 
-  const duckduckgo = setup(t);
+  const page = await enginePage("duckduckgo", "camoufox", DUCKDUCKGO_SERP);
+  const duckduckgo = setup(t, page.fakeOptions);
   await duckduckgoEngine().search("camoufox", { client: duckduckgo.client, userId: "u1" });
   assert.equal(duckduckgo.fake.state.calls.filter((call) => call.path !== "/").length, 3);
 });
@@ -940,9 +973,11 @@ const ROTATING_FRAMES = Array.from(
 test("an engine that hangs to its deadline still leaves the next one its whole deadline", async (t) => {
   // The bound is on the chain, not on the call: the first engine must still get a full request deadline,
   // and spending it must not be the reason the second engine never gets asked.
+  const page = await enginePage("duckduckgo", "camoufox", DUCKDUCKGO_SERP);
   const { fake, client } = hangSetup(t, {
-    hangUrls: new Set(["https://www.google.com/search?q=camoufox"]),
+    hangUrls: new Set([await engineResultsUrl("google", "camoufox")]),
     hangForMs: HANG_MS,
+    ...page.fakeOptions,
   });
 
   const startedAt = Date.now();

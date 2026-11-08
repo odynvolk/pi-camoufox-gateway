@@ -13,6 +13,7 @@ import { readTool } from "../src/tools/read.ts";
 import { enginesFromConfig } from "../src/engines/chain.ts";
 import { SEARCH_SETTLE_POLL_MS } from "../src/engines/settle.ts";
 import { engineResultPrefixes } from "../scripts/measure-unregistered-pages.mjs";
+import { enginePage, engineResultsUrl, RECORDED_SERP } from "./helpers/engine_page.mjs";
 
 const BASE = "http://gateway.test:9377";
 
@@ -271,7 +272,10 @@ test("resolution is narrated, and only when something is being resolved", async 
 });
 
 test("reports the engine chain it tried", async (t) => {
-  const { tool } = setup(t, { consentWallOn: new Set(["u1"]) });
+  // Duckduckgo's page registered at the url its own adapter asks for: this case asks the chain to fall through
+  // to it and be credited to it, so the page it answers with has to be one somebody put there (G.6).
+  const page = await enginePage("duckduckgo", "camoufox", RECORDED_SERP);
+  const { tool } = setup(t, { consentWallOn: new Set(["u1"]), ...page.fakeOptions });
 
   const out = await tool.search({ query: "camoufox" });
 
@@ -583,8 +587,11 @@ test("a search served from cache reports no wait it did not pay", async (t) => {
   // The chain waited on google and failed there, so the page that was stored is the one duckduckgo
   // answered with at a glance — which is what makes it storable at all. A page the engines had to wait
   // for is not kept, and the test below is why.
+  const googleUrl = await engineResultsUrl("google", "late");
+  const duckduckgoUrl = await engineResultsUrl("duckduckgo", "late");
   const { fake, tool } = setup(t, {
-    pageContents: new Map([["https://www.google.com/search?q=late", SERP_SKELETON]]),
+    pageContents: new Map([[googleUrl, SERP_SKELETON], [duckduckgoUrl, RECORDED_SERP]]),
+    snapshotLimit: RECORDED_SERP.length + 1,
   });
 
   const first = await tool.search({ query: "late" });

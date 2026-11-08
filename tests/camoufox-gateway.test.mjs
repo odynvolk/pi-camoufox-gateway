@@ -19,6 +19,7 @@ import registerExtension from "../src/camoufox-gateway.ts";
 import { DEFAULT_CONFIG, ENGINE_NAMES, MAX_SEARCH_RESULTS } from "../src/config.ts";
 import { describeAge, READ_DESCRIPTION, SEARCH_DESCRIPTION } from "../src/extension.ts";
 import { withFakeGateway, opens, openCalls } from "./helpers/fake_gateway.mjs";
+import { enginePage, RECORDED_SERP } from "./helpers/engine_page.mjs";
 import { stageClock } from "./helpers/clock.mjs";
 
 function stubPi() {
@@ -680,7 +681,10 @@ test("an engine that fell through is reported to a script as well as to the mode
   // difference between "retry" and "file a bug", and a programmatic caller has an interest in it too.
   withConfigFile(t, { gatewayUrl: "http://gateway.test:9377" });
   const { ctx, userId } = session("pi-fell-through");
-  withFakeGateway(t, { consentWallOn: new Set([userId]) });
+  // The engine that fell through to has to answer with a page somebody registered: a `duckduckgo:ok` step is
+  // only honest while the page behind it is a recorded SERP and not the article the fake invents (G.6).
+  const page = await enginePage("duckduckgo", "camoufox", RECORDED_SERP);
+  withFakeGateway(t, { consentWallOn: new Set([userId]), ...page.fakeOptions });
   const { byName } = registered();
 
   const search = await byName.camoufox_search.execute("id", { query: "camoufox" }, undefined, undefined, ctx);
@@ -784,7 +788,10 @@ test("a read says what it is doing while it does it", async (t) => {
 test("a search names the engine it is trying, before it tries it", async (t) => {
   withConfigFile(t, { gatewayUrl: "http://gateway.test:9377" });
   const { ctx, userId } = session("pi-search-notes");
-  withFakeGateway(t, { consentWallOn: new Set([userId]) });
+  // Registered too, though nothing here can go red on it: these notes are emitted before each attempt, so this
+  // case passes with every engine failing — a weakness of its own, filed as a follow-up rather than widened here.
+  const page = await enginePage("duckduckgo", "camoufox", RECORDED_SERP);
+  withFakeGateway(t, { consentWallOn: new Set([userId]), ...page.fakeOptions });
   const { byName } = registered();
   const notes = [];
 

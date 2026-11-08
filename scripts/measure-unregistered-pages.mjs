@@ -20,7 +20,7 @@
  * trio that only agrees with itself is not a check. `npm run test:measure` runs the second mode.
  *
  * Today's reading, written to `tests/fixtures/measure/invented-page-count.txt` every time it runs: of 477
- * cases in the suite, 64 read the fake's invented page and 11 read it as an engine's results page. Those
+ * cases in the suite, 53 read the fake's invented page and 0 read it as an engine's results page. Those
  * three figures are restated in this comment, in that file, and in
  * `docs/improvements/2026-10-18-code.md` → G.6, and `tests/measure-unregistered-pages.test.mjs` refuses the
  * three once they disagree — a count with nothing under it is a claim, and a claim three files each keep by
