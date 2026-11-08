@@ -48,6 +48,13 @@ its own authority — R2 named a constant that does not exist and gave one unit 
 figure asserted with no run behind it. Every reviewer claim that needed a command was run by the author before
 folding; where the reviewer was wrong, the correction is recorded in the artifact.
 
+**A second Strict pass then reviewed the folded text** — `docs/plans/reviews/2026-11-08-invented-page-not-a-result-set-strict-review-r2.md`
+— and **blocked** the plan: the U1 mechanism written in response to R1 was broken five ways (F1–F5), including
+one that made the plan's own `0 of N` end state unreachable. It also measured a claim this author had asserted
+from a single ad-hoc sample (F6). That mechanism as corrected is what U1 now specifies; read the r2 artifact
+before implementing U1. **Lesson for the next plan: a review that rewrites a plan leaves the rewrite
+unreviewed — budget the second pass.**
+
 ## Where this plan disagrees with the item
 
 G.6 says the fix "belongs with the callers that lean on it, not with the page." Measured on current code,
@@ -57,7 +64,9 @@ actually true:
 
 1. **The "350 of 384 stayed green" number is not a refusal and must not be quoted into a fix.** It came from
    deleting the navigation and opening both engines at their origin root. The mutation that closes this hole
-   has a measured radius of **13**, and they are red in the right files.
+   has a measured radius of **13** *(in `tests/engines.test.mjs`, measured pre-U2 — F8: post-U2 the set is the
+   named casualties across four files, and `npm test` cannot even see one of them)*, and they are red in the
+   right files. U4 publishes the **post-U2** count, not this one.
 2. **The page can be fixed, and fixing it there is one line.** Replacing the link with a non-link ref —
    page keeps its heading, its 14 paragraphs (~2.5k chars, well over `settleMinChars`) and its `[e1]` ref,
    and carries **zero `/url:` lines** — costs 13 reds and **zero collateral**. Registering the eleven is
@@ -161,7 +170,7 @@ saw pages *and* demonstrably can still classify a results read. Today it cannot:
 throws on a zero, and its anchor is the test U2 is about to fix.
 
 **Files.** `scripts/measure-unregistered-pages.mjs`, `tests/measure-unregistered-pages.test.mjs`,
-`tests/instrument-probe.mjs`, `docs/adr/0003-*.md` (create).
+`docs/adr/0003-*.md` (create).
 
 **Patterns to follow.** The instrument's own rule — *"Which pages are invented is answered by the unmodified
 fake, which owns that decision"* — so the probe asks the fake rather than being told. And cases 13–15's
@@ -173,17 +182,39 @@ controlled count of 0 belong, because neither is reachable in the real suite on 
 - A probe suite whose fake still ships the linked article → the instrument reports `1`, and the
   proof-of-life assertions pass. **This is the case that keeps the asResults detector from becoming
   unfalsifiable once the real suite reports 0.**
-- A probe suite whose fake ships the fixed, linkless page → the instrument reports `0` and *publishes*,
-  rather than throwing.
-- **A recorder self-probe — the mechanism R1 demanded and the first draft lacked.** At preload install, open a
-  tab at `INVENTION_PROBE` **and** at `<engine-prefix>__measure-probe__` through the same `observe`-wrapped
-  fetch, and require both to appear in `byCase` before any headline prints. This proves the *recorder*, not
-  `classify`, and matches the instrument's own rule that the unmodified fake owns the invention decision. If
-  the implementation instead plants a record and calls `classify` directly, it has proved a pure function and
-  nothing about the recorder — and must say so in the case name, not in a comment.
-- A probe run in which `byCase` is **empty** while the child suite still reported `ℹ tests N` → the instrument
-  must still throw. A zero from a blind recorder is not a reading. This is the case the whole unit exists for,
-  and the one the first draft could not break (R6).
+- A probe suite whose fake ships the fixed, linkless page **and whose case registers a page at the derived
+  engine url** → the instrument reports `0` and *publishes*, rather than throwing. (F4: the first version
+  omitted the registration, and since `classify` matches on the url alone it reported `1` — a RED case that was
+  red for the wrong reason and would have shipped with the unit.) The linkless fake *without* registration
+  stays as a third scenario that must still report `1`, because that is the case proving the detector fires.
+- **A recorder self-probe — the mechanism R1 demanded, as corrected by the second pass (F1–F3). The first
+  version of this bullet was broken and would have defeated the unit's own goal.** Do **not** issue probe
+  requests through the recorded path: `let current = "(unnamed)";` is written only by
+  `beforeEach(function () {`, so a preload-time request is attributed to a case literally named `(unnamed)`,
+  `caseNames(cases)` then counts one phantom per file, and — because `classify` matches on the url alone — that
+  probe url enters `asResults` and **`read it as an engine's results page` can never reach 0**. The shape that
+  works:
+  - issue the probe into a **separate map flushed under its own prefix** that `parseReport` cannot match, so it
+    is invisible to `byCase`, `asResults` and every denominator; the proof-of-life is the **marker's presence in
+    the run's output**, not an entry in `byCase`;
+  - **install a fake on `globalThis.fetch` before issuing and restore after** — `measure()` imports
+    `tests/helpers/fetch_guard.mjs` *before* the preload and that file throws on any live request, so a probe
+    calling the global directly kills every child and the run reports nothing was measured. Follow
+    `inventedPageText`, which uses `fake.fetch(…)` for exactly this reason;
+  - **do not** derive the probe url by running an adapter through a stubbed `globalThis.fetch`:
+    `engineResultPrefixes()` saves and replaces the global itself and answers the adapters from an inline stub
+    that never reaches the fake, so the probe would record nothing and satisfy its own precondition by
+    accident. Pass the prefix in from the parent instead, keeping ADR-0003 #3's no-literal rule at the place
+    that matters.
+- **What `assertSawTheKnownCase` becomes — state it in code, or U2's `0 of N` is unreachable (F5).** It can no
+  longer be a name test on `KNOWN_CASE`, since U2 registers that very page. It becomes: the probe marker is
+  present in the parsed output **and** the probe's url classified against a real engine prefix; throw
+  otherwise. Name the existing gate cases this rewrites — `assert.throws(() => assertSawTheKnownCase([], []),
+  /the recorder saw nothing/u)` among them — rather than leaving them to fail mysteriously.
+- **The blindness case, redefined (F3 — the first version could not be constructed).** *Probe marker absent
+  while the child suite still printed `ℹ tests N` → the instrument must still throw.* With an unconditional
+  preload probe, `byCase` is never empty, so the earlier "empty `byCase`" wording made the guard untestable and
+  its mutation row unbreakable. Delete that wording and its row; this replaces them.
 - The two headline figures use **different denominators** — `caseNames(cases)` on file+name, and
   `new Set(asResults.map((one) => one.name)).size` on name only — so a proof-of-life written against `cases`
   is not one for `asResults`. Pin the asymmetry, or a future "simplification" fuses them and one counter stops
@@ -196,7 +227,8 @@ controlled count of 0 belong, because neither is reachable in the real suite on 
 **Verification.**
 `NODE_ENV=test node --test --import ./tests/helpers/fetch_guard.mjs tests/measure-unregistered-pages.test.mjs`
 then `NODE_ENV=test npm test` and `node scripts/measure-unregistered-pages.mjs` (must still print
-`11 of 471`, `ℹ fail 0`).
+`11 of N` — **not** `11 of 471`; U1 adds cases, and the denominator is the child runner's `ℹ tests N`, so it
+moves by construction. Restate all three committed places in this unit, not in U4 — F9), `ℹ fail 0`.
 Mutations: make `pageWasInvented` always false → the count-of-1 probe case must go red (a detector that can
 never fire cannot prove anything); **delete the `throw` in `assertSawTheKnownCase`** → the empty-`byCase`
 refuse case must go red. *(The first draft's mutation here — "blind the recorder" — was unbreakable: blinding
@@ -257,7 +289,8 @@ naming itself, and a pasted url would report the hole as closed while the engine
 
 **Verification.**
 `NODE_ENV=test node --test --import ./tests/helpers/fetch_guard.mjs tests/engines.test.mjs
-tests/search-tool.test.mjs tests/camoufox-gateway.test.mjs tests/snapshot.test.mjs`, then `npm test`,
+tests/search-tool.test.mjs tests/camoufox-gateway.test.mjs tests/snapshot.test.mjs
+tests/measure-unregistered-pages.test.mjs`, then `npm test`,
 `npm run typecheck`, and `node scripts/measure-unregistered-pages.mjs` — **which must now print
 `read it as an engine's results page: 0 of N` with `ℹ fail 0`**, and `npm run test:measure` must publish it.
 
@@ -288,19 +321,46 @@ ref (four extract-path tests need a ref to exist). Change only the link.
 **Test scenarios.**
 - **The pin for the defect itself, RED first:** the fake's invented page yields **zero organic results under
   both the `google` label and the `duckduckgo` label**, while still carrying a ref. Red before the change,
-  green after — this is the assertion that did not exist, and it is the reason the hole survived. It must
-  assert three things, not one (R4):
-  - `detectWall(invented) === null` — the page must not become a wall or a browser refusal;
-  - `settleMinChars < length < INTERSTITIAL_MAX_CHARS`, i.e. `1_500 < len < 3_000`, **both bounds**; and
+  green after — this is the assertion that did not exist, and it is the reason the hole survived. Four
+  corrections the second pass forced (F6, F7), each of which made the pin as originally written lie:
+  - the headline claim must go through **`parseSerp`**, not `classifySerp` — an off-engine url returns
+    `empty_results` from `if (!engineOwnsUrl(engine, url)) {` **before** any parsing, so `classifySerp` reports
+    "no results" for a page it never read, which is the pin passing for the wrong reason;
+  - `detectWall` takes a snapshot, not a string: `export function detectWall(snapshot: SnapshotLike):`.
+    Pass `detectWall({ url: THE_URL, text: page }) === null` as `tests/snapshot.test.mjs` already does — hand it
+    a bare string and `const text = snapshot.text ?? "";` yields `""`, `empty_page` fires, and the assertion is
+    **permanently red with `typecheck` silent**, since `tsconfig.json` → `"include": ["src/**/*.ts"]` and these
+    are `.mjs` files;
+  - **name the url**, and assert on the page for that url. The heading `- heading "Page: ${url}" [level=1]`
+    echoes it, so every length claim below is a property of *(page, url)* — see the table under "the length is
+    the url's, not the page's";
+  - the three thresholds are **module-private** (`const INTERSTITIAL_MAX_CHARS = 3_000;`,
+    `const PARSEABLE_MIN_CHARS = 2_000;`, and `settleMinChars` only inside `DEFAULT_CONFIG`). Do not export one
+    — that breaks this plan's own `src/` boundary. Pin the literals with an anchored ref beside each, the way
+    `tests/snapshot.test.mjs` already does, and use `DEFAULT_CONFIG.read.settleMinChars` for the lower bound.
+
+  So the band is `DEFAULT_CONFIG.read.settleMinChars < len < 3_000` **and** `len > 2_000` — three bounds, not
+  two, because `PARSEABLE_MIN_CHARS` is what decides whether the linkless page is `parse_error` or
+  `empty_results`, which is the behaviour U3 depends on and the eleven's reds are made of. And
   - `!/\/url:/u.test(page)` — no `/url:` line survives.
 
-  The upper bound is not decoration: the page measures **2987** today against
-  `src/snapshot.ts` → `const INTERSTITIAL_MAX_CHARS = 3_000;`, so the phrase branch is *already* consulted on
-  a fabricated page whose heading echoes the requested url, and it is 13 characters from flipping. And
-  `isBrowserRefusal` is today short-circuited by `if (lines.some((line) => /\/url:/u.test(line))) return false;`
-  — remove the link and the page stands on one condition only, the absence of a
-  `RETRY_AFFORDANCE` line. That is why the substitute must not be a `"Try again"`-shaped button, and why the
-  first draft's single-bound pin pinned the wrong threshold.
+  **the length is the url's, not the page's (F6, measured).** Because the heading echoes the requested url, one
+  invented page sits on both sides of the phrase-evidence window depending on how long the url that asked for
+  it happens to be:
+
+  | url asked for | page length | `<= INTERSTITIAL_MAX_CHARS` |
+  | --- | --- | --- |
+  | `https://example.test/` | 2976 | yes — phrase evidence taken |
+  | `https://duckduckgo.com/?q=camoufox` | 2989 | yes |
+  | `https://duckduckgo.com/?q=camoufox%20anti-detect` (`KNOWN_CASE`) | **3003** | **no** |
+  | the instrument's own `INVENTION_PROBE` url | **3012** | **no** |
+
+  The first draft's single "2987, 13 characters from flipping" was measured at a url invented on the spot, and
+  is wrong at both urls the instrument itself uses. State the measured length for the named url in the
+  assertion message. `isBrowserRefusal` is today short-circuited by
+  `if (lines.some((line) => /\/url:/u.test(line))) return false;` — remove the link and the page stands on one
+  condition only, the absence of a `RETRY_AFFORDANCE` line. That is why the substitute must not be a
+  `"Try again"`-shaped button, and why a pin without a named url asserts a coincidence.
 - The four readers that depend on `[e1]` and the six that depend on `Page: <url>` stay green: that is the
   evidence the page kept its bulk and its ref.
 - **`an adapter reports only links from the page it was sent to` retires exactly as it asks to.** Its own
@@ -326,8 +386,9 @@ ref (four extract-path tests need a ref to exist). Change only the link.
   throwing, the `indexOf("- link")` assertion above, or the eleven moving onto the `parse_error` path.
 
 **Verification.**
-`NODE_ENV=test node --test --import ./tests/helpers/fetch_guard.mjs tests/helpers/… tests/engines.test.mjs
-tests/read-tool.test.mjs tests/gateway.test.mjs tests/improvement-refs.test.mjs`, then `npm test`,
+`NODE_ENV=test node --test --import ./tests/helpers/fetch_guard.mjs tests/engines.test.mjs
+tests/read-tool.test.mjs tests/gateway.test.mjs tests/improvement-refs.test.mjs`, then
+`npm test`,
 `npm run typecheck`, `npm run test:measure`.
 **Report the red delta.** Before U2 the link-removal variant measured 13 failures. After U2 the expectation is
 **the named casualties only**: `an adapter reports only links from the page it was sent to`,
@@ -349,8 +410,10 @@ the mutations that produced them.
 
 **Test scenarios / content.**
 - Close G.6 in place (`— closed:`, the code ledger's convention) with **both** numbers attributed: 350-of-384
-  came from deleting the navigation and opening at origin roots; **13** came from removing the link. The two
-  are not the same experiment and the entry must not let a reader conflate them.
+  came from deleting the navigation and opening at origin roots; **13** came from removing the link, and that 13
+  is the **pre-U2** figure confined to `tests/engines.test.mjs`. Publish the count U3 actually observed
+  post-U2, naming the two files `npm test` does not run. The two are not the same experiment and the entry must
+  not let a reader conflate them.
 - Record the follow-up this plan declined to absorb: `a search names the engine it is trying, before it tries
   it` passes when every engine fails, because it asserts only its progress notes.
 - `CONTEXT.md` gains the vocabulary the work needs and the repo does not have — there is currently no word
@@ -399,11 +462,11 @@ turns it red, or the assertion is credited rather than proven:
 | Invented page is not a result set | restore the link line | the new pin red, and only it — **and only in the post-U2 tree**; measured before registration it is false, which is what makes the order load-bearing |
 | asResults detector is not dead | `pageWasInvented` always false | the probe's count-of-1 case red. Breakable **only because** the scratch rig copies `scripts/` and spawns the copy — say so in the case, because a refactor to import the module instead silently un-breaks this row |
 | A zero requires a seeing recorder | **delete the `throw`** in `assertSawTheKnownCase` | the empty-`byCase` refuse case red |
-| A zero requires a seeing recorder, second form | empty `byCase` while the child suite still prints `ℹ tests N` | the refuse case red *(the first draft's "blind the recorder" row was unbreakable — R6)* |
+| A zero requires a seeing recorder, second form | probe marker absent while the child suite still prints `ℹ tests N` | the refuse case red *(the first draft's "blind the recorder" row was unbreakable, and its replacement — empty `byCase` — was unconstructable once the probe was unconditional: F3)* |
 | Registration is not a paste | hardcode a duckduckgo key and move `SEARCH_URL` in `src/engines/duckduckgo.ts` | the adapter names itself red |
 | Page kept its bulk | thin the invented article below `settleMinChars` | settle-polling reds reappear (~25 on the recon run; publish the real count in U4) |
-| Page stays off the wall threshold | trim ~60 characters toward `INTERSTITIAL_MAX_CHARS` | the two-sided band in the new pin goes red — the bound the first draft omitted (R4) |
-| Page is not a browser refusal | add a `- button "Try again"` line | the `detectWall(invented) === null` assertion goes red |
+| Page stays parseable | trim the invented article **below 2_000** characters | the page crosses `const PARSEABLE_MIN_CHARS = 2_000;` and flips from `parse_error` to `empty_results`, reddening the pin and the chain-fallback cases. *(An earlier version of this row said "trim ~60 characters"; 2987−60 crosses nothing — F4 of the second pass, a row that could not turn anything red.)* |
+| Page is not a browser refusal | add a `- button "Try again"` line | the `detectWall({ url, text }) === null` assertion goes red — **and so does every `read` of the invented page**, so unlike row 1 this row may not claim "and only it" |
 | Page kept its ref | drop the `[e1]` ref | the extract-path readers red (count from the recon run; publish the real one) |
 | Committed figures are a run | hand-edit one of the three copies | `test:measure` refuses, naming the stale place |
 
