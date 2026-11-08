@@ -62,7 +62,7 @@ const ReadSchema = Type.Object({
   maxAgeMs: Type.Optional(
     Type.Integer({
       description:
-        "Accept a cached page this old instead of navigating: a whole number of milliseconds, 0 or more — anything else is refused with code unsupported. 0 always navigates, and omitting it takes any page still inside cache.pageMs. Pass fresh instead when you need the page as it is now — the two answer one question and are refused together",
+        "Accept a stored page younger than this instead of navigating: a whole number of milliseconds, 0 or more — anything else is refused with code unsupported. 0 always navigates, and omitting it takes any page still inside cache.pageMs. Pass fresh instead when you need the page as it is now — the two answer one question and are refused together",
     }),
   ),
 });

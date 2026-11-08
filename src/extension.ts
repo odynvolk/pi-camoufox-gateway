@@ -99,7 +99,7 @@ export const READ_DESCRIPTION =
   "Read a web page through a Camoufox browser gateway so JavaScript-rendered pages work. " +
   "Thin pages are re-snapshotted until they stop growing; pass waitFor (a CSS selector) for content that renders late. " +
   "Returns page text (bounded, use offset to continue) and optionally a JSON-Schema extraction. " +
-  "Pages are cached for a few minutes; pass fresh:true when you need the page as it is now, or maxAgeMs when a page up to that many milliseconds old will do. " +
+  "Pages are cached for a few minutes; pass fresh:true when you need the page as it is now, or maxAgeMs when a stored page younger than that many milliseconds would do. " +
   "Internal addresses are refused unless network.allowPrivateHosts is set.";
 
 export interface ExtensionDepsWithConfig extends ExtensionDeps {

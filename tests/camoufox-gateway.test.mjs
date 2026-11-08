@@ -532,6 +532,32 @@ test("the staleness tolerance declares what the guard holds it to, and quotes no
   // The two are refused together, so the sentence has to say which one to drop rather than leave a model
   // to discover `fresh` by trial.
   assert.match(maxAgeMs.description, /fresh/u, `"${maxAgeMs.description}" does not say what fresh does differently`);
+  // The comparison is strict (`!(ageMs < bound.maxAgeMs)`), so "a page this old is accepted" is a claim the
+  // code does not honour — and the sentence cannot even hold it alongside its own "0 always navigates", which
+  // is only true because nothing is accepted at age 0. A model reads this sentence and not the operator, so
+  // it is the operator's wording that has to survive here.
+  assert.doesNotMatch(
+    maxAgeMs.description,
+    /page (this|that) old/u,
+    `"${maxAgeMs.description}" states the bound inclusively, which the strict test does not honour`,
+  );
+  assert.match(
+    maxAgeMs.description,
+    /younger than/u,
+    `"${maxAgeMs.description}" does not say which side of the number a stored page has to be on`,
+  );
+});
+
+// READ_DESCRIPTION is the other sentence a model reads about this knob, and it made the same inclusive claim
+// ("up to that many milliseconds old will do"). The two are held to the same wording so they cannot drift
+// apart in the one direction that is wrong.
+test("the read description bounds a cached page strictly, the way the guard and the schema do", () => {
+  assert.doesNotMatch(
+    READ_DESCRIPTION,
+    /up to [a-z0-9]+ ?(many )?milliseconds old|page this old/u,
+    `"${READ_DESCRIPTION}" states the tolerance inclusively, which the strict test does not honour`,
+  );
+  assert.match(READ_DESCRIPTION, /younger than/u, `"${READ_DESCRIPTION}" does not say which side of the number counts`);
 });
 
 test("the n schema offers only whole numbers, because the tool refuses anything else", () => {
