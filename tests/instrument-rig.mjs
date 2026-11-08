@@ -50,7 +50,7 @@ const ARTICLE_URL = "https://example.test/an-article-nobody-registered";
 const register = process.env.CAMOUFOX_MEASURE_RIG_REGISTER === "1";
 const resultsUrl = `${(await engineResultPrefixes()).get("duckduckgo")}${QUERY}`;
 
-// Where the case above actually went, for whoever runs this file by hand: the rig's own cases assert on the
+// Where the case below actually went, for whoever runs this file by hand: the rig's own cases assert on the
 // instrument's figures, not on this line, so nothing reads it back — a line that claims a reader it does not
 // have is how a stale affordance survives. The url is derived through `engineResultPrefixes` for the reason
 // above, and a reader reconstructing it would be a second copy of the rule this file exists to avoid pasting.

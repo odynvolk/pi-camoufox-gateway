@@ -37,8 +37,9 @@ cases with it. "Unregistered" and "engine results url" are not the same predicat
 the link onto an engine host — every `read` test depends on this page not being engine chrome.
 
 **2. A published zero requires the recorder to prove it can still see.** Every recorded child reads one page for
-itself, at an engine's own results url, and prints whether it recognised it as an invention; `assertSawTheKnownCase`
-grades that statement and refuses the run without it.
+itself, at an engine's own results url, and prints whether it recognised it as an invention; what
+`assertSawTheKnownCase` requires is one recognised read across the run — a child whose own fixture answers first
+proves nothing about the instrument — and it refuses the run without it.
 
 Rejected: leaving the guard keyed on the named case, and accepting a bare 0. That is a gate which passes precisely
 when it has stopped measuring — and a count that cannot reach 0 is not a measurement of the hole either. The

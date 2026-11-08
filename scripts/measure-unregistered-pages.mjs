@@ -37,11 +37,13 @@
  *   moving its search url moves this measurement with it instead of leaving it matching the old one.
  *
  * A published **zero** costs a third thing, because zero and "closed" print identically and only one of them
- * is a finding. Before this file may say `read it as an engine's results page: 0`, every recorded child proves
- * it can still see the invented page at all: it reads one for itself, at an engine's own results url, and says
- * out loud whether it recognised it. `assertSawTheKnownCase` grades that statement, and refuses the run without
- * it. What it cannot grade is a case name — a case is exactly what closes the hole, and the day one registers
- * its engine's page, a guard keyed on that case's name would be refusing the good news.
+ * is a finding. Before this file may say `read it as an engine's results page: 0`, the run proves the recorder
+ * can still see the invented page at all: every recorded child reads one for itself, at an engine's own results
+ * url, and says out loud whether it recognised it — and one recognised read across the run is what
+ * `assertSawTheKnownCase` demands, because a child whose own fixture answers first says nothing about the
+ * instrument. It refuses the run without it. What it cannot grade is a case name — a case is exactly what closes
+ * the hole, and the day one registers its engine's page, a guard keyed on that case's name would be refusing the
+ * good news.
  */
 
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -423,17 +425,6 @@ export function classify(cases, prefixes) {
 }
 
 /**
- * A count of zero is a broken instrument, not a closed hole, so refuse it.
- *
- * What this used to rest on was a case name: `duckduckgo navigates straight to its query url` opened the
- * engine's own query page, registered nothing, and could not be missed. Registering that page is the fix G.6
- * exists to land, so the name could not survive it — and a guard that threw on the run it was waiting for
- * would have made the good news unpublishable. What the name stood for is graded directly instead: that the
- * recorder read a page at an engine's own results url, and recognised it as the fake's invention. A recorder
- * that can do both and still counts nothing is reporting a closed hole; one that can do neither is not
- * reporting anything.
- */
-/**
  * The proof-of-life line, stated over the prefixes an invention is reachable at.
  *
  * A prefix the fake answers from its own routing — google's, matched by `url.includes("google.com/search")` —
@@ -460,6 +451,17 @@ export function probeFigures(probes, prefixes) {
   };
 }
 
+/**
+ * A count of zero is a broken instrument, not a closed hole, so refuse it.
+ *
+ * What this used to rest on was a case name: `duckduckgo navigates straight to its query url` opened the
+ * engine's own query page, registered nothing, and could not be missed. Registering that page is the fix G.6
+ * exists to land, so the name could not survive it — and a guard that threw on the run it was waiting for
+ * would have made the good news unpublishable. What the name stood for is graded directly instead: that the
+ * recorder read a page at an engine's own results url, and recognised it as the fake's invention. A recorder
+ * that can do both and still counts nothing is reporting a closed hole; one that can do neither is not
+ * reporting anything.
+ */
 export function assertSawTheKnownCase(probes, prefixes) {
   if (probes.length === 0) {
     throw new Error("the recorder took no probe read of its own, so these counts are a silence, not a measurement — the recorder saw nothing");

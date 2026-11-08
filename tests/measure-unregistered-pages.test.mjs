@@ -757,6 +757,10 @@ test("a case that registers the engine's own results page takes that count to ze
   assert.equal(figures.asResults, 0, "the only engine read in the run was a page somebody registered");
   assert.ok(figures.invented > 0, "the other count moved, so this is a closed hole rather than a silent recorder");
   assert.ok(probeSaw(run.output).invented > 0, "and the probe still saw an invention, which is what licenses the zero");
+  // The figure's own shape is the claim: it is stated over the prefixes an invention is reachable at, so every
+  // read it counts was one. Let it average in the prefix the fake owns and `of` silently becomes 38 here.
+  const probe = probeSaw(run.output);
+  assert.equal(probe.invented, probe.of, "the probe figure counts only reads where an invention was reachable");
   // And the half of that line that can never be an invention is named rather than averaged in: the fake answers
   // google's prefix by url substring, so an unqualified "19 of 38" is a permanent half people stop reading.
   // Take the caveat out of `probeFigures` and this is the case that says so.

@@ -32,14 +32,14 @@ function setup(t, options = {}) {
 }
 
 /** A google page wider than one call may return: 12 links, where the tool's ceiling is 10. */
-function widePageContents() {
+async function widePageContents() {
   const page = Array.from(
     { length: 12 },
     (_unused, i) => `- link "Wide ${i + 1}" [e${i + 1}]:\n  - /url: https://example.test/w${i + 1}\n  - text: snippet ${i + 1}`,
   ).join("\n");
   // Built per call, because the fake gateway reads the map it is handed and a shared one is one test's
   // mutation away from changing another's page.
-  return new Map([["https://www.google.com/search?q=camoufox", page]]);
+  return new Map([[await engineResultsUrl("google", "camoufox"), page]]);
 }
 
 test("returns parsed results for a plain query", async (t) => {
@@ -122,7 +122,7 @@ test("a page wider than what came back is counted, not quietly dropped", async (
   // Nobody asked for more than the tool can give, so `clampedTo` stays undefined and `shortBy` stays
   // undefined: on `main` this call printed "10 result(s)" for a page that carried 12, which is the
   // output claiming more than it returned.
-  const { tool } = setup(t, { pageContents: widePageContents() });
+  const { tool } = setup(t, { pageContents: await widePageContents() });
 
   const out = await tool.search({ query: "camoufox" });
 
@@ -136,7 +136,7 @@ test("a page wider than what came back is counted, not quietly dropped", async (
 test("a page wider than `n` names the ask as the reason, not the ceiling", async (t) => {
   // Same page, different request. The one disclosure has to say which limit fired, because the two
   // levers pull differently: `n` is this call's, and no larger `n` moves the other.
-  const { tool } = setup(t, { pageContents: widePageContents() });
+  const { tool } = setup(t, { pageContents: await widePageContents() });
 
   const out = await tool.search({ query: "camoufox", n: 4 });
 
@@ -149,7 +149,7 @@ test("both width lines print, and each blames the limit that actually fired", as
   // added `pageCarried` left `clampedTo` claiming the *engine* capped the call one line above the line
   // naming this tool's own ceiling — one fact, two causes, and false outright for an engine whose page
   // "carries whatever it carried".
-  const { tool } = setup(t, { pageContents: widePageContents() });
+  const { tool } = setup(t, { pageContents: await widePageContents() });
 
   const out = await tool.search({ query: "camoufox", n: 50 });
 
@@ -617,7 +617,7 @@ test("a SERP caught at its first result answers this call and is not kept for th
   assert.equal(narrow.results.length, 1, "stop-at-first is still what answers a search");
 
   // The page has arrived since. Were the partial frame still stored, none of what follows would be read.
-  fake.state.snapshotScripts.set("https://www.google.com/search?q=slow", [TEN_RESULTS_PAGE]);
+  fake.state.snapshotScripts.set(await engineResultsUrl("google", "slow"), [TEN_RESULTS_PAGE]);
   const before = fake.state.calls.length;
 
   const wide = await tool.search({ query: "slow", n: 10 });
