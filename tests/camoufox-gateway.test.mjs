@@ -19,7 +19,7 @@ import registerExtension from "../src/camoufox-gateway.ts";
 import { DEFAULT_CONFIG, ENGINE_NAMES, MAX_SEARCH_RESULTS } from "../src/config.ts";
 import { describeAge, READ_DESCRIPTION, SEARCH_DESCRIPTION } from "../src/extension.ts";
 import { withFakeGateway, opens, openCalls } from "./helpers/fake_gateway.mjs";
-import { enginePage, RECORDED_SERP } from "./helpers/engine_page.mjs";
+import { enginePage, engineResultsUrl, RECORDED_SERP } from "./helpers/engine_page.mjs";
 import { stageClock } from "./helpers/clock.mjs";
 
 function stubPi() {
@@ -706,7 +706,7 @@ test("a chain that ran out hands a script the steps, not only the code", async (
   assert.ok(linkless.length > 2_000, `needs to be past PARSEABLE_MIN_CHARS to be parse_error, got ${linkless.length}`);
   withFakeGateway(t, {
     consentWallOn: new Set([userId]),
-    pageContents: new Map([["https://duckduckgo.com/?q=camoufox", linkless]]),
+    pageContents: new Map([[await engineResultsUrl("duckduckgo", "camoufox"), linkless]]),
   });
   const { byName } = registered();
 
@@ -731,7 +731,7 @@ test("the two width counts reach structuredContent, not just the prose", async (
     { length: 12 },
     (_unused, i) => `- link "Wide ${i + 1}" [e${i + 1}]:\n  - /url: https://example.test/w${i + 1}\n  - text: snippet ${i + 1}`,
   ).join("\n");
-  withFakeGateway(t, { pageContents: new Map([["https://www.google.com/search?q=camoufox", page]]) });
+  withFakeGateway(t, { pageContents: new Map([[await engineResultsUrl("google", "camoufox"), page]]) });
   const { byName } = registered();
   const { ctx } = session("pi-wide-page");
 
@@ -750,7 +750,7 @@ test("the time a search waited for its SERP reaches structuredContent, not just 
   const skeleton = `- heading "camoufox"\n- navigation:\n  - link "Allt" [e1]\n  - link "Webb" [e2]`;
   const served = `${skeleton}\n- link "Camoufox" [e3]:\n  - /url: https://camoufox.com\n  - text: An anti-detect browser.`;
   withFakeGateway(t, {
-    snapshotScripts: new Map([["https://www.google.com/search?q=late", [skeleton, served]]]),
+    snapshotScripts: new Map([[await engineResultsUrl("google", "late"), [skeleton, served]]]),
   });
   const { byName } = registered();
   const { ctx } = session("pi-slow-serp");

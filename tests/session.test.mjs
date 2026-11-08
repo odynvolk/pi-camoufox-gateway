@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { withFakeGateway } from "./helpers/fake_gateway.mjs";
+import { engineResultsUrl } from "./helpers/engine_page.mjs";
 import { testConfig } from "./helpers/config.mjs";
 import { createGatewayClient } from "../src/gateway.ts";
 import { createCache } from "../src/cache.ts";
@@ -452,7 +453,7 @@ test("an exhausted chain names every engine it tried, and with what", async (t) 
 
   const { extension } = extensionFor(t, "u1", {
     consentWallOn: new Set(["u1"]),
-    pageContents: new Map([["https://duckduckgo.com/?q=camoufox", linkless]]),
+    pageContents: new Map([[await engineResultsUrl("duckduckgo", "camoufox"), linkless]]),
   });
 
   const error = await extension.search({ query: "camoufox" }).catch((e) => e);

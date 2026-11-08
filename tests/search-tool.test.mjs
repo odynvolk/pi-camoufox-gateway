@@ -173,7 +173,7 @@ test("a cheap first call does not cap what a later call can ask for", async (t) 
     (_unused, i) =>
       `- link "Result ${i + 1}" [e${i + 2}]:\n  - /url: https://example.test/result-${i + 1}\n  - text: snippet ${i + 1}`,
   ).join("\n")}`;
-  const { tool } = setup(t, { pageContents: new Map([["https://www.google.com/search?q=camoufox", page]]) });
+  const { tool } = setup(t, { pageContents: new Map([[await engineResultsUrl("google", "camoufox"), page]]) });
 
   const few = await tool.search({ query: "camoufox", n: 2 });
   assert.equal(few.results.length, 2);
@@ -250,7 +250,7 @@ test("resolution is narrated, and only when something is being resolved", async 
     { length: 3 },
     (_unused, i) => `- link "Direct ${i + 1}" [e${i + 1}]:\n  - /url: https://example.test/d${i + 1}\n  - text: snippet ${i + 1}`,
   ).join("\n");
-  const { tool } = setup(t, { pageContents: new Map([["https://www.google.com/search?q=direct", direct]]) });
+  const { tool } = setup(t, { pageContents: new Map([[await engineResultsUrl("google", "direct"), direct]]) });
 
   const resolving = [];
   const out = await tool.search({ query: "camoufox", resolve: true, onProgress: (note) => resolving.push(note) });
@@ -556,7 +556,7 @@ const TEN_RESULTS_PAGE = Array.from(
 
 test("a search that waited for its SERP says how long it waited, and says nothing else", async (t) => {
   const { tool } = setup(t, {
-    snapshotScripts: new Map([["https://www.google.com/search?q=late", [SERP_SKELETON, SERP_WITH_RESULTS]]]),
+    snapshotScripts: new Map([[await engineResultsUrl("google", "late"), [SERP_SKELETON, SERP_WITH_RESULTS]]]),
   });
 
   const out = await tool.search({ query: "late", n: 1 });
@@ -610,7 +610,7 @@ test("a SERP caught at its first result answers this call and is not kept for th
   // it is honest, because `shortBy` says what came up short. Storing it under a key that deliberately
   // ignores `n` is not: one result becomes the answer for every later ask, for the whole `cache.serpMs`.
   const { fake, tool } = setup(t, {
-    snapshotScripts: new Map([["https://www.google.com/search?q=slow", [SERP_SKELETON, SERP_WITH_RESULTS]]]),
+    snapshotScripts: new Map([[await engineResultsUrl("google", "slow"), [SERP_SKELETON, SERP_WITH_RESULTS]]]),
   });
 
   const narrow = await tool.search({ query: "slow", n: 1 });
@@ -642,7 +642,7 @@ test("a SERP caught at its first result answers this call and is not kept for th
 test("B.8 as filed: a refusal served from the first look is cached, and the second query costs no request", async (t) => {
   const { fake, tool } = setup(t, {
     pageContents: new Map([
-      ["https://www.google.com/search?q=blocked", readFileSync(new URL("./fixtures/serp-reddit-blocked.txt", import.meta.url), "utf8")],
+      [await engineResultsUrl("google", "blocked"), readFileSync(new URL("./fixtures/serp-reddit-blocked.txt", import.meta.url), "utf8")],
     ]),
   });
 
@@ -673,8 +673,8 @@ test("the wait a search reports is the whole chain's, not just the engine that a
   // and serves. A hop is paid *after* the wait that preceded it, so the note that omits the first one
   // is a number the model cannot reconcile with how long the call took.
   const { tool } = setup(t, {
-    pageContents: new Map([["https://www.google.com/search?q=two-waits", SERP_SKELETON]]),
-    snapshotScripts: new Map([["https://duckduckgo.com/?q=two-waits", [SERP_SKELETON, SERP_WITH_RESULTS]]]),
+    pageContents: new Map([[await engineResultsUrl("google", "two-waits"), SERP_SKELETON]]),
+    snapshotScripts: new Map([[await engineResultsUrl("duckduckgo", "two-waits"), [SERP_SKELETON, SERP_WITH_RESULTS]]]),
   });
 
   const out = await tool.search({ query: "two-waits" });

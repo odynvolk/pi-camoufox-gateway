@@ -251,7 +251,7 @@ test("an adapter hands back the whole page, unsliced", async (t) => {
 `).join("");
 
   const { fake, client } = setup(t, {
-    pageContents: new Map([["https://www.google.com/search?q=camoufox", overflow]]),
+    pageContents: new Map([[await engineResultsUrl("google", "camoufox"), overflow]]),
   });
   const outcome = await googleEngine().search("camoufox", { client, userId: "u1" });
 
@@ -265,7 +265,7 @@ test("a page we cannot read as a results list is parse_error, not empty_results"
   const prose = `- heading "Google Results" [level=1]\n${"- paragraph:\n  - text: long enough to be a real page.\n".repeat(120)}`;
   assert.ok(prose.length > 2_000);
 
-  const { client } = setup(t, { pageContents: new Map([["https://www.google.com/search?q=anything", prose]]) });
+  const { client } = setup(t, { pageContents: new Map([[await engineResultsUrl("google", "anything"), prose]]) });
   const error = await googleEngine().search("anything", { client, userId: "u1" }).catch((e) => e);
 
   assert.equal(error.code, "parse_error");
@@ -342,8 +342,8 @@ test("a link-less page inside the wall window is parse_error, empty_results is r
 
   const { client } = setup(t, {
     pageContents: new Map([
-      ["https://www.google.com/search?q=band", band],
-      ["https://www.google.com/search?q=thin", short],
+      [await engineResultsUrl("google", "band"), band],
+      [await engineResultsUrl("google", "thin"), short],
     ]),
   });
 
@@ -476,8 +476,8 @@ test("a google tab that ends up on duckduckgo is credited to duckduckgo, not to 
   // the host of the engine we *asked* for. Crediting from `Engine.name` is only honest while the page is
   // that engine's, which is the fact this case pins.
   const { fake, client } = setup(t, {
-    redirects: new Map([["https://www.google.com/search?q=camoufox", "https://duckduckgo.com/?q=camoufox"]]),
-    pageContents: new Map([["https://duckduckgo.com/?q=camoufox", DUCKDUCKGO_SERP]]),
+    redirects: new Map([[await engineResultsUrl("google", "camoufox"), await engineResultsUrl("duckduckgo", "camoufox")]]),
+    pageContents: new Map([[await engineResultsUrl("duckduckgo", "camoufox"), DUCKDUCKGO_SERP]]),
     // The recorded page is wider than the fake's snapshot window, so without this the count below is a
     // fact about the fake rather than about the fixture.
     snapshotLimit: 40_000,
@@ -513,8 +513,8 @@ test("a page the asked engine cannot own is reported as a substitution, whatever
   // address on the first look and no frame afterwards contradicts it, so it is the one verdict the wait may
   // not downgrade — the model reads one message, and it must be the one about which page we got.
   const { fake, client } = setup(t, {
-    redirects: new Map([["https://www.google.com/search?q=camoufox", "https://duckduckgo.com/?q=camoufox"]]),
-    snapshotScripts: new Map([["https://duckduckgo.com/?q=camoufox", ROTATING_FRAMES]]),
+    redirects: new Map([[await engineResultsUrl("google", "camoufox"), await engineResultsUrl("duckduckgo", "camoufox")]]),
+    snapshotScripts: new Map([[await engineResultsUrl("duckduckgo", "camoufox"), ROTATING_FRAMES]]),
   });
 
   const error = await googleEngine().search("camoufox", { client, userId: "u1" }).catch((e) => e);
@@ -537,7 +537,7 @@ test("a google page still rendering on the first look is re-looked, not reported
   assertNoOrganics(GOOGLE_SKELETON, "google", "the chrome-only frame");
 
   const { fake, client } = setup(t, {
-    snapshotScripts: new Map([["https://www.google.com/search?q=camoufox", [GOOGLE_SKELETON, GOOGLE_SERP]]]),
+    snapshotScripts: new Map([[await engineResultsUrl("google", "camoufox"), [GOOGLE_SKELETON, GOOGLE_SERP]]]),
   });
 
   const outcome = await googleEngine().search("camoufox", { client, userId: "u1" });
@@ -554,7 +554,7 @@ test("a first look that matches the recorded zero-result page is still re-looked
   assertNoOrganics(GOOGLE_NO_RESULTS, "google", "the recorded no-results page");
 
   const { fake, client } = setup(t, {
-    snapshotScripts: new Map([["https://www.google.com/search?q=camoufox", [GOOGLE_NO_RESULTS, GOOGLE_SERP]]]),
+    snapshotScripts: new Map([[await engineResultsUrl("google", "camoufox"), [GOOGLE_NO_RESULTS, GOOGLE_SERP]]]),
   });
 
   const outcome = await googleEngine().search("camoufox", { client, userId: "u1" });
@@ -569,7 +569,7 @@ test("duckduckgo waits the same way google does, on the same shape of page", asy
     // The recorded duckduckgo page is wider than the fake's snapshot window, so without this the count
     // below would be a fact about the fake rather than about the fixture.
     snapshotLimit: 40_000,
-    snapshotScripts: new Map([["https://duckduckgo.com/?q=camoufox", [DUCKDUCKGO_SKELETON, DUCKDUCKGO_SERP]]]),
+    snapshotScripts: new Map([[await engineResultsUrl("duckduckgo", "camoufox"), [DUCKDUCKGO_SKELETON, DUCKDUCKGO_SERP]]]),
   });
 
   const outcome = await duckduckgoEngine().search("camoufox", { client, userId: "u1" });
@@ -582,7 +582,7 @@ test("a SERP that has not arrived at all is re-looked, not reported as an empty 
   // `empty_page` is what a blank snapshot is called, and a blank first snapshot is the most
   // obviously-still-rendering page there is. Read's loop already refuses to treat it as settled.
   const { fake, client } = setup(t, {
-    snapshotScripts: new Map([["https://www.google.com/search?q=camoufox", ["", GOOGLE_SERP]]]),
+    snapshotScripts: new Map([[await engineResultsUrl("google", "camoufox"), ["", GOOGLE_SERP]]]),
   });
 
   const outcome = await googleEngine().search("camoufox", { client, userId: "u1" });
@@ -610,7 +610,7 @@ test("the recorded page this parser is blind to is re-looked until it stops chan
   assertNoOrganics(DUCKDUCKGO_BLIND_PAGE, "duckduckgo", "the B.6 page");
 
   const { fake, client } = setup(t, {
-    pageContents: new Map([["https://duckduckgo.com/?q=camoufox", DUCKDUCKGO_BLIND_PAGE]]),
+    pageContents: new Map([[await engineResultsUrl("duckduckgo", "camoufox"), DUCKDUCKGO_BLIND_PAGE]]),
   });
 
   const error = await duckduckgoEngine().search("camoufox", { client, userId: "u1" }).catch((e) => e);
@@ -638,7 +638,7 @@ test("a page that never stops changing costs the search budget and nothing more"
     (_unused, index) => `- heading "loading ${index}" [level=1]\n- link "chrome ${index}" [e1]:\n  - /url: /?q=${index}`,
   );
   const { fake, client } = setup(t, {
-    snapshotScripts: new Map([["https://www.google.com/search?q=camoufox", frames]]),
+    snapshotScripts: new Map([[await engineResultsUrl("google", "camoufox"), frames]]),
   });
 
   const error = await googleEngine().search("camoufox", { client, userId: "u1" }).catch((e) => e);
@@ -687,7 +687,7 @@ test("the identical pair that spent the budget is a stop, not a page still rende
   const requestDeadlineMs = SEARCH_SETTLE_MS + 500;
   const { fake, client } = setup(t, {
     timeoutMs: requestDeadlineMs,
-    pageContents: new Map([["https://www.google.com/search?q=camoufox", GOOGLE_NO_RESULTS]]),
+    pageContents: new Map([[await engineResultsUrl("google", "camoufox"), GOOGLE_NO_RESULTS]]),
     snapshotHangsForMs: SEARCH_SETTLE_MS + 1,
   });
 
@@ -711,7 +711,7 @@ test("a stable page on a gateway that answers in milliseconds still pays for the
   // The other half of that stop: it fires only when the budget cannot admit another look, so nothing here
   // gets cheaper on a fast gateway, and one repeat is still not mistaken for a finished page.
   const { fake, client } = setup(t, {
-    pageContents: new Map([["https://www.google.com/search?q=camoufox", GOOGLE_NO_RESULTS]]),
+    pageContents: new Map([[await engineResultsUrl("google", "camoufox"), GOOGLE_NO_RESULTS]]),
   });
 
   const error = await googleEngine().search("camoufox", { client, userId: "u1" }).catch((e) => e);
@@ -950,7 +950,7 @@ test("an abort that lands during a search's settle sleep ends it and closes the 
   // is dropped before it is sent and leaves the tab open on the gateway. Only the second one is visible
   // from the server side, which is why the assertion below is `liveTabs()` and not our own bookkeeping.
   const { fake, client } = setup(t, {
-    snapshotScripts: new Map([["https://www.google.com/search?q=camoufox", ['- heading "Loading…" [level=1]']]]),
+    snapshotScripts: new Map([[await engineResultsUrl("google", "camoufox"), ['- heading "Loading…" [level=1]']]]),
   });
   const controller = new AbortController();
   const running = googleEngine()
@@ -1094,8 +1094,8 @@ test("both engines spending their whole settle still lands inside the chain's on
   const { fake, client } = setup(t, {
     timeoutMs: deadlineMs,
     snapshotScripts: new Map([
-      ["https://www.google.com/search?q=camoufox", ROTATING_FRAMES],
-      ["https://duckduckgo.com/?q=camoufox", ROTATING_FRAMES],
+      [await engineResultsUrl("google", "camoufox"), ROTATING_FRAMES],
+      [await engineResultsUrl("duckduckgo", "camoufox"), ROTATING_FRAMES],
     ]),
   });
 
@@ -1126,7 +1126,7 @@ test("a search that runs out of its budget is not reported as a search someone c
   // the distinction has to ride on the abort *reason* — which is what each of these two messages is read to
   // prove, side by side.
   const cancelled = hangSetup(t, {
-    snapshotScripts: new Map([["https://www.google.com/search?q=camoufox", ROTATING_FRAMES]]),
+    snapshotScripts: new Map([[await engineResultsUrl("google", "camoufox"), ROTATING_FRAMES]]),
   });
   const controller = new AbortController();
   const cancelling = searchWithFallback("camoufox", [googleEngine()], {
@@ -1140,7 +1140,7 @@ test("a search that runs out of its budget is not reported as a search someone c
 
   const stalled = hangSetup(t, {
     openLatencyMs: REQUEST_DEADLINE_MS - 20,
-    snapshotScripts: new Map([["https://www.google.com/search?q=camoufox", ROTATING_FRAMES]]),
+    snapshotScripts: new Map([[await engineResultsUrl("google", "camoufox"), ROTATING_FRAMES]]),
   });
   const startedAt = Date.now();
   const budgetError = await searchWithFallback("camoufox", [googleEngine()], {
