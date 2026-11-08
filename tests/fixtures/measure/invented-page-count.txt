@@ -1,5 +1,5 @@
-cases in the suite:                   477
-read the fake's invented page:        53 of 477
-read it as an engine's results page:  0 of 477
+cases in the suite:                   478
+read the fake's invented page:        53 of 478
+read it as an engine's results page:  0 of 478
   google      https://www.google.com/search?q=  0 case(s)
   duckduckgo  https://duckduckgo.com/?q=  0 case(s)

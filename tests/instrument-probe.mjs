@@ -44,13 +44,19 @@ const CLIENT_OPTIONS = { baseUrl: BASE, timeoutMs: 1000 };
 test(KNOWN_CASE, async (t) => {
   // Run through the adapter rather than at a url copied in here, so the results-page attribution the
   // instrument makes is one the shipped duckduckgo adapter still earns rather than one this file asserts.
+  //
+  // The claim is the throw, not the result: the invented page is a page and not a result set, so the adapter
+  // finds no link blocks in a body past `PARSEABLE_MIN_CHARS` and blames its own parser. The navigation is
+  // kept because the navigation is what the recorder records and what `classify` then reads.
   const fake = withFakeGateway(t);
   const client = createGatewayClient(CLIENT_OPTIONS);
-  const outcome = await duckduckgoEngine().search("camoufox anti-detect", { client, userId: "u1" });
+  const outcome = await duckduckgoEngine()
+    .search("camoufox anti-detect", { client, userId: "u1" })
+    .catch((error) => error);
 
-  assert.ok(outcome.results.length > 0, "the invented page parsed as results, which is the hole G.6 counts");
+  assert.equal(outcome.code, "parse_error", `the invented page did not reach the adapter as an unparseable page: ${JSON.stringify(outcome)}`);
   const opened = fake.state.calls.find((call) => call.path === "/tabs/open");
-  assert.match(opened.body.url, /^https:\/\/duckduckgo\.com\/\?q=/u, "and it opened the engine's own query page");
+  assert.match(opened.body.url, /^https:\/\/duckduckgo\.com\/\?q=/u, "and it opened the engine's own query page anyway, which is the read being counted");
 });
 
 test("reads an article page nobody registered", async (t) => {

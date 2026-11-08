@@ -121,8 +121,15 @@ test("an invented page is recognised, and the pages the fake ships are not", asy
   assert.equal(await pageAtIsInvented(UNREGISTERED), true);
 
   // A slice of the invention is still the invention — `/snapshot` paginates and `read` re-looks at an offset.
+  // Sliced from the end and guarded rather than cut at `indexOf("- link")`: the moment the invented page
+  // stopped carrying a link that expression became `slice(-1)` — one character, under
+  // `MIN_INVENTED_PAGE_CHARS` — and an `indexOf` that returns -1 quietly turns this into "the whole page is
+  // the page", which is the unfalsifiable pin wearing a different hat.
   const whole = await inventedPageText(UNREGISTERED);
-  assert.equal(await pageWasInvented(UNREGISTERED, whole.slice(whole.indexOf("- link"))), true);
+  const tail = whole.slice(-400);
+  assert.equal(tail.length, 400, "the slice is shorter than it asked for, so it is not a piece of the page");
+  assert.notEqual(tail, whole, "a slice that is the whole page asserts nothing about slices");
+  assert.equal(await pageWasInvented(UNREGISTERED, tail), true);
 
   // And these are not the invention, however long they are.
   assert.equal(await pageWasInvented(UNREGISTERED, ""), false);

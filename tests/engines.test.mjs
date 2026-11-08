@@ -10,11 +10,11 @@ import { GatewayError } from "../src/errors.ts";
 import { enginesFromConfig, SEARCH_CHAIN_BUDGET_IN_DEADLINES, searchWithFallback } from "../src/engines/chain.ts";
 import { googleEngine } from "../src/engines/google.ts";
 import { duckduckgoEngine } from "../src/engines/duckduckgo.ts";
-import { classifySerp, engineOwnsUrl, parseSerp } from "../src/snapshot.ts";
+import { classifySerp, detectWall, engineOwnsUrl, parseSerp } from "../src/snapshot.ts";
 import { SEARCH_SETTLE_MS, SEARCH_SETTLE_POLL_MS, serpWorthAnotherLook } from "../src/engines/settle.ts";
 import { STABLE_ROUNDS } from "../src/settle.ts";
 import { DEFAULT_CONFIG } from "../src/config.ts";
-import { engineResultPrefixes, inventedPageText } from "../scripts/measure-unregistered-pages.mjs";
+import { engineResultPrefixes, inventedPageText, pageWasInvented } from "../scripts/measure-unregistered-pages.mjs";
 import { enginePage, engineResultsUrl } from "./helpers/engine_page.mjs";
 
 const BASE = "http://gateway.test:9377";
@@ -77,28 +77,22 @@ test("google closes its tab even when the snapshot fails", async (t) => {
 });
 
 test("duckduckgo navigates straight to its query url", async (t) => {
-  // The assertion this case never had, and the reason the hole survived: the result credited to duckduckgo has
-  // to come from a page somebody registered, not from the article the fake invents for a url nobody did (G.6).
-  // What the invention *would* have been read as is derived from the fake rather than pasted in here, so the
-  // guard below announces itself as vacuous the day the invention stops carrying a link, instead of going green
-  // for nothing.
+  // The assertion this case never had, and the reason the hole survived: every result credited to duckduckgo has
+  // to appear on the page somebody registered at that url. Asserted positively — a reported url must be *on*
+  // the recording — because an absence is easy to satisfy: reading the invention instead put
+  // `https://camoufox.com/docs` here, which is on no recording, and still would.
   const page = await enginePage("duckduckgo", "camoufox anti-detect", DUCKDUCKGO_SERP);
-  const strays = parseSerp({ url: page.url, text: await inventedPageText(page.url) }, "duckduckgo").results.map((result) => result.url);
-  assert.ok(
-    strays.length > 0,
-    "the fake no longer invents a page that parses as duckduckgo results, so the guard below is vacuous — G.6 is closed, retire this premise deliberately",
-  );
-
   const { fake, client } = setup(t, page.fakeOptions);
 
   const outcome = await duckduckgoEngine().search("camoufox anti-detect", { client, userId: "u1" });
 
-  assert.ok(outcome.results.length > 0, "and the result it reports is a recorded page's, not the invention's");
-  assert.equal(
-    outcome.results.some((result) => strays.includes(result.url)),
-    false,
-    `duckduckgo's results (${JSON.stringify(outcome.results.map((result) => result.url))}) came from the article the fake invents at an unregistered url, not from a page anybody registered`,
-  );
+  assert.ok(outcome.results.length > 0, "the adapter has to report something, or the premise below is vacuous");
+  for (const result of outcome.results) {
+    assert.ok(
+      DUCKDUCKGO_SERP.includes(result.url),
+      `duckduckgo reported ${result.url} from ${page.url}, which is on no page registered there — the article the fake invents at an unregistered url, or some other page nobody put here`,
+    );
+  }
   const opened = fake.state.calls.find((c) => c.path === "/tabs/open");
   assert.match(opened.body.url, /^https:\/\/duckduckgo\.com\/\?q=camoufox/u);
   assert.equal(callsFor(fake, "/navigate").length, 0, "no macro or extra navigation for ddg");
@@ -132,10 +126,54 @@ test("each adapter opens at a page its own credited name owns", async (t) => {
   }
 });
 
+test("the page the fake invents is not a result set, and not a refusal either", async () => {
+  // The question G.6 was never asked: what *is* the page a test gets when it registers nothing? It has to be a
+  // page — `read` needs bulk to settle on and `/extract` needs a ref — and it must not be something an engine
+  // can be credited with a result on. One `/url:` line on a host no engine owns was enough, because the
+  // organic-versus-chrome call is structural and a foreign host is not chrome.
+  //
+  // The url is named, and the length claims below are about *this* (page, url) pair: the heading echoes the
+  // requested url, so the same invented article sits on both sides of the wall-phrase window depending on how
+  // long the url that asked for it happens to be.
+  const url = "https://example.test/an-article-nobody-registered";
+  const page = await inventedPageText(url);
+  assert.ok(page !== null, "the fake has to answer an unregistered url at all, or the incidental readers have no page");
+
+  // `parseSerp`, not `classifySerp`: for an off-engine url `classifySerp` answers `empty_results` from
+  // `if (!engineOwnsUrl(engine, url)) {` before it reads a byte, so it reports "no results" for a page it
+  // never parsed — the pin passing for the wrong reason.
+  for (const engine of ["google", "duckduckgo"]) {
+    assert.deepEqual(
+      parseSerp({ url, text: page }, engine).results,
+      [],
+      `${engine} read a result out of the page the fake invents at ${url}, which nobody registered`,
+    );
+  }
+
+  // Asked the way every caller asks it — with the snapshot, not the string. Handed a bare string, `detectWall`'
+  // own `const text = snapshot.text ?? "";` yields "" and answers `empty_page` forever, and `typecheck` is
+  // silent about it because these files are `.mjs` and tsconfig covers only `src/**/*.ts`.
+  assert.equal(detectWall({ url, text: page }), null, "the invented page is not a browser's own refusal either");
+  assert.doesNotMatch(page, /\/url:/u, "a `/url:` line is still on the invented page — one was all it took");
+
+  // Three thresholds, spelled as literals beside their source because all three are module-private and
+  // exporting one to assert on it would move `src/` for a fixture's convenience.
+  const INTERSTITIAL_MAX_CHARS = 3_000; // src/snapshot.ts → `const INTERSTITIAL_MAX_CHARS = 3_000;`
+  const PARSEABLE_MIN_CHARS = 2_000; // src/snapshot.ts → `const PARSEABLE_MIN_CHARS = 2_000;`
+  assert.ok(
+    page.length > DEFAULT_CONFIG.read.settleMinChars && page.length < INTERSTITIAL_MAX_CHARS,
+    `the page invented for ${url} is ${page.length} characters: at or above ${INTERSTITIAL_MAX_CHARS} the wall phrases stop being evidence at all, and at or below settleMinChars=${DEFAULT_CONFIG.read.settleMinChars} every unrelated read in the suite pays for the settle loop`,
+  );
+  assert.ok(
+    page.length > PARSEABLE_MIN_CHARS,
+    `the page invented for ${url} is ${page.length} characters, at or below PARSEABLE_MIN_CHARS=${PARSEABLE_MIN_CHARS} it stops being our parser's fault and answers empty_results — a different code, and a different story told to the model`,
+  );
+});
+
 test("an adapter reports only links from the page it was sent to", async (t) => {
   // G.6. `tests/helpers/fake_gateway.mjs` answers **any** url a test did not register with an invented
-  // article, and that article's one link sits on a host no engine owns — so `src/snapshot.ts` →
-  // `return hostIsEngineDomain(host, rule) && !(rule.wrappers && isWrapper(url));` calls it an organic
+  // article, which used to carry one link on a host no engine owns — so `src/snapshot.ts` →
+  // `return hostIsEngineDomain(host, rule) && !(rule.wrappers && isWrapper(url));` called it an organic
   // result under either engine label. Measured 2026-11-01 by deleting the navigation from
   // `src/engines/serp.ts` and opening both tabs at their own origin root instead: 347 of 378 tests stayed
   // green, and the search tool still answered `(via google)` with **1 result, `https://camoufox.com/docs`**.
@@ -178,25 +216,28 @@ test("an adapter reports only links from the page it was sent to", async (t) => 
       ours.every((link) => outcome.results.some((result) => result.url === link)),
       `${engine.name} did not report the two links registered at ${url} (${JSON.stringify(outcome.results.map((r) => r.url))})`,
     );
-    // The guard: no reported url may come from anywhere else. One that does arrived from the fake's
-    // invented article, which is a page no engine owns and which the host rule reads as organic.
+    // The guard: no reported url may come from anywhere else. One that does arrived from a page this test
+    // never registered, and the host rule reads a foreign host as organic, so that is how a result used to
+    // appear on a page whose engine never earned one.
     for (const result of outcome.results) {
       assert.ok(
         ours.includes(result.url),
-        `${engine.name} reported ${result.url} from ${opened}, a page this test never registered — the fake's invented article, whose one link the host rule calls organic`,
+        `${engine.name} reported ${result.url} from ${opened}, a page this test never registered — the fake's invented article, which is exactly what the host rule used to hand back as an organic result`,
       );
     }
 
-    // Premise two: the invented page really is reportable as this engine's results. If the fake ever
-    // stops inventing it, the guard above is vacuous and this line says so instead of going green.
+    // Premise two: the guard above still has something to catch. What it filters out is a url that arrived from
+    // a page nobody registered, so a fake that answered an unregistered url with nothing at all — the terminal
+    // shape the follow-up item is scheduled to hand it — would leave this case green while proving nothing.
+    // Said here, and tested here, so it goes red naming itself instead of quietly passing.
     const bare = setup(t);
     const stray = await bare.client.openTab({ userId: "u1", url: `${new URL(url).origin}/` });
     const snapshot = await bare.client.snapshot({ userId: "u1", tabId: stray.tabId });
     await bare.client.closeTabQuietly({ userId: "u1", tabId: stray.tabId });
-    assert.deepEqual(
-      parseSerp(snapshot, engine.name).results.map((result) => result.url),
-      ["https://camoufox.com/docs"],
-      `the fake no longer invents a ${engine.name} results page at an unregistered url, so the guard above is vacuous — G.6 is closed, retire this case deliberately`,
+    assert.equal(
+      await pageWasInvented(snapshot.url ?? `${new URL(url).origin}/`, snapshot.text),
+      true,
+      `the fake answered ${new URL(url).origin}/ with something that is not its invented article, so no unregistered page could ever be reported here and the guard above proves nothing — when the fake stops inventing, retire this case deliberately`,
     );
   }
 });
