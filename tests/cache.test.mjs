@@ -104,6 +104,44 @@ test("a value shouldStore rejects does not block the next producer for that key"
   assert.deepEqual(cache.get("k"), { v: 2 });
 });
 
+test("an undefined producer does not become an entry that answers the next call", async () => {
+  const cache = createCache();
+  let produced = 0;
+  const produce = async () => {
+    produced += 1;
+    return undefined;
+  };
+
+  await cache.run("k", produce, 60_000);
+  await cache.run("k", produce, 60_000);
+
+  // `run` tests the entry it peeked, not the value inside it, so one holding `undefined` answers `run` and
+  // starves `get`. The produce count is the witness: a call served from such an entry never asks the producer.
+  assert.equal(produced, 2, "an entry holding nothing must not stand in for the producer");
+  assert.equal(cache.get("k"), undefined);
+  assert.equal(cache.size, 0, "and nothing was kept");
+});
+
+test("get and peek agree that an entry holding undefined is no entry", () => {
+  const cache = createCache();
+  cache.set("k", undefined, 60_000);
+
+  assert.equal(cache.get("k"), undefined);
+  assert.equal(cache.peek("k"), undefined, "peek reports no entry, not an entry holding nothing");
+  assert.equal(cache.size, 0, "an entry no reader can use is not counted");
+});
+
+test("set keeps every other value, including the ones that are falsy", () => {
+  // The rule above is about `undefined` alone. `false`, `0`, `""` and `NaN` are answers a cache may hold,
+  // and dropping one of them would be the same fail-open pointed the other way.
+  for (const value of [false, 0, "", NaN]) {
+    const cache = createCache();
+    cache.set("k", value, 60_000);
+    assert.ok(Object.is(cache.get("k"), value), `${String(value)} survives the round trip`);
+    assert.equal(cache.size, 1, `${String(value)} was stored, not skipped`);
+  }
+});
+
 const MINUTE = 60_000;
 
 test("peek reports how old the entry it returned is", (t) => {

@@ -36,9 +36,9 @@ export interface ReadParams {
   /** Ignore the page cache and navigate. Otherwise a page is served from it for `cache.pageMs`. */
   fresh?: boolean;
   /**
-   * Accept a stored page this young; older than this, navigate. Whole milliseconds, `0` or more, and
-   * `0` means navigate — `fresh` spelled in the unit every other duration here speaks. Refused
-   * alongside `fresh`, which answers the same question more strongly.
+   * Accept a stored page only while it is younger than this; at or over the number, navigate. Whole
+   * milliseconds, `0` or more, and `0` means navigate — `fresh` spelled in the unit every other duration
+   * here speaks. Refused alongside `fresh`, which answers the same question more strongly.
    */
   maxAgeMs?: number;
   signal?: AbortSignal;

@@ -75,7 +75,7 @@ export interface ReadToolArgs {
   schema?: Record<string, unknown>;
   /** Bypass the page cache. */
   fresh?: boolean;
-  /** Accept a cached page at most this old, in whole ms. Refused alongside `fresh`, which is strictly stronger. */
+  /** Accept a cached page younger than this, in whole ms — `0` therefore always navigates. Refused alongside `fresh`, which is strictly stronger. */
   maxAgeMs?: number;
 }
 
