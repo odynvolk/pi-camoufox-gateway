@@ -45,6 +45,16 @@ which is the same property `fresh` already relies on when it skips the lookup an
 kept past its trust window for the sake of this: `expiresAt` still evicts, because a tolerance may only ever
 ask for *less* than `cache.pageMs`, never more.
 
+**Who may claim the re-fetch.** The skip is a fact about the entry and the caller's own bound, so every caller
+refused by that bound reports the age it was refused with — including one served by someone else's navigation.
+The *re-fetch* is not: `src/cache.ts` → `if (existing) return await existing;` answers a sharer without ever
+running the producer, so the note that says a page was re-fetched belongs only to the caller that ran
+`produce`. `src/tools/read.ts` carries that per-call fact (`let producedHere = false;`) through the same
+closure that carries the navigation cost, and `src/extension.ts` → `outcome.refetched` picks the sentence from
+it. Silence was the alternative and is the wrong one: the note exists because a guard rejection and a cold
+cache used to be the same output, and dropping it for a sharer recreates that collision for exactly the
+caller whose tolerance is misbehaving.
+
 **The age is clamped.** `src/cache.ts` → `const ageMs = Math.max(0, now - entry.storedAt);` — a clock that
 steps backwards (an NTP correction, a woken laptop) would otherwise hand back a negative age, which passes
 every bound and gets printed to a model as a fact about a page nobody can place.

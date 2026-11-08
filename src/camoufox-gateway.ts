@@ -131,6 +131,7 @@ const ReadOutputSchema = Type.Object({
   maxAgeMs: Type.Optional(Type.Number({ description: "This call's staleness tolerance, as it was asked for" })),
   pageAgeMs: Type.Optional(Type.Number({ description: "How old the cached page was when it answered, in ms, as the cache dated it" })),
   staleSkippedMs: Type.Optional(Type.Number({ description: "How old the stored page was that this tolerance rejected, forcing the navigation" })),
+  refetched: Type.Optional(Type.Boolean({ description: "Whether this call ran the navigation it answered with — false when another call's navigation served it" })),
   cappedAt: Type.Optional(Type.Number({ description: "read.maxCharsCeiling, when it is what bounded this call" })),
   extracted: Type.Optional(Type.Record(Type.String(), Type.Any(), { description: "A schema extraction's data" })),
   error: Type.Optional(ToolErrorSchema),
@@ -270,6 +271,7 @@ function readResult(args: ReadToolArgs, outcome: ReadToolResult) {
       ...(details.maxAgeMs === undefined ? {} : { maxAgeMs: details.maxAgeMs }),
       ...(details.pageAgeMs === undefined ? {} : { pageAgeMs: details.pageAgeMs }),
       ...(details.staleSkippedMs === undefined ? {} : { staleSkippedMs: details.staleSkippedMs }),
+      ...(details.staleSkippedMs === undefined || details.refetched === undefined ? {} : { refetched: details.refetched }),
       ...(details.cappedAt === undefined ? {} : { cappedAt: details.cappedAt }),
       // The one field this function cannot vouch for: an extraction is whatever the gateway put under
       // `data`, typed as a record of unknowns. It arrives from `JSON.parse`, so it is JSON by

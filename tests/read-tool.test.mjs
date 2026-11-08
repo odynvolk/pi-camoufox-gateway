@@ -1373,21 +1373,47 @@ test("an entry the tolerance rejected is named, and a cold cache is not", async 
 
 test("a page served from another call's navigation claims no age", async (t) => {
   const { fake, tool } = setup(t);
-  stageClock(t, 1_000_000);
+  const clock = stageClock(t, 1_000_000);
+  fake.state.snapshotScripts.set(ARTICLE, [page("THE STORED COPY")]);
 
+  // The entry has to really be there and really be over the bound. Started from a cold cache, both
+  // callers below had `rejectedAgeMs === undefined`, so every `staleSkippedMs` assertion in this test
+  // passed on a read that had nothing to reject — and the sharer's claim about a re-fetch it never paid
+  // for had nothing to be wrong about.
+  const seed = await tool.read({ url: ARTICLE });
+  assert.equal(opens(fake), 1, "the seed is what puts a page in the cache, so it must have navigated");
+  assert.equal(seed.text.includes("THE STORED COPY"), true, "the page both callers are about to refuse");
+
+  clock.advance(4 * MINUTE);
+  fake.state.snapshotScripts.set(ARTICLE, [page("THE REFETCHED COPY")]);
+
+  // Deterministic rather than raced, and this is the setup that makes it so: `run` registers its
+  // `inflight` entry in its own synchronous prefix — every statement up to and including `produce()` has
+  // no `await` — and `Promise.all` evaluates this array left to right. The left caller therefore always
+  // registers first, and the right one always finds an entry to ride.
   const [producer, sharer] = await Promise.all([
-    tool.read({ url: ARTICLE, maxAgeMs: 5 * MINUTE }),
-    tool.read({ url: ARTICLE, maxAgeMs: 5 * MINUTE }),
+    tool.read({ url: ARTICLE, maxAgeMs: MINUTE }),
+    tool.read({ url: ARTICLE, maxAgeMs: MINUTE }),
   ]);
 
-  assert.equal(opens(fake), 1, "one navigation and two callers, which is what `run` is for");
+  assert.equal(opens(fake), 2, "two callers and one navigation between them — the other open is the read that seeded the entry");
+  assert.equal(producer.text.includes("THE REFETCHED COPY"), true, "the answer both got came from that one navigation");
+  assert.equal(sharer.text, producer.text, "the sharer rode it, so it answered with the same page");
+
   for (const [who, out] of [["the producer", producer], ["the sharer", sharer]]) {
-    // `cache.run` serves this caller from its own internal hit, whose age no per-call reader can date.
-    // There is no `fromCache` there, so there must be no age sentence either: the claim may not reach
-    // past what the cache was asked to vouch for.
+    // Neither caller was handed a dated entry: one navigated, the other rode that navigation, and neither
+    // path puts a stored page behind the answer for an age to describe. No `fromCache` either — `run`
+    // answered, not a cache hit.
     assert.equal(out.fromCache, undefined, `${who} must not be labelled a cache hit`);
     assert.equal("pageAgeMs" in out, false, `${who} must not claim an age it cannot evidence`);
-    assert.equal("staleSkippedMs" in out, false, `${who} threw nothing away`);
-    assert.equal(out.maxAgeMs, 5 * MINUTE, `${who} still echoes the tolerance it was given`);
+    assert.equal(out.maxAgeMs, MINUTE, `${who} still echoes the tolerance it was given`);
+    // The refusal itself is not a cost: it is what this caller's own bound said about the entry at this
+    // caller's own lookup, so the caller that rode along keeps it.
+    assert.equal(out.staleSkippedMs, 4 * MINUTE, `${who} was refused the same entry, dated by the cache`);
   }
+
+  // What *is* per call is the re-fetch. Same mechanism that carries the navigation cost, same reason:
+  // producing is the thing "re-fetched" describes, and a sharer did not spend it.
+  assert.equal(producer.refetched, true, "the producer ran the navigation");
+  assert.equal(sharer.refetched, false, "the sharer navigated nothing");
 });

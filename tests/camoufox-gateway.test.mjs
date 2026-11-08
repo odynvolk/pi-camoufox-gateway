@@ -928,6 +928,58 @@ test("a re-fetch the tolerance forced says so, where a cold cache says nothing",
   assertDeclaredBy(byName.camoufox_read.outputSchema, cold.structuredContent, "a cold camoufox_read");
 });
 
+test("a re-fetch is claimed only by the call that paid for it", async (t) => {
+  // The boundary half of the pair: two callers, one stale entry, one navigation. What each may say about
+  // that navigation is a per-call claim, and the model only ever gets the sentence.
+  withConfigFile(t, { gatewayUrl: "http://gateway.test:9377" });
+  const fake = withFakeGateway(t);
+  const { byName } = registered();
+  const { ctx } = session("pi-tolerance-shared");
+  const clock = stageClock(t, 1_000_000);
+
+  await byName.camoufox_read.execute("id", { url: "https://example.test/" }, undefined, undefined, ctx);
+  clock.advance(4 * MINUTE);
+
+  const pairArgs = { url: "https://example.test/", maxAgeMs: MINUTE };
+  assertCallable(byName.camoufox_read, pairArgs, "two callers over one over-tolerance entry");
+  // Left to right, and the left call registers its in-flight entry before its first `await`, so which
+  // caller produces and which rides is fixed by the language rather than by the gateway's timing.
+  const [producer, sharer] = await Promise.all([
+    byName.camoufox_read.execute("id", pairArgs, undefined, undefined, ctx),
+    byName.camoufox_read.execute("id", pairArgs, undefined, undefined, ctx),
+  ]);
+
+  assert.equal(producer.isError, undefined, "the call that navigated must have worked");
+  assert.equal(sharer.isError, undefined, "and the call that rode it too, or its notes say nothing");
+  assert.equal(opens(fake), 2, "one navigation for the pair, on top of the read that filled the cache");
+
+  const producerNotes = notesOf(producer).join("\n");
+  const sharerNotes = notesOf(sharer).join("\n");
+
+  // The producer's sentence is the one that already existed, pinned verbatim: it did the work.
+  assert.match(
+    producerNotes,
+    /\[re-fetched: the stored page was 240s old, over your maxAgeMs\]/u,
+    "the caller that navigated still says it re-fetched, and names the age that cost it",
+  );
+  assert.equal(producer.structuredContent.refetched, true, "and says it numerically, for a script");
+
+  // The sharer was refused the same stored page by its own bound — that stays said — but it opened no
+  // tab, so the sentence it gets may not claim a re-fetch.
+  assert.equal(sharer.structuredContent.staleSkippedMs, 4 * MINUTE, "the rejection is a fact about this caller's ask, not about its cost");
+  assert.equal(sharer.structuredContent.refetched, false, "this call ran no navigation");
+  assert.match(
+    sharerNotes,
+    /\[your maxAgeMs rejected a stored page 240s old; this call did not navigate\]/u,
+    "the note says what was refused and says plainly that this call navigated nothing",
+  );
+  // Read off the notes, not the document: the body is fixture prose. This is the whole defect — before
+  // the fix the sharer got the producer's sentence, which is indistinguishable from this one by regex.
+  assert.equal(/re-fetched:/u.test(sharerNotes), false, "the sharer claims no re-fetch it did not pay for");
+  assert.equal(/this copy is 240s old/u.test(sharerNotes), false, "and it claims no age either");
+  assertDeclaredBy(byName.camoufox_read.outputSchema, sharer.structuredContent, "a camoufox_read that rode another call's navigation");
+});
+
 test("the age fields are declared by the output schema, and absent on a plain read", async (t) => {
   // `assertDeclaredBy` only sees a field a call actually produced, so a field declared and never copied,
   // or copied and never declared, needs the schema read directly — and a field copied on a call that had
@@ -938,13 +990,13 @@ test("the age fields are declared by the output schema, and absent on a plain re
   const { ctx } = session("pi-age-fields-declared");
 
   const declared = Object.keys(byName.camoufox_read.outputSchema.properties);
-  for (const field of ["pageAgeMs", "staleSkippedMs", "maxAgeMs"]) {
+  for (const field of ["pageAgeMs", "staleSkippedMs", "maxAgeMs", "refetched"]) {
     assert.ok(declared.includes(field), `${field} is a field the boundary copies, so it must be declared`);
   }
 
   const read = await byName.camoufox_read.execute("id", { url: "https://example.test/" }, undefined, undefined, ctx);
   assert.equal(read.isError, undefined);
-  for (const field of ["pageAgeMs", "staleSkippedMs", "maxAgeMs"]) {
+  for (const field of ["pageAgeMs", "staleSkippedMs", "maxAgeMs", "refetched"]) {
     assert.equal(field in read.structuredContent, false, `${field} must be absent on a read that has nothing to claim about it`);
   }
   assertDeclaredBy(byName.camoufox_read.outputSchema, read.structuredContent, "a plain camoufox_read");

@@ -83,6 +83,13 @@ export interface ReadOutcome {
    */
   staleSkippedMs?: number;
   /**
+   * Whether this call ran the navigation its own answer came from — on the cache path, whether it ran
+   * `produce`. Emitted only alongside `staleSkippedMs`, because that is the only place anyone could
+   * misread it: a caller that rode another call's navigation was refused a stored page too, and did not
+   * re-fetch anything.
+   */
+  refetched?: boolean;
+  /**
    * The wanted amount exceeded `read.maxCharsCeiling`, so this call returned that much and no more.
    * Distinct from `truncated`, which says the page was longer than the budget: this says the budget
    * itself was capped, so asking for a larger `maxChars` cannot move the outcome.
@@ -347,6 +354,8 @@ export function readTool(deps: ReadToolDeps) {
       pageAgeMs?: number;
       /** The age of the entry the tolerance refused, when there was one to refuse. */
       staleSkippedMs?: number;
+      /** Whether this call did the navigation behind its answer. Required, so a missed one cannot read as `false`. */
+      refetched: boolean;
     },
   ): ReadOutcome {
     // One rule for both sources: whether the amount wanted — asked for, or defaulted — was more than a
@@ -378,6 +387,9 @@ export function readTool(deps: ReadToolDeps) {
       // not drift apart by one call site.
       ...(meta.fromCache && meta.pageAgeMs !== undefined ? { pageAgeMs: meta.pageAgeMs } : {}),
       ...(meta.staleSkippedMs === undefined ? {} : { staleSkippedMs: meta.staleSkippedMs }),
+      // The re-fetch claim travels with the rejection it explains, and nowhere else: on its own it would
+      // say something about a navigation nobody was wondering about.
+      ...(meta.staleSkippedMs === undefined ? {} : { refetched: meta.refetched }),
       ...(params.maxAgeMs === undefined ? {} : { maxAgeMs: params.maxAgeMs }),
       ...(cappedAt === undefined ? {} : { cappedAt }),
     };
@@ -532,6 +544,7 @@ export function readTool(deps: ReadToolDeps) {
           stalledAtDeadline: false,
           fromCache: true,
           pageAgeMs: hit.ageMs,
+          refetched: false,
         });
       }
 
@@ -560,11 +573,16 @@ export function readTool(deps: ReadToolDeps) {
       // ever stops being acceptable.
       let meta: FetchMeta = { polled: false, settledInMs: 0, stalledAtDeadline: false };
       let fallbackUrl = params.url;
+      // Whether this call ran `produce` — the same per-call claim, carried the same way as the cost, for
+      // the same reason: `run` returns a sharer without ever calling this closure, and a re-fetch is a
+      // thing a sharer did not do.
+      let producedHere = false;
       // The cache is heterogeneous by design, so both directions cast — the same convention
       // `resolve.ts` uses on it.
       const snapshot = (await deps.cache.run(
         key,
         async () => {
+          producedHere = true;
           const page = await navigate(params);
           meta = page.meta;
           fallbackUrl = page.fallbackUrl;
@@ -583,6 +601,7 @@ export function readTool(deps: ReadToolDeps) {
         ...meta,
         fromCache: false,
         ...(rejectedAgeMs === undefined ? {} : { staleSkippedMs: rejectedAgeMs }),
+        refetched: producedHere,
       });
     }
 
@@ -596,6 +615,7 @@ export function readTool(deps: ReadToolDeps) {
       ...page.meta,
       ...(page.extracted ? { extracted: page.extracted } : {}),
       fromCache: false,
+      refetched: true,
     });
   }
 

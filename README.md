@@ -123,9 +123,11 @@ Loads a page in the browser and returns its text.
   holding it is inert — it is never reached, and never refused for being long.
 - **`maxAgeMs` answers the other freshness question — how old is acceptable — where `fresh` answers now
   or not.** A stored page younger than it answers with no tab opened, an older one is re-fetched and the
-  output says so and names the age that cost it, and the page the tolerance rejected is left in place, so
-  a looser ask afterwards still gets it. `0` means navigate, which is what `fresh` does. The two are
-  refused together, because `fresh` is strictly stronger and accepting both makes the tolerance a
+  output says so and names the age that cost it — except where another call's navigation served that page
+  instead, in which case the output names the same age and says this call navigated nothing, because a
+  re-fetch is a cost only the caller that ran it may claim. The page the tolerance rejected is left in
+  place, so a looser ask afterwards still gets it. `0` means navigate, which is what `fresh` does. The two
+  are refused together, because `fresh` is strictly stronger and accepting both makes the tolerance a
   decoration. It asks for *less* than the TTL, never more: `cache.pageMs` stays the outer bound on how
   long anything is trusted.
 - **A cached page is re-checked on the way out**, against the same destination rule that ran when it

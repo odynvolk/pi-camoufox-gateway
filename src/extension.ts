@@ -295,7 +295,19 @@ function renderRead(outcome: ReadOutcome): string {
   // different amounts: one of them spent a navigation on a page someone else had already fetched. Say
   // which, and name the age that did it — the same job `cappedAt` does for a budget.
   if (outcome.staleSkippedMs !== undefined) {
-    notes.push(`[re-fetched: the stored page was ${describeAge(outcome.staleSkippedMs)} old, over your maxAgeMs]`);
+    // Which of the two sentences this call may say turns on a fact only the call has: whether it ran
+    // `produce`. Absent `refetched` is read as "did not navigate", the claim that cannot over-reach.
+    //
+    // The fallback names no reason for the missing navigation, and must not. "A navigation already in
+    // flight" is true of every sharer today, but `src/cache.ts` → `const hit = this.peek(key, options);`
+    // is a second way `run` answers without producing — unreachable from `src/tools/read.ts` only because
+    // no `await` sits between that file's two peeks — and a sentence naming one of the two would be a lie
+    // about the other the moment one appears.
+    notes.push(
+      outcome.refetched
+        ? `[re-fetched: the stored page was ${describeAge(outcome.staleSkippedMs)} old, over your maxAgeMs]`
+        : `[your maxAgeMs rejected a stored page ${describeAge(outcome.staleSkippedMs)} old; this call did not navigate]`,
+    );
   }
   // A capped budget is a different situation from a short page. The header already says how much came
   // back; what the model cannot infer from it is that the ceiling — not the page, and not its own
