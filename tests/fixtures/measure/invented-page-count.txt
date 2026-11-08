@@ -1,6 +1,6 @@
-cases in the suite:                   468
-read the fake's invented page:        63 of 468
-read it as an engine's results page:  11 of 468
+cases in the suite:                   469
+read the fake's invented page:        64 of 469
+read it as an engine's results page:  11 of 469
   google      https://www.google.com/search?q=  0 case(s)
   duckduckgo  https://duckduckgo.com/?q=  11 case(s)
       an engine that fell through is reported to a script as well as to the model

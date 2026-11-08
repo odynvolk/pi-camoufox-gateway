@@ -103,6 +103,30 @@ function assertDeclaredBy(schema, value, label) {
   assert.deepEqual(missing, [], `${label} is missing keys its outputSchema requires`);
 }
 
+/**
+ * The bracketed notes `src/extension.ts` → `renderRead` appended, in document order.
+ *
+ * An absence assertion written against the whole rendered read is an assertion about the fixture: the body
+ * is `defaultSnapshotFor` from `tests/helpers/fake_gateway.mjs`, so a sentence added there fails a cache
+ * test that never mentioned it. Each note is one `[...]` line appended after the body, so this walks back
+ * from the end over those lines. The `[continue with offset=…]` footer is dropped: it points a model at
+ * the next slice rather than claiming anything about this fetch, so counting it would let a footer-only
+ * result look like it carried a claim. No notes returns `[]` — which is honest for a navigation or a cold
+ * cache, and is why every caller pairs an absence assertion with a presence one, so an empty list can
+ * never stand in for "the note that should have been there isn't".
+ */
+function notesOf(result) {
+  let text = result.content[0].text;
+  // Dropped as a suffix, not a line: `renderRead` puts a blank line between the notes and the footer, so a
+  // line-wise strip would leave that blank and stop the walk below before it reached any note.
+  const footer = /\n\n\[continue with offset=\d+\]$/u.exec(text);
+  if (footer) text = text.slice(0, footer.index);
+  const lines = text.split("\n");
+  const notes = [];
+  while (lines.length > 0 && /^\[.*\]$/u.test(lines.at(-1))) notes.unshift(lines.pop());
+  return notes;
+}
+
 test("registers exactly the two documented tools and a shutdown hook", () => {
   const { pi, byName } = registered();
 
@@ -779,6 +803,42 @@ test("a search names the engine it is trying, before it tries it", async (t) => 
 
 const MINUTE = 60_000;
 
+test("notesOf returns the notes renderRead appended, and not the page they were appended to", async (t) => {
+  // Every absence assertion in this block is about the *notes*, so this is the guard that keeps `notesOf`
+  // from being the whole document in disguise — a helper that returned the document would make each of
+  // them pass without checking anything. One note-bearing result and one note-free result, side by side:
+  // they must come back different, and the note-bearing one must not be carrying the article with it.
+  withConfigFile(t, { gatewayUrl: "http://gateway.test:9377" });
+  withFakeGateway(t);
+  const { byName } = registered();
+  const { ctx } = session("pi-notes-of");
+  const clock = stageClock(t, 1_000_000);
+
+  const cold = await byName.camoufox_read.execute("id", { url: "https://example.test/" }, undefined, undefined, ctx);
+  assert.equal(cold.isError, undefined, "the read that fills the cache has to have worked");
+  clock.advance(2 * MINUTE);
+  const cached = await byName.camoufox_read.execute("id", { url: "https://example.test/" }, undefined, undefined, ctx);
+  const text = cached.content[0].text;
+
+  assert.deepEqual(notesOf(cold), [], "a navigation that cached nothing has no notes to return");
+  assert.equal(notesOf(cached).length, 1, `one cache note, got ${JSON.stringify(notesOf(cached))}`);
+  assert.match(notesOf(cached)[0], /^\[served from the page cache — /u, "a note is the whole bracketed segment, brackets included");
+  assert.match(text, /Paragraph 1 of the article/u, "the document does carry page prose —");
+  assert.equal(
+    notesOf(cached).some((note) => note.includes("Paragraph 1 of the article")),
+    false,
+    "and none of it reaches the notes, which is what makes an absence assertion there mean something",
+  );
+
+  // The third case the helper has to get right is the one that cannot be seen from either of those: the
+  // same cached page sliced short, so the `[continue with offset=…]` footer is appended after the note.
+  // It is a pointer to the next slice, not a claim about this fetch, so it is not one of the notes.
+  const short = await byName.camoufox_read.execute("id", { url: "https://example.test/", maxChars: 200 }, undefined, undefined, ctx);
+  assert.equal(short.isError, undefined, "the truncated read has to have worked");
+  assert.match(short.content[0].text, /\n\n\[continue with offset=\d+\]$/u, "this result does carry the footer —");
+  assert.deepEqual(notesOf(short), notesOf(cached), "and dropping it leaves exactly the notes the untruncated read had");
+});
+
 test("a cached read tells the model the page's age, and the tolerance it met", async (t) => {
   withConfigFile(t, { gatewayUrl: "http://gateway.test:9377" });
   const fake = withFakeGateway(t);
@@ -821,9 +881,13 @@ test("a cached read with no tolerance says the age and invents no bound", async 
 
   assert.equal(opens(fake), 1, "the age sentence must not cost a navigation to produce");
   // The other half of the pair: the age is said on every hit, and the tolerance only on a bounded one.
-  // A note that named a bound nobody set would be the output claiming more than the call said.
-  assert.match(hit.content[0].text, /this copy is 120s old/u, "the age is claimed whether or not anyone asked");
-  assert.equal(/tolerance|maxAgeMs/iu.test(hit.content[0].text), false, "and no bound is mentioned when none was set");
+  // A note that named a bound nobody set would be the output claiming more than the call said. Both
+  // assertions read the notes and not the document: the age sentence is a note's content, so asking the
+  // page body about it would make the fixture the thing under test — and the first line is what stops the
+  // second passing vacuously on a result that had no notes at all.
+  const notes = notesOf(hit).join("\n");
+  assert.match(notes, /this copy is 120s old/u, "the age is claimed whether or not anyone asked");
+  assert.equal(/tolerance|maxAgeMs/iu.test(notes), false, "and no bound is mentioned when none was set");
   assert.equal("maxAgeMs" in hit.structuredContent, false, "absent, not undefined");
   assertDeclaredBy(byName.camoufox_read.outputSchema, hit.structuredContent, "an unbounded camoufox_read");
 });
@@ -842,20 +906,24 @@ test("a re-fetch the tolerance forced says so, where a cold cache says nothing",
   const dropped = await byName.camoufox_read.execute("id", droppedArgs, undefined, undefined, ctx);
 
   assert.equal(opens(fake), 2, "the tolerance spent a navigation, and the note is what makes that visible");
+  // All three of these read the notes, not the document — the page body is fixture prose and can say
+  // anything about being old or re-fetched. The first is also the presence half for the two absences
+  // below it: it proves the drop note exists, so their emptiness is a distinction and not a blind spot.
+  const droppedNotes = notesOf(dropped).join("\n");
   assert.match(
-    dropped.content[0].text,
+    droppedNotes,
     /\[re-fetched: the stored page was 240s old, over your maxAgeMs\]/u,
     "the note says it was re-fetched and names the age that cost it",
   );
   assert.equal(dropped.structuredContent.staleSkippedMs, 4 * MINUTE, "the same fact, as a number, for a script");
-  assert.equal(/this copy is 240s old/u.test(dropped.content[0].text), false, "the page it answered with was just fetched, so it has no age");
+  assert.equal(/this copy is 240s old/u.test(droppedNotes), false, "the page it answered with was just fetched, so it has no age");
 
   // The reason the note exists at all: a guard rejection and a cold cache used to be the same output.
   const coldArgs = { url: "https://other.test/", maxAgeMs: MINUTE };
   assertCallable(byName.camoufox_read, coldArgs, "a bounded read of a cold cache");
   const cold = await byName.camoufox_read.execute("id", coldArgs, undefined, undefined, ctx);
   assert.equal(opens(fake), 3, "a cold cache costs the same navigation...");
-  assert.equal(/re-fetched:/u.test(cold.content[0].text), false, "...and this sentence is the only thing that tells them apart");
+  assert.equal(/re-fetched:/u.test(notesOf(cold).join("\n")), false, "...and this sentence is the only thing that tells them apart");
   assert.equal("staleSkippedMs" in cold.structuredContent, false, "nothing was rejected, so nothing is claimed");
   assertDeclaredBy(byName.camoufox_read.outputSchema, cold.structuredContent, "a cold camoufox_read");
 });
@@ -883,12 +951,13 @@ test("the age fields are declared by the output schema, and absent on a plain re
 });
 
 test("a maxAgeMs sent as the schema declares it is forwarded, and comes back on the result", async (t) => {
-  // The round trip, end to end: the schema declares the parameter, the boundary forwards it, and the two
-  // numbers the tolerance produced survive into `structuredContent`. A parameter only exists if a call
-  // carrying it reaches `read` — and `execute` accepts anything, so what is checked here is that this one
-  // is a call the declared surface admits.
+  // The boundary, not the cache: the declared schema admits the parameter, the call is not an error, and
+  // both numbers the tolerance produced survive into `structuredContent`. `execute` accepts anything, so
+  // what is checked here is that this is a call the declared surface admits. That a page inside the
+  // tolerance costs no navigation is the cache's own claim — `a cached read tells the model the page's
+  // age, and the tolerance it met` pins it, and this does not duplicate it.
   withConfigFile(t, { gatewayUrl: "http://gateway.test:9377" });
-  const fake = withFakeGateway(t);
+  withFakeGateway(t);
   const { byName } = registered();
   const { ctx } = session("pi-tolerance-round-trip");
   const clock = stageClock(t, 1_000_000);
@@ -901,8 +970,6 @@ test("a maxAgeMs sent as the schema declares it is forwarded, and comes back on 
   const hit = await byName.camoufox_read.execute("id", args, undefined, undefined, ctx);
 
   assert.equal(hit.isError, undefined, hit.content[0].text);
-  assert.equal(opens(fake), 1, "a page inside the declared tolerance answered without a second navigation");
-  assert.equal(hit.structuredContent.fromCache, true, "which is the only way it can have an age at all");
   assert.equal(hit.structuredContent.maxAgeMs, 4 * MINUTE, "the ask this caller made is echoed back to it");
   assert.equal(hit.structuredContent.pageAgeMs, 3 * MINUTE, "and so is the age the cache put on the page that answered");
   assertDeclaredBy(byName.camoufox_read.outputSchema, hit.structuredContent, "a bounded camoufox_read");
@@ -923,17 +990,18 @@ test("the age lives inside the cache note, and the notes keep their order", asyn
   assert.equal(first.isError, undefined, "the read that fills the cache has to have worked");
   clock.advance(2 * MINUTE);
   const cached = await byName.camoufox_read.execute("id", args, undefined, undefined, ctx);
-  const text = cached.content[0].text;
 
-  const cacheNote = text.indexOf("[served from the page cache");
-  const capNote = text.indexOf("[maxChars capped at");
-  assert.ok(cacheNote >= 0, `no cache note in ${JSON.stringify(text.slice(-600))}`);
-  assert.ok(capNote >= 0, `no cap note in ${JSON.stringify(text.slice(-600))}`);
+  // Positions come from the note list, which `notesOf` returns in document order — so the ordering claim
+  // is made on the notes themselves rather than by slicing the rendered document by hand.
+  const notes = notesOf(cached);
+  const cacheNote = notes.findIndex((note) => note.startsWith("[served from the page cache"));
+  const capNote = notes.findIndex((note) => note.startsWith("[maxChars capped at"));
+  assert.ok(cacheNote >= 0, `no cache note in ${JSON.stringify(notes)}`);
+  assert.ok(capNote >= 0, `no cap note in ${JSON.stringify(notes)}`);
   assert.ok(cacheNote < capNote, "the cache claim still leads, as it did before the age joined it");
 
-  const age = text.indexOf("this copy is 120s old");
-  assert.ok(age > cacheNote && age < capNote, "the age sits inside the cache note, one fact of the same claim");
-  assert.equal(/^\[this copy is/mu.test(text), false, "and never became a note of its own");
+  assert.match(notes[cacheNote], /this copy is 120s old/u, "the age sits inside the cache note, one fact of the same claim");
+  assert.equal(notes.some((note) => note.startsWith("[this copy is")), false, "and never became a note of its own");
 });
 
 test("the age helper trims a sub-second age to milliseconds, the unit everything here stores", () => {
