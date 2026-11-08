@@ -131,7 +131,9 @@ const ReadOutputSchema = Type.Object({
   maxAgeMs: Type.Optional(Type.Number({ description: "This call's staleness tolerance, as it was asked for" })),
   pageAgeMs: Type.Optional(Type.Number({ description: "How old the cached page was when it answered, in ms, as the cache dated it" })),
   staleSkippedMs: Type.Optional(Type.Number({ description: "How old the stored page was that this tolerance rejected, forcing the navigation" })),
-  refetched: Type.Optional(Type.Boolean({ description: "Whether this call ran the navigation it answered with — false when another call's navigation served it" })),
+  // Names no reason for the missing navigation, the way the note does: an answer can arrive without this
+  // call navigating by more than one route, and this one is read by callers who cannot see which ran.
+  refetched: Type.Optional(Type.Boolean({ description: "Whether this call ran the navigation it answered with — false when it answered without navigating" })),
   cappedAt: Type.Optional(Type.Number({ description: "read.maxCharsCeiling, when it is what bounded this call" })),
   extracted: Type.Optional(Type.Record(Type.String(), Type.Any(), { description: "A schema extraction's data" })),
   error: Type.Optional(ToolErrorSchema),
