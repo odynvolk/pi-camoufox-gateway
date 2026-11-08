@@ -1097,7 +1097,12 @@ test("maxAgeMs of 0 is seen as 0 and navigates past an entry inside its TTL", as
   // The other half: after the lookup misses, `deps.cache.run` answers from its *own* internal hit. A
   // bound applied to the lookup and forgotten in `run` is betrayed right here — and this is the case
   // that keeps U1's `ReadBound` on `run` in place.
+  //
+  // Two advances now mean five minutes past the staged start, so the entry that re-fetch stored is a
+  // minute old. The age is asserted rather than narrated: an `advance` that read `start + ms` would have
+  // dragged the clock back to before that entry was written, and only this line notices.
   clock.advance(MINUTE);
+  assert.equal(cache.peek(ARTICLE_KEY)?.ageMs, MINUTE, "a minute on from the navigation that stored it");
   const again = await tool.read({ url: ARTICLE, maxAgeMs: 0 });
   assert.equal(opens(fake), afterFirst + 2, "every 0 tolerance navigates, not only the first");
   assert.equal(again.fromCache, undefined);
