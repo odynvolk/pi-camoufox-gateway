@@ -87,6 +87,7 @@ Canonical vocabulary for this repo. Not a spec — see `docs/brainstorms/` and `
   `read the fake's invented page` dedupes on file *and* case name, `read it as an engine's results page` on the
   name alone, and neither counts the recorder's own probe read. `scripts/measure-unregistered-pages.mjs`
   publishes them; `npm run test:measure` is the gate that refuses any of the three places still stating
-  something else. A published `0` is reachable only when every recorded child proved it could still recognise an
-  invention at an engine's own results url — zero and "closed" print identically, and only one of them is a
-  finding (`docs/adr/0003-the-fakes-invented-page-cannot-pass-as-a-result-set.md`).
+  something else. A published `0` is reachable only when the run proved the recorder could still recognise an
+  invention at an engine's own results url — one recognised probe read across the run, which is what the guard
+  requires, not a quota each child must meet — because zero and "closed" print identically, and only one of them is
+  a finding (`docs/adr/0003-the-fakes-invented-page-cannot-pass-as-a-result-set.md`).

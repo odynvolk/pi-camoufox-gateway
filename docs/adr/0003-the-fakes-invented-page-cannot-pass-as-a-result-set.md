@@ -57,7 +57,7 @@ ask the adapters with, so a child that ran it would record nothing and satisfy i
 ## Consequences
 
 **The fake still invents, and 0 is the goal.** The end state is `read it as an engine's results page: 0`, not `0
-read the fake's invented page`: ~52 cases read the invented page to assert something else entirely — cache ages,
+read the fake's invented page`: 53 cases read the invented page to assert something else entirely — cache ages,
 tab accounting, request shape — and registering a fixture for each would be inventing a page for no reason, the
 same defect wearing a different hat. The terminal shape, where an unregistered url answers `""` and
 `src/snapshot.ts` says `empty_page`, is filed as its own ledger item rather than implied by this one.
