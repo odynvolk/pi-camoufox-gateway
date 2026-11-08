@@ -1,6 +1,6 @@
 # Plan
 
-> Status: ready
+> Status: done — U1–U4 landed on `fix/invented-page-not-a-result-set`, 2026-11-08
 
 **Requirements source:** `docs/improvements/2026-10-18-code.md` → `### G.6 The fake's invented article is a
 page nobody registered, and one organic link is enough to pass`, measured on current code 2026-11-08. No
@@ -414,6 +414,12 @@ the mutations that produced them.
   is the **pre-U2** figure confined to `tests/engines.test.mjs`. Publish the count U3 actually observed
   post-U2, naming the two files `npm test` does not run. The two are not the same experiment and the entry must
   not let a reader conflate them.
+  **MEASURED IN U4 — and this bullet's own qualification was wrong.** The 13 is not confined to
+  `tests/engines.test.mjs`: a worktree at the U1 commit with only the fake's line removed gives **8** there, 1
+  in `tests/camoufox-gateway.test.mjs`, 2 in `tests/search-tool.test.mjs`, 1 in
+  `tests/measure-unregistered-pages.test.mjs`, 1 in `tests/improvement-refs.test.mjs`. The post-U2 figure is
+  **4**, plus **1** in `tests/instrument-probe.mjs`; the other file `npm test` never runs,
+  `tests/instrument-rig.mjs`, stayed green because its cases plant either shape of fake on demand.
 - Record the follow-up this plan declined to absorb: `a search names the engine it is trying, before it tries
   it` passes when every engine fails, because it asserts only its progress notes.
 - `CONTEXT.md` gains the vocabulary the work needs and the repo does not have — there is currently no word
@@ -464,10 +470,10 @@ turns it red, or the assertion is credited rather than proven:
 | A zero requires a seeing recorder | **delete the `throw`** in `assertSawTheKnownCase` | the empty-`byCase` refuse case red |
 | A zero requires a seeing recorder, second form | probe marker absent while the child suite still prints `ℹ tests N` | the refuse case red *(the first draft's "blind the recorder" row was unbreakable, and its replacement — empty `byCase` — was unconstructable once the probe was unconditional: F3)* |
 | Registration is not a paste | hardcode a duckduckgo key and move `SEARCH_URL` in `src/engines/duckduckgo.ts` | the adapter names itself red |
-| Page kept its bulk | thin the invented article below `settleMinChars` | settle-polling reds reappear (~25 on the recon run; publish the real count in U4) |
-| Page stays parseable | trim the invented article **below 2_000** characters | the page crosses `const PARSEABLE_MIN_CHARS = 2_000;` and flips from `parse_error` to `empty_results`, reddening the pin and the chain-fallback cases. *(An earlier version of this row said "trim ~60 characters"; 2987−60 crosses nothing — F4 of the second pass, a row that could not turn anything red.)* |
+| Page kept its bulk | thin the invented article below `settleMinChars` | settle-polling reds reappear — **measured in U4: 30 failures**, and `the page the fake invents is not a result set, and not a refusal either` among them |
+| Page stays parseable | trim the invented article **below 2_000** characters, staying above `settleMinChars` | **measured in U4: 1 red — the pin's own 2_000 bound, and nothing else**, which is what "the page crosses `const PARSEABLE_MIN_CHARS = 2_000;` and flips from `parse_error` to `empty_results`" looks like once the eleven are registered. *(An earlier version of this row said "trim ~60 characters"; 2987−60 crosses nothing — F4 of the second pass, a row that could not turn anything red.)* |
 | Page is not a browser refusal | add a `- button "Try again"` line | the `detectWall({ url, text }) === null` assertion goes red — **and so does every `read` of the invented page**, so unlike row 1 this row may not claim "and only it" |
-| Page kept its ref | drop the `[e1]` ref | the extract-path readers red (count from the recon run; publish the real one) |
+| Page kept its ref | drop the `[e1]` ref | **measured in U4: 4 failures**, every one of them an extract-path reader |
 | Committed figures are a run | hand-edit one of the three copies | `test:measure` refuses, naming the stale place |
 
 **Full-suite repeat:** run `npm test` twice at the end of U2 and U3 — several of these tests count requests

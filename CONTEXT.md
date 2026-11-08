@@ -68,3 +68,25 @@ Canonical vocabulary for this repo. Not a spec — see `docs/brainstorms/` and `
   is computed at read, never stored — the entry dates itself, the page cannot date it. The bound is honoured
   by every reader, including the lookup inside `run`, and a page that reaches a caller through another call's
   navigation is not given an age at all: it has no per-call age to give.
+- **Registered page** — the only thing an engine may be credited with a result *on*. A case that opens a url and
+  registers nothing gets the fake's invention instead, so "the engine answered" and "the fixture answered" are
+  two states with one output; the whole decision is
+  `tests/helpers/fake_gateway.mjs` → `if (state.pageContents.has(url)) return state.pageContents.get(url);`.
+  Register at the url the adapter actually opens at: `engineResultsUrl` runs the shipped adapter to get it,
+  because a results url pasted into a fixture keeps matching after the engine moves and reports the hole as
+  closed while the adapter opens somewhere else now.
+- **Invented page** — what the fake answers at a url nobody registered, and a *page* by decision rather than by
+  omission: bulk enough to settle on (a thin default page makes every unrelated `read` pay for the settle loop)
+  and an `[e1]` ref, because `/extract` answers only for a ref that exists. It used to carry one link on a host
+  no engine owns, and the organic-versus-chrome judgement is structural — a foreign host is not chrome — so one
+  link was a result set either engine could be credited with
+  (`docs/improvements/2026-10-18-code.md` → G.6). Pinned by `tests/engines.test.mjs` →
+  `the page the fake invents is not a result set, and not a refusal either`; answering with nothing at all is
+  the terminal shape, filed as G.7.
+- **Invented-page count** — the instrument's two figures, which do not share a denominator:
+  `read the fake's invented page` dedupes on file *and* case name, `read it as an engine's results page` on the
+  name alone, and neither counts the recorder's own probe read. `scripts/measure-unregistered-pages.mjs`
+  publishes them; `npm run test:measure` is the gate that refuses any of the three places still stating
+  something else. A published `0` is reachable only when every recorded child proved it could still recognise an
+  invention at an engine's own results url — zero and "closed" print identically, and only one of them is a
+  finding (`docs/adr/0003-the-fakes-invented-page-cannot-pass-as-a-result-set.md`).
