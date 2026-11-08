@@ -170,7 +170,7 @@ Manage it with `pi list`, `pi remove npm:pi-camoufox-gateway` (`pi uninstall` is
 Without npm, or straight from this checkout:
 
 ```bash
-pi install git:github.com/odynvolk/pi-camoufox-gateway@v0.2.2   # pinned to a tag
+pi install git:github.com/odynvolk/pi-camoufox-gateway@v0.3.0   # pinned to a tag
 pi install ./pi-camoufox-gateway                                 # a local checkout
 pi -e ./src/camoufox-gateway.ts                                  # from this repo, nothing installed
 ```
