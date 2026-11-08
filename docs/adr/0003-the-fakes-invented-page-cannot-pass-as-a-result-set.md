@@ -4,7 +4,7 @@
 (unit U1); decision 1 is what unit U3 changes.
 
 > Requirement: `docs/improvements/2026-10-18-code.md` → G.6 · Plan:
-> `docs/plans/2026-11-08-invented-page-not-a-result-set.md`
+> `docs/plans/archive/2026-11-08-invented-page-not-a-result-set.md`
 
 ## Context
 
