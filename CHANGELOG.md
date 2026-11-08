@@ -5,6 +5,124 @@ items (`A.2`, `B.5`, `D.1`, `E.3`, …) are the open findings in
 [`docs/improvements/2026-10-18-functionality.md`](./docs/improvements/2026-10-18-functionality.md) and
 [`docs/improvements/2026-10-18-code.md`](./docs/improvements/2026-10-18-code.md).
 
+## [0.3.0] - 2026-11-08
+
+Everything merged after v0.2.2 — PRs #27 through #31 — cut as a minor release. The middle digit is earned by
+one thing: `camoufox_read` gained a parameter. #29 puts `maxAgeMs` on the tool surface, which closes 2.6, and
+it carries three new `ReadOutcome` fields a caller can read back — which is what a caller-facing capability is,
+and why this is not a patch. The other code PR is a fix (#27, the result-host round); the remaining two are
+docs and test infrastructure. The suite went from **393 passing tests at v0.2.2** — re-counted in a detached
+worktree off the tag rather than inherited from a commit message — to **478 on this checkout**.
+
+### Added
+
+- **2.6 — `maxAgeMs`: say how old is acceptable, not whether to refresh** (#29). `camoufox_read` could already
+  answer *now* (`fresh: true`) and nothing else: a stored page was served whenever the TTL had not run out, on
+  a `cache.pageMs` the caller had no say in. `maxAgeMs` is the other half of the question — *this* old is
+  acceptable, older is not. The comparison is strict, `!(ageMs < maxAgeMs)`, which is the form
+  [ADR-0002](./docs/adr/0002-staleness-is-a-read-bound-not-an-eviction.md) pins and why **`0` always
+  navigates** rather than accepting a page stored in the same millisecond. Two asks answer the same question and
+  are refused together (`code: unsupported`), because `fresh` is strictly stronger and accepting both makes the
+  tolerance a decoration; a tolerance the comparison cannot order — `"1,000"` with a thousands separator, `NaN`,
+  `-1`, `1.5`, `Infinity` — is refused *before* the lookup it would have bounded, since an unordered value does
+  not fail the comparison, it quietly passes it. An entry past the tolerance is **skipped, not evicted**: one
+  caller's tight ask cannot take away a page a looser caller can still use. The bound rides into `cache.run`'s
+  own internal hit as well as the caller's lookup — bounding one read path of a single-flight cache while the
+  other ignores it is a bound that was never applied
+  ([the lesson, written up](./docs/solutions/architecture/single-flight-cache-has-two-read-paths.md)).
+  Supporting it, every cache entry now carries `storedAt` and `peek` reports `ageMs`, clamped at 0 so a clock
+  that steps backwards cannot hand back an age that passes every bound.
+- **Three fields, and the two confusions they separate** (#29). `details.maxAgeMs` echoes the caller's own ask
+  the way `waitForRequested` echoes a wait; `details.pageAgeMs` is set only behind `fromCache`, because an age
+  is a claim about a stored page and nothing else; `details.staleSkippedMs` names the entry the tolerance threw
+  away, and travels with `refetched` and nowhere else. Between them they make *"nothing was stored"* and *"your
+  tolerance spent a navigation on a page someone else had already fetched"* different outputs, which they were
+  not before. A caller that rode someone else's in-flight navigation gets the rejection but not the re-fetch
+  claim — it is per call, and a sharer did not pay for it. Ages print through `describeAge` (`900ms`, `240s`,
+  rounded up so an age is never understated); the stored value stays milliseconds, as every duration here.
+  README carries the parameter, including the limit a caller would otherwise discover by being surprised: the
+  cache is an in-process map that lives and dies with the pi session, so **a tolerance longer than the session
+  is inert**. No config key, and no `search` change — the SERP half is filed as 2.7.
+
+### Fixed
+
+- **C.4 / C.5 / C.6 — a result's host comes from its url, so nothing else can name one** (#27). There were two
+  host readers in one file with opposite trust properties: `hostOf`, off the url, and `hostFrom`, which
+  preferred the page's own `cite:` line — and three sites replaced `url` while leaving `host` behind, the cache
+  hit among them. One reader now, under the rule that wherever `url` is written `host` is written in the same
+  statement. `isWrapper` was one substring test over a whole url, so `mygoogle.com/goto?url=offer` was the
+  engine's own redirect and a look-alike destination got its refusal pinned in the url cache for 30 seconds;
+  it now parses once and asks the host rule, the pathname (`/goto` or `/url`, exactly), and `url` among the
+  query's own parameters. `parseHttpUrl` called `https://./x` openable — `new URL()` hands it a `.` for the
+  hostname and `%2e` survives — so a destination with no host was published `resolved: true, host: ""` and
+  cached as a *resolved* answer for ten minutes; a host that normalises to nothing is now no host to open, and
+  `resolveUrls` will not publish `resolved: true` over an empty host even when its client refused nothing. A
+  result whose host attributes nobody is dropped, not printed as a blank column. And a cached refusal now
+  replays the reason it was recorded with, instead of the same wrapper answering the same question twice,
+  differently, depending on whether anything had asked in the last half minute.
+  **The cost, stated rather than buried:** `search` keeps `resolve` opt-in and Google serves organics as
+  `goto` wrappers, so the default path now reports `google.com` where the page's `cite:` used to say
+  `github.com`. That is true, it is strictly less useful, and it is exactly why the laundered byte survived —
+  the honest value was the less informative one.
+- **G.6 — the page the fake invents can no longer pass as a result set** (#31). `defaultSnapshotFor` answered
+  any url a test had not registered with an invented article carrying exactly one `- /url:` line, on a host no
+  engine owns; the organic-versus-chrome judgement is structural, so one link was a result set and **11 cases
+  were being handed results by a document nobody wrote**, under either engine's label. Each of those 11 now
+  registers a recorded SERP at the url its own adapter asks for — derived through `engineResultPrefixes`, not
+  pasted, so a fixture cannot keep serving a page to a url the engine no longer opens — and the link is gone
+  from the invention, which keeps its bulk and its `[e1]` because `read.settleMinChars` and `/extract` need
+  them. The instrument's proof-of-life had to be re-armed *first*: it was gated on one named case reading an
+  invented page, and registering that page is precisely what the fix asks for, so the guard would have thrown
+  on the run that proved the fix worked. It now grades the recorder instead of the suite, and **the published
+  zero is something a run has to earn**
+  ([ADR-0003](./docs/adr/0003-the-fakes-invented-page-cannot-pass-as-a-result-set.md)).
+
+### Changed
+
+- **Test infrastructure, from the same two rounds** (#29, #31). One clock stub in `tests/helpers/clock.mjs`
+  instead of three copies (a leaked `Date.now` stub makes every TTL and age assertion in a file lie rather than
+  fail), and `advance` is cumulative now — a second call used to rewind the clock, and one case passed only
+  because a zero tolerance navigates whatever the age is. `stageClock` counts reads and throws past 50, so a
+  spinning settle loop fails instead of hanging. One predicate for what a navigation costs (`openCalls`, with
+  `opens` its length) replaced two definitions of the same idea, the looser one shadowing the helper's own name.
+  34 engine fixture keys that pasted their results url now derive it by running the shipped adapter.
+- **`Cache.get` delegates to `peek`, and `set` refuses `undefined`** (#29). `get(key, bound)` had no production
+  caller and was the weaker way to ask the same question: the bound was honoured and the age discarded, so the
+  caller's note lied about nothing. `undefined` could be stored and was a hit for `run` but a miss for `get` —
+  latent, because `storable` kept it out, but `Cache<T>` did not forbid it, so the invariant is now established
+  at the one write site rather than re-tested by readers that cannot enforce it.
+
+### Notes
+
+- The pinned install example in the README now reads `@v0.3.0`; the tag is cut on merge.
+- **Nothing in `src/` changed in this commit.** This release ships what main already has, verified at `f53ebca`:
+  478 pass / 0 fail, `tsc --noEmit` clean, `npm run test:measure` reporting *478 cases / 53 read the fake's
+  invented page / 0 read it as an engine's results page* and "all 3 places state the reading above".
+  `tests/release-metadata.test.mjs` is the gate that makes the four hand-edited files agree.
+- **Live gate, measured against a real gateway** (`camofox-browser` 1.18.1): `tests/live.mjs` 6/6 — real
+  results, wrappers resolved, a bounded read that says it is bounded, `n` clamped and disclosed, an internal
+  address refused at zero tab cost, and teardown leaving `activeTabs: 0` / `activeSessions: 0`.
+- **One thing that would have been missed by a routine live run.** On this machine's own config the same suite
+  reports **5 pass / 1 skip, not 6/6**: `network.allowPrivateHosts: true` makes `live.mjs` skip the
+  `169.254.169.254` refusal case rather than fire the request the guard exists to stop — a green-looking run with
+  a hole in it, green because skipping is what the suite does on purpose. The 6/6 above was measured with
+  `CAMOUFOX_ALLOW_PRIVATE_HOSTS=0` (an env override; no config file was touched). If you read one line from this
+  release, read your own `allowPrivateHosts` before you quote a live pass count.
+- `maxAgeMs` had **no live evidence in either suite** — `live.mjs` never passes the parameter — so it got its
+  own ad-hoc probe against the same gateway before this cut, 9/9: cold read navigates and claims no tolerance
+  fields; warm read served and dated (`pageAgeMs=1`, `fromCache: true`); a tolerance the page fits is echoed and
+  still served; a tolerance the page misses re-navigates and names the age it discarded (`staleSkippedMs=1`,
+  `refetched: true`); a tolerance with nothing behind it is distinguishable from a rejection; the `schema` path
+  bypasses the cache; `fresh` + `maxAgeMs` refused; all five unordered shapes refused; no tab or session left
+  behind. It is honest that the ages came out at **1 ms** — back-to-back calls, so the rejection was exercised
+  at millisecond ages and the arithmetic at larger ones rests on `tests/cache.test.mjs` and
+  `tests/read-tool.test.mjs`, not on that run. The probe lives in gitignored `.context/`, so this release ships
+  no re-runnable version of it; promoting it to `scripts/` beside the other probes is the follow-up.
+- G.6 closed in place with both measurements attributed to the mutation that produced each, and **G.7 filed**
+  rather than implied: the invented page survives by decision — bulk because `read.settleMinChars`, the ref
+  because `/extract` needs one — which is what leaves 53 cases comfortable with a fabricated document. That
+  terminal shape is now an open item instead of something a closed entry hints was reached.
+
 ## [0.2.2] - 2026-11-02
 
 Everything merged after v0.2.1 — PRs #24 and #25, and the suite went from 378 passing tests to 393. One of those
