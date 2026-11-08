@@ -35,6 +35,12 @@ export interface ReadParams {
   schema?: Record<string, unknown>;
   /** Ignore the page cache and navigate. Otherwise a page is served from it for `cache.pageMs`. */
   fresh?: boolean;
+  /**
+   * Accept a stored page only while it is younger than this; at or over the number, navigate. Whole
+   * milliseconds, `0` or more, and `0` means navigate — `fresh` spelled in the unit every other duration
+   * here speaks. Refused alongside `fresh`, which answers the same question more strongly.
+   */
+  maxAgeMs?: number;
   signal?: AbortSignal;
   /** What this read is doing right now, for the tool UI. */
   onProgress?: (note: string) => void;
@@ -61,6 +67,28 @@ export interface ReadOutcome {
   waitNote?: string;
   /** Served from the page cache: no tab was opened, so nothing about this page was re-fetched. */
   fromCache?: boolean;
+  /**
+   * What this call accepted as young enough — the caller's own ask, echoed.
+   *
+   * `waitForRequested` is the same shape from the other direction: the renderer needs to know what was
+   * asked, and the outcome carries it across rather than the renderer taking the args as a second input.
+   * Absent when the caller sent nothing, so nothing is claimed about a tolerance nobody set.
+   */
+  maxAgeMs?: number;
+  /** How old the page was when it answered, as the cache dated it. Set only when it came from the cache. */
+  pageAgeMs?: number;
+  /**
+   * How old the stored page was that this call's tolerance rejected, forcing the navigation that answered
+   * instead. Absent when nothing was rejected — which is what separates this read from a cold cache.
+   */
+  staleSkippedMs?: number;
+  /**
+   * Whether this call ran the navigation its own answer came from — on the cache path, whether it ran
+   * `produce`. Emitted only alongside `staleSkippedMs`, because that is the only place anyone could
+   * misread it: a caller that rode another call's navigation was refused a stored page too, and did not
+   * re-fetch anything.
+   */
+  refetched?: boolean;
   /**
    * The wanted amount exceeded `read.maxCharsCeiling`, so this call returned that much and no more.
    * Distinct from `truncated`, which says the page was longer than the budget: this says the budget
@@ -184,6 +212,27 @@ function assertOffsetUsable(offset: number): void {
 }
 
 /**
+ * Refuse a `maxAgeMs` the age comparison cannot order, before the lookup it was meant to bound.
+ *
+ * The same arithmetic failure `maxChars` paid for: an unordered value does not fail the comparison, it
+ * quietly passes it. `"1,000"` — a model formatting a thousands separator, and this repo has no request
+ * validation to stop it — would have been read as "no bound" by one shape of guard and "0" by another,
+ * which is a freshness answer decided by a typo.
+ *
+ * `0` is legal, because that is where "navigate now" starts — the floor `assertOffsetUsable` keeps for
+ * the same reason, that the value is a count rather than a budget.
+ */
+function assertMaxAgeUsable(maxAgeMs: number): void {
+  if (isCountUsable(maxAgeMs, 0)) return;
+
+  throw new GatewayError(
+    "unsupported",
+    `"maxAgeMs" must be a whole number of milliseconds, 0 or more, got ${describeArgument(maxAgeMs)} — ` +
+      "omit it to take any unexpired page, or use fresh to navigate",
+  );
+}
+
+/**
  * Whether a value can be counted, which is the one question every numeric argument has to answer before
  * it reaches any arithmetic: a number, whole, and at or above `minimum`.
  *
@@ -301,6 +350,12 @@ export function readTool(deps: ReadToolDeps) {
       waitNote?: string;
       extracted?: Record<string, unknown>;
       fromCache: boolean;
+      /** The entry's own age, from the reader that dates what it returns. Only ever set with `fromCache`. */
+      pageAgeMs?: number;
+      /** The age of the entry the tolerance refused, when there was one to refuse. */
+      staleSkippedMs?: number;
+      /** Whether this call did the navigation behind its answer. Required, so a missed one cannot read as `false`. */
+      refetched: boolean;
     },
   ): ReadOutcome {
     // One rule for both sources: whether the amount wanted — asked for, or defaulted — was more than a
@@ -327,6 +382,15 @@ export function readTool(deps: ReadToolDeps) {
       ...(params.waitFor ? { waitForRequested: true } : {}),
       ...(meta.waitNote ? { waitNote: meta.waitNote } : {}),
       ...(meta.fromCache ? { fromCache: true } : {}),
+      // An age is a claim about a stored page and nothing else: a navigation has none to make, and
+      // neither has a caller riding someone else's navigation. Gated on the cache claim so the two can
+      // not drift apart by one call site.
+      ...(meta.fromCache && meta.pageAgeMs !== undefined ? { pageAgeMs: meta.pageAgeMs } : {}),
+      ...(meta.staleSkippedMs === undefined ? {} : { staleSkippedMs: meta.staleSkippedMs }),
+      // The re-fetch claim travels with the rejection it explains, and nowhere else: on its own it would
+      // say something about a navigation nobody was wondering about.
+      ...(meta.staleSkippedMs === undefined ? {} : { refetched: meta.refetched }),
+      ...(params.maxAgeMs === undefined ? {} : { maxAgeMs: params.maxAgeMs }),
       ...(cappedAt === undefined ? {} : { cappedAt }),
     };
   }
@@ -429,6 +493,25 @@ export function readTool(deps: ReadToolDeps) {
     // Before anything is fetched or cached: a schema with no refs to fill is not a question a page —
     // fresh or stored — could answer.
     if (params.schema) assertSchemaUsable(params.schema);
+    // The same placement, for the same reason: a tolerance the comparison cannot order is not a bound,
+    // and one that cannot be honoured has no answer worth a lookup or a round trip.
+    if (params.maxAgeMs !== undefined) {
+      // `!== undefined`, never truthiness — `0` is legal and falsy, and reading it as absent would send
+      // the one case invented to be deterministic back to being decided by timing.
+      assertMaxAgeUsable(params.maxAgeMs);
+      // `=== true` only, so `fresh: false` next to a tolerance stays the working call it should be. The
+      // two answer one question and `fresh` is strictly stronger, so accepting both makes the tolerance a
+      // decoration; naming both is what makes the refusal the caller can act on.
+      if (params.fresh === true) {
+        throw new GatewayError(
+          "unsupported",
+          '"fresh" and "maxAgeMs" answer the same question — drop one: "fresh" always navigates, "maxAgeMs" '
+            + "navigates only past its tolerance",
+        );
+      }
+    }
+    // One bound, built once, for both readers of the entry: the lookup below and `run`'s own internal hit.
+    const bound = params.maxAgeMs !== undefined ? { maxAgeMs: params.maxAgeMs } : undefined;
 
     // A stored snapshot can only answer a plain read. Extraction needs refs, which die at the next
     // navigation, and a `waitFor` is a question a page fetched earlier cannot answer. Neither reads
@@ -442,8 +525,11 @@ export function readTool(deps: ReadToolDeps) {
     // older page back. The common late finisher is a page still growing at its deadline, and that one
     // is thin by construction, so it writes nothing.
     if (key && !params.fresh) {
-      const stored = deps.cache.get(key) as SnapshotResult | undefined;
-      if (stored) {
+      // `peek` rather than `get`, because the age this call reports has to be the entry's own, and only
+      // the reader that dates what it returned can hand it over.
+      const hit = deps.cache.peek(key, bound);
+      if (hit) {
+        const stored = hit.value as SnapshotResult;
         // Re-checked, not trusted. `blockedHosts` and `allowPrivateHosts` are config the user can
         // change between two calls; the stored page cannot have changed with them, so it is measured
         // against them again rather than served on the strength of an older decision.
@@ -457,8 +543,17 @@ export function readTool(deps: ReadToolDeps) {
           settledInMs: 0,
           stalledAtDeadline: false,
           fromCache: true,
+          pageAgeMs: hit.ageMs,
+          refetched: false,
         });
       }
+
+      // The bounded look above cannot say whether anything was here at all. One unbounded look at the
+      // same key can, and it is therefore the only honest source for the age to report alongside "this
+      // was re-fetched": it is what separates a tolerance that threw a page away from a cache that never
+      // held one. An entry that had already expired answers `undefined` here too, correctly — it was gone
+      // before the tolerance had anything to say about it.
+      const rejectedAgeMs = bound === undefined ? undefined : deps.cache.peek(key)?.ageMs;
 
       // `run`, not a second get/set pair, so two concurrent identical reads share one navigation: pi
       // issues parallel tool calls, and on this gateway a duplicated `/tabs/open` whose response is
@@ -478,20 +573,36 @@ export function readTool(deps: ReadToolDeps) {
       // ever stops being acceptable.
       let meta: FetchMeta = { polled: false, settledInMs: 0, stalledAtDeadline: false };
       let fallbackUrl = params.url;
+      // Whether this call ran `produce` — the same per-call claim, carried the same way as the cost, for
+      // the same reason: `run` returns a sharer without ever calling this closure, and a re-fetch is a
+      // thing a sharer did not do.
+      let producedHere = false;
       // The cache is heterogeneous by design, so both directions cast — the same convention
       // `resolve.ts` uses on it.
       const snapshot = (await deps.cache.run(
         key,
         async () => {
+          producedHere = true;
           const page = await navigate(params);
           meta = page.meta;
           fallbackUrl = page.fallbackUrl;
           return page.snapshot;
         },
         config.cache.pageMs,
-        { shouldStore: (value) => storable(value as SnapshotResult) },
+        // The bound rides into `run` too, or the ask is betrayed: the lookup above has just missed, and
+        // `run` would answer from its own internal hit with the very page this caller said was too old.
+        { shouldStore: (value) => storable(value as SnapshotResult), ...bound },
       )) as SnapshotResult;
-      return outcomeFrom(snapshot, params, { fallbackUrl, ...meta, fromCache: false });
+      // No age here: what came back came from a navigation this call paid for — or from one it shared,
+      // which `run` serves without dating anything. Either way there is no stored page behind the answer
+      // for an age to describe.
+      return outcomeFrom(snapshot, params, {
+        fallbackUrl,
+        ...meta,
+        fromCache: false,
+        ...(rejectedAgeMs === undefined ? {} : { staleSkippedMs: rejectedAgeMs }),
+        refetched: producedHere,
+      });
     }
 
     const page = await navigate(params);
@@ -504,6 +615,7 @@ export function readTool(deps: ReadToolDeps) {
       ...page.meta,
       ...(page.extracted ? { extracted: page.extracted } : {}),
       fromCache: false,
+      refetched: true,
     });
   }
 

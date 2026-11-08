@@ -55,6 +55,16 @@ const ReadSchema = Type.Object({
   fresh: Type.Optional(
     Type.Boolean({ description: "Ignore the page cache and navigate (pages are reused until cache.pageMs passes)" }),
   ),
+  // `Integer` on the same reasoning as `maxChars` and `offset`: the guard refuses a fraction, a negative and
+  // any string, and it refuses this one alongside `fresh`, so the sentence has to say which of the two to
+  // drop. `cache.pageMs` is named and no milliseconds are quoted — the bound this asks to stay under is
+  // the user's own setting, and a resolved default stated here would be a promise a config file can break.
+  maxAgeMs: Type.Optional(
+    Type.Integer({
+      description:
+        "Accept a stored page younger than this instead of navigating: a whole number of milliseconds, 0 or more — anything else is refused with code unsupported. 0 always navigates, and omitting it takes any page still inside cache.pageMs. Pass fresh instead when you need the page as it is now — the two answer one question and are refused together",
+    }),
+  ),
 });
 
 /**
@@ -118,6 +128,12 @@ const ReadOutputSchema = Type.Object({
   waitForRequested: Type.Optional(Type.Boolean()),
   waitNote: Type.Optional(Type.String({ description: "What a `waitFor` did not achieve, in words" })),
   fromCache: Type.Optional(Type.Boolean()),
+  maxAgeMs: Type.Optional(Type.Number({ description: "This call's staleness tolerance, as it was asked for" })),
+  pageAgeMs: Type.Optional(Type.Number({ description: "How old the cached page was when it answered, in ms, as the cache dated it" })),
+  staleSkippedMs: Type.Optional(Type.Number({ description: "How old the stored page was that this tolerance rejected, forcing the navigation" })),
+  // Names no reason for the missing navigation, the way the note does: an answer can arrive without this
+  // call navigating by more than one route, and this one is read by callers who cannot see which ran.
+  refetched: Type.Optional(Type.Boolean({ description: "Whether this call ran the navigation it answered with — false when it answered without navigating" })),
   cappedAt: Type.Optional(Type.Number({ description: "read.maxCharsCeiling, when it is what bounded this call" })),
   extracted: Type.Optional(Type.Record(Type.String(), Type.Any(), { description: "A schema extraction's data" })),
   error: Type.Optional(ToolErrorSchema),
@@ -254,6 +270,10 @@ function readResult(args: ReadToolArgs, outcome: ReadToolResult) {
       ...(details.waitForRequested === undefined ? {} : { waitForRequested: details.waitForRequested }),
       ...(details.waitNote === undefined ? {} : { waitNote: details.waitNote }),
       ...(details.fromCache === undefined ? {} : { fromCache: details.fromCache }),
+      ...(details.maxAgeMs === undefined ? {} : { maxAgeMs: details.maxAgeMs }),
+      ...(details.pageAgeMs === undefined ? {} : { pageAgeMs: details.pageAgeMs }),
+      ...(details.staleSkippedMs === undefined ? {} : { staleSkippedMs: details.staleSkippedMs }),
+      ...(details.staleSkippedMs === undefined || details.refetched === undefined ? {} : { refetched: details.refetched }),
       ...(details.cappedAt === undefined ? {} : { cappedAt: details.cappedAt }),
       // The one field this function cannot vouch for: an extraction is whatever the gateway put under
       // `data`, typed as a record of unknowns. It arrives from `JSON.parse`, so it is JSON by

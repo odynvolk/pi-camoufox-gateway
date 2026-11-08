@@ -59,3 +59,12 @@ Canonical vocabulary for this repo. Not a spec — see `docs/brainstorms/` and `
   tab list, and if nothing will say where the tab is, the read refuses with `destination_unreported`
   rather than return content that cannot be placed under the url we asked for.
 - **Resolve** — opt-in follow-through that turns `goto` URLs into final URLs using concurrent tabs.
+- **Age bound** — what a caller may ask the page cache for: *serve an entry only while its age is strictly
+  below this number*, so `0` never serves. One word at both layers, `maxAgeMs` at the tool and `maxAgeMs` in
+  `src/cache.ts` → `export interface ReadBound`. It is a bound and never an eviction: `src/cache.ts` → `peek`
+  deletes an entry past `expiresAt` (the trust window `cache.pageMs` owns) and leaves one past a tolerance in
+  place, because one caller's ask may not take away a page a looser one can still use
+  (`docs/adr/0002-staleness-is-a-read-bound-not-an-eviction.md`). `ageMs` is `Math.max(0, now - storedAt)` and
+  is computed at read, never stored — the entry dates itself, the page cannot date it. The bound is honoured
+  by every reader, including the lookup inside `run`, and a page that reaches a caller through another call's
+  navigation is not given an age at all: it has no per-call age to give.
