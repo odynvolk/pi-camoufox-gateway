@@ -362,13 +362,25 @@ export function createFakeGateway(options = {}) {
 }
 
 /**
+ * The times this fake was asked to navigate, as calls rather than as a number.
+ *
+ * Two shapes because a count and a list answer different questions: `opens` settles what a read cost, while
+ * a test that has to look at where each navigation went — the `body.userId` behind two reads, say — cannot
+ * be served by a number. Both read this one predicate so the two can never disagree about what a
+ * navigation is: `method` included, because `/tabs/open` is a path a request can make without navigating.
+ */
+export function openCalls(fake) {
+  return fake.state.calls.filter((c) => c.method === "POST" && c.path === "/tabs/open");
+}
+
+/**
  * How many times this fake was asked to navigate — the cost a cached read is supposed to avoid.
  *
  * One `POST /tabs/open` per read the cache did not answer, so a test about cache hits counts these
  * rather than trusting the snapshot it got back.
  */
 export function opens(fake) {
-  return fake.state.calls.filter((c) => c.method === "POST" && c.path === "/tabs/open").length;
+  return openCalls(fake).length;
 }
 
 /** Install the fake gateway on globalThis.fetch for the duration of a test. */

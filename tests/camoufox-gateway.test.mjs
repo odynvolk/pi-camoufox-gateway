@@ -18,7 +18,7 @@ import { Check } from "typebox/value";
 import registerExtension from "../src/camoufox-gateway.ts";
 import { DEFAULT_CONFIG, ENGINE_NAMES, MAX_SEARCH_RESULTS } from "../src/config.ts";
 import { describeAge, READ_DESCRIPTION, SEARCH_DESCRIPTION } from "../src/extension.ts";
-import { withFakeGateway, opens } from "./helpers/fake_gateway.mjs";
+import { withFakeGateway, opens, openCalls } from "./helpers/fake_gateway.mjs";
 import { stageClock } from "./helpers/clock.mjs";
 
 function stubPi() {
@@ -420,15 +420,15 @@ test("the registered tool enforces the configured address guard end to end", asy
 
   assert.match((await call("http://169.254.169.254/latest/meta-data/")).content[0].text, /private_network/u);
   assert.match((await call("https://internal.test/admin")).content[0].text, /host_blocked/u);
-  assert.equal(fake.state.calls.filter((c) => c.path === "/tabs/open").length, 0, "neither tab was opened, not even to be refused");
+  assert.equal(opens(fake), 0, "neither tab was opened, not even to be refused");
 
   // Two ordinary reads: they both open a tab, so they show whether one extension is being reused.
   for (const url of ["https://example.test/one", "https://example.test/two"]) {
     assert.match((await call(url)).content[0].text, new RegExp(`Page: ${url}`, "u"), "the guard still lets ordinary urls through");
   }
-  const opens = fake.state.calls.filter((c) => c.path === "/tabs/open");
-  assert.equal(opens.length, 2);
-  assert.equal(new Set(opens.map((c) => c.body?.userId)).size, 1, "both reads ran through the one extension built for this session");
+  const opened = openCalls(fake);
+  assert.equal(opened.length, 2);
+  assert.equal(new Set(opened.map((c) => c.body?.userId)).size, 1, "both reads ran through the one extension built for this session");
 });
 
 test("a session id we cannot derive is reported as our own fault", async () => {
@@ -477,7 +477,7 @@ test("a config that will not load lends no url to the error it produces", async 
   assert.match(result.content[0].text, /Nothing was sent to the gateway/u);
   assert.equal(result.content[0].text.includes(DEFAULT_CONFIG.gatewayUrl), false, `must not name "${DEFAULT_CONFIG.gatewayUrl}"`);
   // Counted, so "nothing was attempted" is a fact about the gateway rather than a sentence in a message.
-  assert.equal(fake.state.calls.filter((c) => c.path === "/tabs/open").length, 0, "a config fault opens no tab");
+  assert.equal(opens(fake), 0, "a config fault opens no tab");
   assert.equal(fake.state.calls.filter((c) => c.path.endsWith("/snapshot")).length, 0, "and reads no page");
   assert.equal(/(^|\n)gateway_error:/u.test(result.content[0].text), false, "a config fault is not a gateway fault");
 });
