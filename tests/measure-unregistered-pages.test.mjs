@@ -757,6 +757,14 @@ test("a case that registers the engine's own results page takes that count to ze
   assert.equal(figures.asResults, 0, "the only engine read in the run was a page somebody registered");
   assert.ok(figures.invented > 0, "the other count moved, so this is a closed hole rather than a silent recorder");
   assert.ok(probeSaw(run.output).invented > 0, "and the probe still saw an invention, which is what licenses the zero");
+  // And the half of that line that can never be an invention is named rather than averaged in: the fake answers
+  // google's prefix by url substring, so an unqualified "19 of 38" is a permanent half people stop reading.
+  // Take the caveat out of `probeFigures` and this is the case that says so.
+  assert.match(
+    run.output,
+    /is answered by the fake as its own page, so an invention is not reachable there/u,
+    "the prefix an invention is unreachable at is named on the probe line",
+  );
 });
 
 test("the count is the url and not the page, so a linkless invention is still counted", { skip: CHECK_ONLY }, async (t) => {

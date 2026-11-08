@@ -185,6 +185,10 @@ const isText = (value) => typeof value === "string" && value !== "";
  * both, a run that counts 0 results reads is a recorder that stopped recording, and 0 is the figure the suite
  * would be publishing about itself.
  *
+ * What each prefix proves is not symmetric, and the printed figure says so rather than averaging them: the
+ * fake answers google's prefix from `url.includes("google.com/search")`, so that read is `registered` by
+ * construction and can never be the proof — see the caveat where `measure()` prints `probe:`.
+ *
  * Sent through `fake.fetch`, the route `inventedPageText` takes for the same reason: `measure()` imports
  * `tests/helpers/fetch_guard.mjs` *before* this preload, and that module throws on anything reaching the
  * global — a probe sent there would kill every child and the run would report that nothing was measured. It is
@@ -429,6 +433,33 @@ export function classify(cases, prefixes) {
  * that can do both and still counts nothing is reporting a closed hole; one that can do neither is not
  * reporting anything.
  */
+/**
+ * The proof-of-life line, stated over the prefixes an invention is reachable at.
+ *
+ * A prefix the fake answers from its own routing — google's, matched by `url.includes("google.com/search")` —
+ * comes back `registered` on every run of every tree, so leaving it in the denominator prints a permanent half
+ * and teaches people to skip the line, which is the same failure the committed measurement guards against.
+ * It is named instead: what was asked, which half could not answer, and why.
+ */
+export function probeFigures(probes, prefixes) {
+  const asked = [...prefixes.values()];
+  const at = (prefix) => probes.filter((one) => one.url.startsWith(prefix));
+  const inventive = asked.filter((prefix) => at(prefix).some((one) => one.invented));
+  const counted = inventive.flatMap((prefix) => at(prefix));
+  const num = counted.filter((one) => one.invented).length;
+  const never = asked.filter((prefix) => !inventive.includes(prefix));
+  return {
+    num,
+    denom: counted.length,
+    neverInvented: never,
+    line: `${num} of ${counted.length} engine urls it read for itself were inventions` +
+      (never.length === 0
+        ? ""
+        : ` — asked ${asked.length} ${asked.length === 1 ? "prefix" : "prefixes"}; ` +
+          `${never.join(", ")} is answered by the fake as its own page, so an invention is not reachable there`),
+  };
+}
+
 export function assertSawTheKnownCase(probes, prefixes) {
   if (probes.length === 0) {
     throw new Error("the recorder took no probe read of its own, so these counts are a silence, not a measurement — the recorder saw nothing");
@@ -624,7 +655,10 @@ export async function measure({ write = true } = {}) {
     ...published.slice(1),
     // Deliberately not one of the three committed figures, so it never reaches the fixture: this line is what
     // the instrument saw when it looked at itself, which is evidence about the instrument, not about the suite.
-    `probe:                      ${probes.filter((one) => one.invented).length} of ${probes.length} engine urls it read for itself were inventions`,
+    // Counted over the prefixes an invention is reachable at, with the unreachable one named — a figure that
+    // reads as a permanent half is a figure people stop reading, and this half is half by construction: the
+    // fake answers google's prefix from `url.includes("google.com/search")`, so no probe there can be invented.
+    `probe:                      ${probeFigures(probes, prefixes).line}`,
   ];
   const detail = [];
   for (const [engine, prefix] of prefixes) {
