@@ -15,10 +15,10 @@
  *   below the total — an instrument that charged every running case with a read would pass here and lie on
  *   the shipped suite.
  *
- * The first case takes its name from `KNOWN_CASE`, the case `assertSawTheKnownCase` refuses to publish a
- * reading without. On the shipped suite that case lives in `tests/engines.test.mjs`; a four-case suite that
- * left it out would be refused for the right reason — the recorder saw nothing — and would prove nothing
- * about the check. Naming it here is what lets a four-case suite count as a suite.
+ * The first case takes its name from `KNOWN_CASE`, which is a label and no longer a gate: what lets a four-case
+ * suite be published at all is the probe read every recorded child takes of its own accord, at an engine's own
+ * results url, and reports before any figure prints. On the shipped suite the case still lives in
+ * `tests/engines.test.mjs`, where it is the one that navigates to an engine and registers nothing there.
  *
  * Not run by `npm test`: the glob there is `tests/*.test.mjs` and this file's name deliberately stops short
  * of it, for the same reason `scripts/record-fixtures.py` never runs from the suite. A case of this one
