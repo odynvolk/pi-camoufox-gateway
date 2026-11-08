@@ -19,8 +19,8 @@
  * 407 — 413 by the time this gate landed, because the gate's own cases count — and the suite was green. A
  * trio that only agrees with itself is not a check. `npm run test:measure` runs the second mode.
  *
- * Today's reading, written to `tests/fixtures/measure/invented-page-count.txt` every time it runs: of 471
- * cases in the suite, 64 read the fake's invented page and 11 read it as an engine's results page. Those
+ * Today's reading, written to `tests/fixtures/measure/invented-page-count.txt` every time it runs: of 478
+ * cases in the suite, 53 read the fake's invented page and 0 read it as an engine's results page. Those
  * three figures are restated in this comment, in that file, and in
  * `docs/improvements/2026-10-18-code.md` → G.6, and `tests/measure-unregistered-pages.test.mjs` refuses the
  * three once they disagree — a count with nothing under it is a claim, and a claim three files each keep by
@@ -35,6 +35,15 @@
  * - *Which pages are invented* is answered by the unmodified fake, which owns that decision.
  * - *Which urls are an engine's results page* is read off the shipped adapters by running them, so an engine
  *   moving its search url moves this measurement with it instead of leaving it matching the old one.
+ *
+ * A published **zero** costs a third thing, because zero and "closed" print identically and only one of them
+ * is a finding. Before this file may say `read it as an engine's results page: 0`, the run proves the recorder
+ * can still see the invented page at all: every recorded child reads one for itself, at an engine's own results
+ * url, and says out loud whether it recognised it — and one recognised read across the run is what
+ * `assertSawTheKnownCase` demands, because a child whose own fixture answers first says nothing about the
+ * instrument. It refuses the run without it. What it cannot grade is a case name — a case is exactly what closes
+ * the hole, and the day one registers its engine's page, a guard keyed on that case's name would be refusing the
+ * good news.
  */
 
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -51,13 +60,29 @@ const BASE = "http://gateway.measure.test:9377";
 const MEASURE_ENV = "CAMOUFOX_MEASURE_INVENTED";
 /** One line per case that read an invented page: `INVENTED-PAGE\t<file>\t<test>\t<url url …>`. */
 export const REPORT_PREFIX = "INVENTED-PAGE\t";
+/**
+ * One line per probe read the recorder took for itself: `INVENTED-PAGE-PROBE\t<file>\t<url>\t<invented|registered>`.
+ *
+ * Its own prefix rather than a tag inside `REPORT_PREFIX`, for a reason that decides whether a 0 is reachable:
+ * the probe sits on an engine's own results url, `classify` matches on the url alone, and one line in the case
+ * stream would credit this very run with a results read forever. `parseReport` cannot match it, so the probe
+ * enters no case list, no `asResults`, and no denominator.
+ */
+export const PROBE_PREFIX = "INVENTED-PAGE-PROBE\t";
+/** How the parent hands the derived prefixes down: the child must not re-derive them. */
+const PROBE_PREFIXES_ENV = "CAMOUFOX_MEASURE_PROBE_PREFIXES";
 /** A query nothing else asks for, so the prefix cut below cannot land inside a real one. */
 const PROBE_QUERY = "__measure-probe__";
 /** A url nothing registers and no engine opens at, so the fake can only invent an answer for it. */
 const INVENTION_PROBE = "https://invention-probe.invalid/a-page-no-test-registered";
 /** Below this a "piece of the invention" is a coincidence; the article itself is ~2.5k characters. */
 const MIN_INVENTED_PAGE_CHARS = 200;
-/** The case that proves the recorder is running: see `assertSawTheKnownCase`. */
+/**
+ * The name the probe suites give the case that reads an engine's results page — nothing gates on it now.
+ *
+ * It used to be the figure `assertSawTheKnownCase` refused a run without; that guard grades the recorder's own
+ * probe instead, because a case is the thing a fix is allowed to stop being.
+ */
 export const KNOWN_CASE = "duckduckgo navigates straight to its query url";
 /**
  * Where the reading is committed, so the figure in the doc and the one in this file's header have something
@@ -155,6 +180,40 @@ export async function pageAtIsInvented(url) {
 const isText = (value) => typeof value === "string" && value !== "";
 
 /**
+ * Read a page at each engine's own results url and say whether the fake invented it — the recorder's proof.
+ *
+ * Two things this proves and nothing else can: that `pageWasInvented` still recognises the page the fake ships
+ * for a url nobody registered, and that a url under a derived engine prefix is still being read at all. Without
+ * both, a run that counts 0 results reads is a recorder that stopped recording, and 0 is the figure the suite
+ * would be publishing about itself.
+ *
+ * What each prefix proves is not symmetric, and the printed figure says so rather than averaging them: the
+ * fake answers google's prefix from `url.includes("google.com/search")`, so that read is `registered` by
+ * construction and can never be the proof — see the caveat where `measure()` prints `probe:`.
+ *
+ * Sent through `fake.fetch`, the route `inventedPageText` takes for the same reason: `measure()` imports
+ * `tests/helpers/fetch_guard.mjs` *before* this preload, and that module throws on anything reaching the
+ * global — a probe sent there would kill every child and the run would report that nothing was measured. It is
+ * never sent through the observed fetch either, which is what keeps it out of `byCase` — see `PROBE_PREFIX`.
+ */
+async function selfProbe(prefixes) {
+  const { createFakeGateway } = await import("../tests/helpers/fake_gateway.mjs");
+  const fake = createFakeGateway();
+  const probes = [];
+  for (const prefix of prefixes) {
+    const url = `${prefix}${PROBE_QUERY}`;
+    const opened = await fake
+      .fetch(`${BASE}/tabs/open`, { method: "POST", body: JSON.stringify({ userId: "measure-probe", url }) })
+      .then((response) => response.json());
+    const page = await fake
+      .fetch(`${BASE}/tabs/${opened.tabId}/snapshot?userId=measure-probe`)
+      .then((response) => response.json());
+    probes.push({ url, invented: await pageWasInvented(url, page?.snapshot) });
+  }
+  return probes;
+}
+
+/**
  * Record, inside each test process, which case read a page the fake invented.
  *
  * A root `beforeEach` yields the case name and a property setter wraps whatever fetch a test installs, which
@@ -225,8 +284,16 @@ export async function installRecorder() {
     },
   });
 
+  // Taken after the wrapper is in place, so a probe that failed to bypass it would surface here as a case —
+  // and the case that pins it invisible is the one that would go red if it ever did.
+  const prefixes = (process.env[PROBE_PREFIXES_ENV] ?? "").split("\t").filter(Boolean);
+  const reads = prefixes.length > 0 ? await selfProbe(prefixes) : [];
+
   process.on("beforeExit", () => {
     for (const [key, urls] of byCase) console.error(`${REPORT_PREFIX}${key}\t${[...urls].join(" ")}`);
+    for (const one of reads) {
+      console.error(`${PROBE_PREFIX}${process.argv[1] ?? "?"}\t${one.url}\t${one.invented ? "invented" : "registered"}`);
+    }
   });
 }
 
@@ -278,6 +345,22 @@ export function parseReport(output) {
     if (name) cases.push({ file, name, urls: urls.split(" ").filter(Boolean) });
   }
   return cases;
+}
+
+/**
+ * The recorder's own probe reads, one per engine url it asked for: `{ file, url, invented }`.
+ *
+ * Read out of the same output as the cases and never mixed with them: this is what the recorder said about
+ * itself, and a denominator that counts it is measuring the instrument instead of the suite.
+ */
+export function parseProbeMarkers(output) {
+  const probes = [];
+  for (const line of output.split("\n")) {
+    if (!line.startsWith(PROBE_PREFIX)) continue;
+    const [file = "", url = "", verdict = ""] = line.slice(PROBE_PREFIX.length).split("\t");
+    if (url) probes.push({ file, url, invented: verdict === "invented" });
+  }
+  return probes;
 }
 
 /** Distinct cases among reported lines — a case is a test, not a fake, and one test may install two. */
@@ -342,18 +425,57 @@ export function classify(cases, prefixes) {
 }
 
 /**
+ * The proof-of-life line, stated over the prefixes an invention is reachable at.
+ *
+ * A prefix the fake answers from its own routing — google's, matched by `url.includes("google.com/search")` —
+ * comes back `registered` on every run of every tree, so leaving it in the denominator prints a permanent half
+ * and teaches people to skip the line, which is the same failure the committed measurement guards against.
+ * It is named instead: what was asked, which half could not answer, and why.
+ */
+export function probeFigures(probes, prefixes) {
+  const asked = [...prefixes.values()];
+  const at = (prefix) => probes.filter((one) => one.url.startsWith(prefix));
+  const inventive = asked.filter((prefix) => at(prefix).some((one) => one.invented));
+  const counted = inventive.flatMap((prefix) => at(prefix));
+  const num = counted.filter((one) => one.invented).length;
+  const never = asked.filter((prefix) => !inventive.includes(prefix));
+  return {
+    num,
+    denom: counted.length,
+    neverInvented: never,
+    line: `${num} of ${counted.length} engine urls it read for itself were inventions` +
+      (never.length === 0
+        ? ""
+        : ` — asked ${asked.length} ${asked.length === 1 ? "prefix" : "prefixes"}; ` +
+          `${never.join(", ")} is answered by the fake as its own page, so an invention is not reachable there`),
+  };
+}
+
+/**
  * A count of zero is a broken instrument, not a closed hole, so refuse it.
  *
- * `tests/engines.test.mjs` → `duckduckgo navigates straight to its query url` opens the engine's own query
- * page through the fake, registers nothing, and asserts `results.length > 0` — so a recorder that works
- * cannot miss it, and one that does must not be allowed to print 0 as the hole having been closed.
+ * What this used to rest on was a case name: `duckduckgo navigates straight to its query url` opened the
+ * engine's own query page, registered nothing, and could not be missed. Registering that page is the fix G.6
+ * exists to land, so the name could not survive it — and a guard that threw on the run it was waiting for
+ * would have made the good news unpublishable. What the name stood for is graded directly instead: that the
+ * recorder read a page at an engine's own results url, and recognised it as the fake's invention. A recorder
+ * that can do both and still counts nothing is reporting a closed hole; one that can do neither is not
+ * reporting anything.
  */
-export function assertSawTheKnownCase(cases, asResults) {
-  if (!cases.some((one) => one.name === KNOWN_CASE)) {
-    throw new Error(`no case reported an invented page, though "${KNOWN_CASE}" must — the recorder saw nothing`);
+export function assertSawTheKnownCase(probes, prefixes) {
+  if (probes.length === 0) {
+    throw new Error("the recorder took no probe read of its own, so these counts are a silence, not a measurement — the recorder saw nothing");
   }
-  if (!asResults.some((one) => one.name === KNOWN_CASE)) {
-    throw new Error(`"${KNOWN_CASE}" was recorded but matched no engine's results url — the prefixes are wrong`);
+  const seen = probes.filter((one) => one.invented);
+  if (seen.length === 0) {
+    throw new Error(
+      `the recorder read ${probes.map((one) => one.url).join(", ")} and recognised none of it as an invention, so a zero here would be a blind reading rather than a closed hole`,
+    );
+  }
+  if (!seen.some((one) => [...prefixes.values()].some((prefix) => one.url.startsWith(prefix)))) {
+    throw new Error(
+      `the recorder's probe reads (${seen.map((one) => one.url).join(", ")}) matched no engine's results url — the prefixes are wrong`,
+    );
   }
 }
 
@@ -478,7 +600,19 @@ export async function measure({ write = true } = {}) {
   // broken recorder and is really a preload that was not there.
   const here = import.meta.dirname;
   const repoRoot = resolve(here, "..");
-  const env = { ...process.env, NODE_ENV: "test", [MEASURE_ENV]: "1" };
+  // Derived here, before the children start, and handed down rather than re-derived in each: the adapters only
+  // answer the request because this process put a stub on the global to ask them with, so a child that ran the
+  // derivation itself would record nothing and satisfy its own precondition by accident.
+  const prefixes = await engineResultPrefixes();
+  if (prefixes.size === 0) {
+    throw new Error("no shipped adapter asked for a results page, so there is nothing to probe and nothing to classify");
+  }
+  const env = {
+    ...process.env,
+    NODE_ENV: "test",
+    [MEASURE_ENV]: "1",
+    [PROBE_PREFIXES_ENV]: [...prefixes.values()].join("\t"),
+  };
   // A nested `node --test` inherits this from a runner already in progress and then refuses to run any file,
   // warning and exiting 0. Out, and the child runs the suite for real.
   delete env.NODE_TEST_CONTEXT;
@@ -498,9 +632,15 @@ export async function measure({ write = true } = {}) {
   const { total, failed } = readRunSummary(output, run.status);
 
   const cases = parseReport(output);
-  const prefixes = await engineResultPrefixes();
   const { asResults } = classify(cases, prefixes);
-  assertSawTheKnownCase(cases, asResults);
+  const probes = parseProbeMarkers(output);
+  try {
+    assertSawTheKnownCase(probes, prefixes);
+  } catch (error) {
+    // A refusal has to say what it refused. Without the suite's own figures beside it, "the recorder saw
+    // nothing" and "the suite never ran" are one sentence, and only one of them is this guard's business.
+    throw new Error(`${error.message}\nThe suite it was handed reported ${total} cases and ${failed} failing.`, { cause: error });
+  }
 
   // The three lines G.6 quotes, built once so what gets printed and what gets committed cannot disagree on
   // the figures. The pass/fail tail is print-only, on purpose: the one run in which these figures legitimately
@@ -515,6 +655,12 @@ export async function measure({ write = true } = {}) {
   const printed = [
     `${published[0]}${failed > 0 ? `  (${failed} FAILING — fix that before believing any of this)` : ", all passing"}`,
     ...published.slice(1),
+    // Deliberately not one of the three committed figures, so it never reaches the fixture: this line is what
+    // the instrument saw when it looked at itself, which is evidence about the instrument, not about the suite.
+    // Counted over the prefixes an invention is reachable at, with the unreachable one named — a figure that
+    // reads as a permanent half is a figure people stop reading, and this half is half by construction: the
+    // fake answers google's prefix from `url.includes("google.com/search")`, so no probe there can be invented.
+    `probe:                      ${probeFigures(probes, prefixes).line}`,
   ];
   const detail = [];
   for (const [engine, prefix] of prefixes) {
@@ -534,7 +680,7 @@ export async function measure({ write = true } = {}) {
     mkdirSync(dirname(REPORT_FIXTURE), { recursive: true });
     writeFileSync(REPORT_FIXTURE, `${[...published, ...detail].join("\n")}\n`, "utf8");
   }
-  return { total, failed, cases, asResults, prefixes, printed, published, detail };
+  return { total, failed, cases, asResults, prefixes, probes, printed, published, detail };
 }
 
 /**

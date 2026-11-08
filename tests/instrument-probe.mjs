@@ -15,10 +15,10 @@
  *   below the total — an instrument that charged every running case with a read would pass here and lie on
  *   the shipped suite.
  *
- * The first case takes its name from `KNOWN_CASE`, the case `assertSawTheKnownCase` refuses to publish a
- * reading without. On the shipped suite that case lives in `tests/engines.test.mjs`; a four-case suite that
- * left it out would be refused for the right reason — the recorder saw nothing — and would prove nothing
- * about the check. Naming it here is what lets a four-case suite count as a suite.
+ * The first case takes its name from `KNOWN_CASE`, which is a label and no longer a gate: what lets a four-case
+ * suite be published at all is the probe read every recorded child takes of its own accord, at an engine's own
+ * results url, and reports before any figure prints. On the shipped suite the case still lives in
+ * `tests/engines.test.mjs`, where it is the one that navigates to an engine and registers nothing there.
  *
  * Not run by `npm test`: the glob there is `tests/*.test.mjs` and this file's name deliberately stops short
  * of it, for the same reason `scripts/record-fixtures.py` never runs from the suite. A case of this one
@@ -44,13 +44,19 @@ const CLIENT_OPTIONS = { baseUrl: BASE, timeoutMs: 1000 };
 test(KNOWN_CASE, async (t) => {
   // Run through the adapter rather than at a url copied in here, so the results-page attribution the
   // instrument makes is one the shipped duckduckgo adapter still earns rather than one this file asserts.
+  //
+  // The claim is the throw, not the result: the invented page is a page and not a result set, so the adapter
+  // finds no link blocks in a body past `PARSEABLE_MIN_CHARS` and blames its own parser. The navigation is
+  // kept because the navigation is what the recorder records and what `classify` then reads.
   const fake = withFakeGateway(t);
   const client = createGatewayClient(CLIENT_OPTIONS);
-  const outcome = await duckduckgoEngine().search("camoufox anti-detect", { client, userId: "u1" });
+  const outcome = await duckduckgoEngine()
+    .search("camoufox anti-detect", { client, userId: "u1" })
+    .catch((error) => error);
 
-  assert.ok(outcome.results.length > 0, "the invented page parsed as results, which is the hole G.6 counts");
+  assert.equal(outcome.code, "parse_error", `the invented page did not reach the adapter as an unparseable page: ${JSON.stringify(outcome)}`);
   const opened = fake.state.calls.find((call) => call.path === "/tabs/open");
-  assert.match(opened.body.url, /^https:\/\/duckduckgo\.com\/\?q=/u, "and it opened the engine's own query page");
+  assert.match(opened.body.url, /^https:\/\/duckduckgo\.com\/\?q=/u, "and it opened the engine's own query page anyway, which is the read being counted");
 });
 
 test("reads an article page nobody registered", async (t) => {

@@ -13,6 +13,7 @@ import { readTool } from "../src/tools/read.ts";
 import { enginesFromConfig } from "../src/engines/chain.ts";
 import { SEARCH_SETTLE_POLL_MS } from "../src/engines/settle.ts";
 import { engineResultPrefixes } from "../scripts/measure-unregistered-pages.mjs";
+import { enginePage, engineResultsUrl, RECORDED_SERP } from "./helpers/engine_page.mjs";
 
 const BASE = "http://gateway.test:9377";
 
@@ -31,14 +32,14 @@ function setup(t, options = {}) {
 }
 
 /** A google page wider than one call may return: 12 links, where the tool's ceiling is 10. */
-function widePageContents() {
+async function widePageContents() {
   const page = Array.from(
     { length: 12 },
     (_unused, i) => `- link "Wide ${i + 1}" [e${i + 1}]:\n  - /url: https://example.test/w${i + 1}\n  - text: snippet ${i + 1}`,
   ).join("\n");
   // Built per call, because the fake gateway reads the map it is handed and a shared one is one test's
   // mutation away from changing another's page.
-  return new Map([["https://www.google.com/search?q=camoufox", page]]);
+  return new Map([[await engineResultsUrl("google", "camoufox"), page]]);
 }
 
 test("returns parsed results for a plain query", async (t) => {
@@ -121,7 +122,7 @@ test("a page wider than what came back is counted, not quietly dropped", async (
   // Nobody asked for more than the tool can give, so `clampedTo` stays undefined and `shortBy` stays
   // undefined: on `main` this call printed "10 result(s)" for a page that carried 12, which is the
   // output claiming more than it returned.
-  const { tool } = setup(t, { pageContents: widePageContents() });
+  const { tool } = setup(t, { pageContents: await widePageContents() });
 
   const out = await tool.search({ query: "camoufox" });
 
@@ -135,7 +136,7 @@ test("a page wider than what came back is counted, not quietly dropped", async (
 test("a page wider than `n` names the ask as the reason, not the ceiling", async (t) => {
   // Same page, different request. The one disclosure has to say which limit fired, because the two
   // levers pull differently: `n` is this call's, and no larger `n` moves the other.
-  const { tool } = setup(t, { pageContents: widePageContents() });
+  const { tool } = setup(t, { pageContents: await widePageContents() });
 
   const out = await tool.search({ query: "camoufox", n: 4 });
 
@@ -148,7 +149,7 @@ test("both width lines print, and each blames the limit that actually fired", as
   // added `pageCarried` left `clampedTo` claiming the *engine* capped the call one line above the line
   // naming this tool's own ceiling — one fact, two causes, and false outright for an engine whose page
   // "carries whatever it carried".
-  const { tool } = setup(t, { pageContents: widePageContents() });
+  const { tool } = setup(t, { pageContents: await widePageContents() });
 
   const out = await tool.search({ query: "camoufox", n: 50 });
 
@@ -172,7 +173,7 @@ test("a cheap first call does not cap what a later call can ask for", async (t) 
     (_unused, i) =>
       `- link "Result ${i + 1}" [e${i + 2}]:\n  - /url: https://example.test/result-${i + 1}\n  - text: snippet ${i + 1}`,
   ).join("\n")}`;
-  const { tool } = setup(t, { pageContents: new Map([["https://www.google.com/search?q=camoufox", page]]) });
+  const { tool } = setup(t, { pageContents: new Map([[await engineResultsUrl("google", "camoufox"), page]]) });
 
   const few = await tool.search({ query: "camoufox", n: 2 });
   assert.equal(few.results.length, 2);
@@ -249,7 +250,7 @@ test("resolution is narrated, and only when something is being resolved", async 
     { length: 3 },
     (_unused, i) => `- link "Direct ${i + 1}" [e${i + 1}]:\n  - /url: https://example.test/d${i + 1}\n  - text: snippet ${i + 1}`,
   ).join("\n");
-  const { tool } = setup(t, { pageContents: new Map([["https://www.google.com/search?q=direct", direct]]) });
+  const { tool } = setup(t, { pageContents: new Map([[await engineResultsUrl("google", "direct"), direct]]) });
 
   const resolving = [];
   const out = await tool.search({ query: "camoufox", resolve: true, onProgress: (note) => resolving.push(note) });
@@ -271,7 +272,10 @@ test("resolution is narrated, and only when something is being resolved", async 
 });
 
 test("reports the engine chain it tried", async (t) => {
-  const { tool } = setup(t, { consentWallOn: new Set(["u1"]) });
+  // Duckduckgo's page registered at the url its own adapter asks for: this case asks the chain to fall through
+  // to it and be credited to it, so the page it answers with has to be one somebody put there (G.6).
+  const page = await enginePage("duckduckgo", "camoufox", RECORDED_SERP);
+  const { tool } = setup(t, { consentWallOn: new Set(["u1"]), ...page.fakeOptions });
 
   const out = await tool.search({ query: "camoufox" });
 
@@ -552,7 +556,7 @@ const TEN_RESULTS_PAGE = Array.from(
 
 test("a search that waited for its SERP says how long it waited, and says nothing else", async (t) => {
   const { tool } = setup(t, {
-    snapshotScripts: new Map([["https://www.google.com/search?q=late", [SERP_SKELETON, SERP_WITH_RESULTS]]]),
+    snapshotScripts: new Map([[await engineResultsUrl("google", "late"), [SERP_SKELETON, SERP_WITH_RESULTS]]]),
   });
 
   const out = await tool.search({ query: "late", n: 1 });
@@ -583,8 +587,11 @@ test("a search served from cache reports no wait it did not pay", async (t) => {
   // The chain waited on google and failed there, so the page that was stored is the one duckduckgo
   // answered with at a glance — which is what makes it storable at all. A page the engines had to wait
   // for is not kept, and the test below is why.
+  const googleUrl = await engineResultsUrl("google", "late");
+  const duckduckgoUrl = await engineResultsUrl("duckduckgo", "late");
   const { fake, tool } = setup(t, {
-    pageContents: new Map([["https://www.google.com/search?q=late", SERP_SKELETON]]),
+    pageContents: new Map([[googleUrl, SERP_SKELETON], [duckduckgoUrl, RECORDED_SERP]]),
+    snapshotLimit: RECORDED_SERP.length + 1,
   });
 
   const first = await tool.search({ query: "late" });
@@ -603,14 +610,14 @@ test("a SERP caught at its first result answers this call and is not kept for th
   // it is honest, because `shortBy` says what came up short. Storing it under a key that deliberately
   // ignores `n` is not: one result becomes the answer for every later ask, for the whole `cache.serpMs`.
   const { fake, tool } = setup(t, {
-    snapshotScripts: new Map([["https://www.google.com/search?q=slow", [SERP_SKELETON, SERP_WITH_RESULTS]]]),
+    snapshotScripts: new Map([[await engineResultsUrl("google", "slow"), [SERP_SKELETON, SERP_WITH_RESULTS]]]),
   });
 
   const narrow = await tool.search({ query: "slow", n: 1 });
   assert.equal(narrow.results.length, 1, "stop-at-first is still what answers a search");
 
   // The page has arrived since. Were the partial frame still stored, none of what follows would be read.
-  fake.state.snapshotScripts.set("https://www.google.com/search?q=slow", [TEN_RESULTS_PAGE]);
+  fake.state.snapshotScripts.set(await engineResultsUrl("google", "slow"), [TEN_RESULTS_PAGE]);
   const before = fake.state.calls.length;
 
   const wide = await tool.search({ query: "slow", n: 10 });
@@ -635,7 +642,7 @@ test("a SERP caught at its first result answers this call and is not kept for th
 test("B.8 as filed: a refusal served from the first look is cached, and the second query costs no request", async (t) => {
   const { fake, tool } = setup(t, {
     pageContents: new Map([
-      ["https://www.google.com/search?q=blocked", readFileSync(new URL("./fixtures/serp-reddit-blocked.txt", import.meta.url), "utf8")],
+      [await engineResultsUrl("google", "blocked"), readFileSync(new URL("./fixtures/serp-reddit-blocked.txt", import.meta.url), "utf8")],
     ]),
   });
 
@@ -666,8 +673,8 @@ test("the wait a search reports is the whole chain's, not just the engine that a
   // and serves. A hop is paid *after* the wait that preceded it, so the note that omits the first one
   // is a number the model cannot reconcile with how long the call took.
   const { tool } = setup(t, {
-    pageContents: new Map([["https://www.google.com/search?q=two-waits", SERP_SKELETON]]),
-    snapshotScripts: new Map([["https://duckduckgo.com/?q=two-waits", [SERP_SKELETON, SERP_WITH_RESULTS]]]),
+    pageContents: new Map([[await engineResultsUrl("google", "two-waits"), SERP_SKELETON]]),
+    snapshotScripts: new Map([[await engineResultsUrl("duckduckgo", "two-waits"), [SERP_SKELETON, SERP_WITH_RESULTS]]]),
   });
 
   const out = await tool.search({ query: "two-waits" });

@@ -97,11 +97,15 @@ export function createFakeGateway(options = {}) {
     }
     // Realistically long on purpose: `read` re-snapshots anything thinner than read.settleMinChars, so a
     // two-line default page would make every unrelated read pay for the settle loop.
+    //
+    // And not a result set, also on purpose (G.6). This used to carry one `- link` with a `- /url:` child on a
+    // host no engine owns, and the organic-versus-chrome call is structural — a foreign host is not chrome —
+    // so one link made it a results page that either engine could be credited with. What stays is what the
+    // readers of an unregistered url actually need: bulk to settle on, and an `[e1]` ref for `/extract`. A
+    // page nobody registered has no links to report, so the ref is a form field now.
     return [
       `- heading "Page: ${url}" [level=1]`,
-      '- link "Docs" [e1]:',
-      "  - /url: https://camoufox.com/docs",
-      "  - text: Documentation",
+      '- textbox "Search" [e1]: search',
       "  - text: Some readable body content about the product.",
       ...Array.from({ length: 14 }, (_unused, index) => `  - text: Paragraph ${index + 1} of the article, long enough to read as a rendered page rather than a skeleton (${"content ".repeat(12).trim()}).`),
     ].join("\n");

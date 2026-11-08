@@ -27,17 +27,19 @@ import {
   findDisagreements,
   HEADER_STATING,
   inventedPageText,
-  KNOWN_CASE,
   pageAtIsInvented,
   pageWasInvented,
+  parseProbeMarkers,
   parseReport,
   PLACES,
+  PROBE_PREFIX,
   readDocFigures,
   readHeadlineFigures,
   readHeaderFigures,
   readRunSummary,
   requestedCheck,
   REPORT_FIXTURE,
+  REPORT_PREFIX,
   suiteFailures,
   assertSawTheKnownCase,
   suiteTotal,
@@ -119,8 +121,15 @@ test("an invented page is recognised, and the pages the fake ships are not", asy
   assert.equal(await pageAtIsInvented(UNREGISTERED), true);
 
   // A slice of the invention is still the invention — `/snapshot` paginates and `read` re-looks at an offset.
+  // Sliced from the end and guarded rather than cut at `indexOf("- link")`: the moment the invented page
+  // stopped carrying a link that expression became `slice(-1)` — one character, under
+  // `MIN_INVENTED_PAGE_CHARS` — and an `indexOf` that returns -1 quietly turns this into "the whole page is
+  // the page", which is the unfalsifiable pin wearing a different hat.
   const whole = await inventedPageText(UNREGISTERED);
-  assert.equal(await pageWasInvented(UNREGISTERED, whole.slice(whole.indexOf("- link"))), true);
+  const tail = whole.slice(-400);
+  assert.equal(tail.length, 400, "the slice is shorter than it asked for, so it is not a piece of the page");
+  assert.notEqual(tail, whole, "a slice that is the whole page asserts nothing about slices");
+  assert.equal(await pageWasInvented(UNREGISTERED, tail), true);
 
   // And these are not the invention, however long they are.
   assert.equal(await pageWasInvented(UNREGISTERED, ""), false);
@@ -279,20 +288,69 @@ test("a page is attributed to the engine whose results url it is, and to no othe
   assert.deepEqual(asResults, [{ file: "a", name: "searches", engine: "duckduckgo", url: UNREGISTERED }]);
 });
 
-test("a run that missed the case it must see is refused, not published as zero", async () => {
-  // Zero and "closed" look identical in the output and only one of them is a finding. The case named here
-  // opens the engine's own query page through the fake, registers nothing, and asserts `results.length > 0`,
-  // so any recorder that works sees it — that is the reading this guard rests on, and the reason a silent 0
-  // cannot be reported as good news.
-  const prefixes = await engineResultPrefixes();
-  const seen = [{ file: "tests/engines.test.mjs", name: KNOWN_CASE, urls: ["https://duckduckgo.com/?q=camoufox%20anti-detect"] }];
-  assert.doesNotThrow(() => assertSawTheKnownCase(seen, classify(seen, prefixes).asResults));
+// The three cases below replace `a run that missed the case it must see is refused, not published as zero`,
+// which asked for a case *named* `KNOWN_CASE` among the invented reads. U2 registers the page that case
+// reads, so the name it gated on disappears with it — and what the name stood for (a recorder that can see
+// a page, and can still tell an engine's results url when it sees one) gets asserted directly instead.
 
-  assert.throws(() => assertSawTheKnownCase([], []), /the recorder saw nothing/u);
-  const elsewhere = [{ file: "x", name: KNOWN_CASE, urls: ["https://example.test/not-a-serp"] }];
+test("a published zero rests on the recorder's own probe, not on a case name", async () => {
+  // Zero and "closed" look identical in the output and only one of them is a finding. The guard cannot rest
+  // on which cases happen to read an invention any more — a published 0 is precisely a run where none do —
+  // so it rests on the one read the recorder takes for itself: an unregistered page at an engine's own
+  // results url, which the unmodified fake can only answer with its invention.
+  const prefixes = await engineResultPrefixes();
+  const engineUrl = `${prefixes.get("duckduckgo")}camoufox`;
+
+  assert.doesNotThrow(
+    () => assertSawTheKnownCase([{ file: "x", url: engineUrl, invented: true }], prefixes),
+    "a recorder that saw its own probe may publish a run in which nothing read a results page",
+  );
   assert.throws(
-    () => assertSawTheKnownCase(elsewhere, classify(elsewhere, prefixes).asResults),
+    () => assertSawTheKnownCase([], prefixes),
+    /the recorder saw nothing/u,
+    "a run with no probe read is a silence, and a silence cannot publish 0",
+  );
+  assert.throws(
+    () => assertSawTheKnownCase([{ file: "x", url: "https://example.test/not-a-serp", invented: true }], prefixes),
     /matched no engine's results url/u,
+    "a probe that never touched an engine's url proves the classification nothing",
+  );
+  assert.throws(
+    () => assertSawTheKnownCase([{ file: "x", url: engineUrl, invented: false }], prefixes),
+    /recognised none of it as an invention/u,
+    "a recorder that cannot see the invention it was handed has stopped measuring, whatever it counts",
+  );
+});
+
+test("the recorder's probe is flushed where no denominator can read it", () => {
+  // The probe is the recorder grading itself, so it must never become a case. It sits on an engine's own
+  // results url, and `classify` matches on the url alone: one line in the case stream and
+  // `read it as an engine's results page` could never reach the 0 U2 is going to publish.
+  const marker = `${PROBE_PREFIX}tests/x.test.mjs\thttps://duckduckgo.com/?q=rig\tinvented`;
+  assert.deepEqual(parseProbeMarkers(`${marker}\n`), [
+    { file: "tests/x.test.mjs", url: "https://duckduckgo.com/?q=rig", invented: true },
+  ]);
+  assert.deepEqual(parseReport(`${marker}\n`), [], "the probe line is not a case, and no count may be built from it");
+
+  const caseLine = `${REPORT_PREFIX}tests/x.test.mjs\tsearches\thttps://duckduckgo.com/?q=rig`;
+  assert.deepEqual(parseProbeMarkers(caseLine), [], "and a case line is not a probe, or the guard grades the suite instead of itself");
+});
+
+test("the two headline figures count different things, so one proof of life cannot grade both", async () => {
+  // `read the fake's invented page` dedupes on file *and* name, `read it as an engine's results page` on name
+  // alone. A guard written against one is not a guard on the other, and the two figures are published side by
+  // side as though they belonged to one population — so the asymmetry is pinned here rather than left to a
+  // future "simplification" that fuses them and quietly un-grades one counter.
+  const prefixes = await engineResultPrefixes();
+  const cases = [
+    { file: "tests/a.test.mjs", name: "searches", urls: [UNREGISTERED] },
+    { file: "tests/b.test.mjs", name: "searches", urls: [UNREGISTERED] },
+  ];
+  assert.equal(caseNames(cases).length, 2, "the invented count is keyed on file and name");
+  assert.equal(
+    new Set(classify(cases, prefixes).asResults.map((one) => one.name)).size,
+    1,
+    "the results count is keyed on name alone, so two cases with one name are one figure",
   );
 });
 
@@ -320,6 +378,32 @@ const CHECK_ONLY = process.env.CAMOUFOX_MEASURE_INVENTED === "1"
 const REPO = fileURLToPath(new URL("..", import.meta.url));
 /** The four-case suite the check cases measure; see its own header for why `npm test` never runs it. */
 const PROBE = fileURLToPath(new URL("../tests/instrument-probe.mjs", import.meta.url));
+/** The three-case suite the probe cases measure; registered or not is the only thing it varies. */
+const RIG = fileURLToPath(new URL("../tests/instrument-rig.mjs", import.meta.url));
+
+/**
+ * Ask the copy's fake what it answers for a url nobody registered — asked of the copy, never restated here.
+ *
+ * A plant is only a plant if the copy agrees it landed, and the copy's fake is the only thing entitled to say
+ * which pages it invents. Sent through `fake.fetch`, the same route `inventedPageText` takes, because the
+ * measured child runs with `tests/helpers/fetch_guard.mjs` installed and that module throws on the global.
+ */
+const SERVES_PROGRAM = `
+import("./tests/helpers/fake_gateway.mjs").then(async ({ createFakeGateway }) => {
+  const fake = createFakeGateway();
+  const url = process.env.SERVES_URL;
+  const base = process.env.SERVES_BASE;
+  const opened = await fake.fetch(base + "/tabs/open", {
+    method: "POST",
+    body: JSON.stringify({ userId: "plant", url }),
+  }).then((response) => response.json());
+  const page = await fake.fetch(base + "/tabs/" + opened.tabId + "/snapshot?userId=plant").then((response) => response.json());
+  process.stdout.write(page.snapshot ?? "");
+}).catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
+`;
 
 /**
  * A copy of the repo the instrument can measure and rewrite with this tree out of reach.
@@ -330,7 +414,8 @@ const PROBE = fileURLToPath(new URL("../tests/instrument-probe.mjs", import.meta
  * plant a disagreement in exactly one of the three and watch the other two stay quiet, and lets the same
  * case prove afterwards that not one byte of the three moved.
  */
-function scratchInstrument(t) {
+function scratchInstrument(t, options = {}) {
+  const suite = options.suite ?? "probe";
   const root = mkdtempSync(join(tmpdir(), "g6-instrument-"));
   const dir = join(root, "repo");
   mkdirSync(join(dir, "tests", "fixtures", "measure"), { recursive: true });
@@ -343,23 +428,35 @@ function scratchInstrument(t) {
   // The copy runs the shipped `src/`, which imports `typebox`: node resolves up from the copy, so the one
   // thing a copy cannot afford to duplicate is the install.
   symlinkSync(join(REPO, "node_modules"), join(dir, "node_modules"));
-  cpSync(PROBE, join(dir, "tests", "instrument-probe.test.mjs"));
+  cpSync(suite === "rig" ? RIG : PROBE, join(dir, "tests", `instrument-${suite}.test.mjs`));
 
   const instrument = {
     dir,
     script: join(dir, "scripts", "measure-unregistered-pages.mjs"),
     fixture: join(dir, "tests", "fixtures", "measure", "invented-page-count.txt"),
+    fake: join(dir, "tests", "helpers", "fake_gateway.mjs"),
     doc: join(dir, "docs", "improvements", "2026-10-18-code.md"),
   };
   instrument.read = (path) => readFileSync(path, "utf8");
   instrument.write = (path, text) => writeFileSync(path, text, "utf8");
+  /** What the copy's own fake answers for a url nobody registered, in the words it answers it in. */
+  instrument.serves = (url) => {
+    const run = spawnSync(process.execPath, ["-e", SERVES_PROGRAM], {
+      encoding: "utf8",
+      cwd: dir,
+      env: { ...process.env, NODE_ENV: "test", SERVES_URL: url, SERVES_BASE: BASE },
+      timeout: 30_000,
+    });
+    assert.equal(run.status, 0, `asking the copy's fake for ${url} failed:\n${run.stderr ?? ""}`);
+    return run.stdout;
+  };
   /** The three places the check reads, as bytes, so "it wrote nothing" is compared rather than believed. */
   instrument.bytes = () => Object.fromEntries(
     ["script", "fixture", "doc"].map((key) => [key, readFileSync(instrument[key])]),
   );
   /** Run the instrument in the copy: `--check` mode, or the default write mode when no mode is given. */
-  instrument.run = (mode = "") => {
-    const env = { ...process.env, NODE_ENV: "test" };
+  instrument.run = (mode = "", extraEnv = {}) => {
+    const env = { ...process.env, NODE_ENV: "test", ...extraEnv };
     delete env.NODE_TEST_CONTEXT; // a nested `node --test` would refuse to run any file and exit 0
     delete env.CAMOUFOX_MEASURE_INVENTED; // the copy is the measurer here, never the measured
     const run = spawnSync(process.execPath, [instrument.script, ...(mode ? [mode] : [])], {
@@ -565,4 +662,140 @@ test("the check names the place whose figures differ, and stays quiet about the 
     ["doc"],
     "a place that no longer states the reading at all is a disagreement, not a pass",
   );
+});
+
+// ---------------------------------------------------------------------------
+// The two figures a shipped suite cannot produce on demand: a run in which one case reads an engine's results
+// page nobody registered, and the same run with that page registered, where the honest reading is zero. Both
+// are measured in a scratch copy over `tests/instrument-rig.mjs`, against a fake this file plants — planted,
+// never assumed, because which pages the fake invents is the fake's decision to make.
+// ---------------------------------------------------------------------------
+
+/** The invented article as the fake's own source spells it, from its heading to its closing `].join(`. */
+function inventedArticle(source) {
+  const start = source.indexOf('- heading "Page: ');
+  assert.ok(start > 0, "the fake no longer builds its invented page off a heading, so there is nothing here to edit");
+  const end = source.indexOf("].join(", start);
+  assert.ok(end > start, "the fake's invented page is no longer an array a line can be cut out of");
+  return { start, end, text: source.slice(start, end) };
+}
+
+/** A url under an engine's own results prefix that no rig case registers, so only the fake can answer it. */
+const plantUrl = (prefixes) => `${prefixes.get("duckduckgo")}plant-check`;
+
+/** Give the copy's invention a `/url:` line — the one shape that made a single link a result set. */
+function withLinkedInvention(instrument, url) {
+  const source = instrument.read(instrument.fake);
+  const block = inventedArticle(source);
+  if (!/\/url:/u.test(block.text)) {
+    const afterHeading = source.indexOf("\n", block.start) + 1;
+    instrument.write(instrument.fake, `${source.slice(0, afterHeading)}      "  - /url: https://camoufox.com/docs",\n${source.slice(afterHeading)}`);
+  }
+  assert.match(inventedArticle(instrument.read(instrument.fake)).text, /\/url:/u, "the planted /url: line did not land");
+  assert.match(instrument.serves(url), /\/url:/u, `the copy does not answer ${url} with a linked page`);
+  assert.match(instrument.serves("https://www.google.com/search?q=plant"), /google\.com\/goto/u, "and the page the fake ships is still the page it ships");
+  return instrument;
+}
+
+/** Take every `/url:` line out of the copy's invention, and leave the pages it ships alone. */
+function withLinklessInvention(instrument, url) {
+  const source = instrument.read(instrument.fake);
+  const block = inventedArticle(source);
+  const linkless = block.text.replace(/^[ \t]*["'][^"']*\/url:[^"']*?["'],\n/gmu, "");
+  instrument.write(instrument.fake, `${source.slice(0, block.start)}${linkless}${source.slice(block.end)}`);
+
+  assert.doesNotMatch(inventedArticle(instrument.read(instrument.fake)).text, /\/url:/u, "a /url: line survived the plant");
+  assert.doesNotMatch(instrument.serves(url), /\/url:/u, `the copy still answers ${url} with a link`);
+  assert.match(instrument.serves("https://www.google.com/search?q=plant"), /google\.com\/goto/u, "and the plant left the shipped SERP alone");
+  return instrument;
+}
+
+/** Make the copy's fake *ship* a page at the engine's results url, so nothing there can be recognised as invented. */
+function withTheInventionHidden(instrument, url) {
+  const source = instrument.read(instrument.fake);
+  const anchor = 'if (url.includes("google.com/search")) {';
+  assert.ok(source.includes(anchor), "the fake no longer ships a page by url shape, so this plant has nothing to widen");
+  instrument.write(instrument.fake, source.replace(anchor, 'if (url.includes("google.com/search") || url.includes("duckduckgo.com")) {'));
+  assert.match(instrument.serves(url), /google\.com\/goto/u, `${url} is still answered with an invention, so the plant did not land`);
+  return instrument;
+}
+
+/** How many of the recorder's own probe reads it recognised as inventions, out of how many it took. */
+function probeSaw(output) {
+  const found = output.match(/^probe:\s+(\d+) of (\d+)/mu);
+  assert.ok(found, `the run printed no probe line, so nothing here proves the recorder saw anything:\n${output}`);
+  return { invented: Number.parseInt(found[1], 10), of: Number.parseInt(found[2], 10) };
+}
+
+test("the results-page count still fires when nothing is registered at the engine's url", { skip: CHECK_ONLY }, async (t) => {
+  // The row that keeps `read it as an engine's results page` falsifiable. Once the shipped suite reports 0 —
+  // which is U2's whole acceptance bar — a 1 has to be reachable on demand somewhere, or the published 0 is a
+  // figure nothing can contradict. The fake here carries the linked article G.6 is about, and the case
+  // registers nothing: that is the hole, reproduced to order.
+  const instrument = scratchInstrument(t, { suite: "rig" });
+  const url = plantUrl(await engineResultPrefixes());
+  withLinkedInvention(instrument, url);
+
+  const run = instrument.run("", { CAMOUFOX_MEASURE_RIG_REGISTER: "0" });
+  assert.equal(run.status, 0, `the instrument refused a run it should have published:\n${run.output}`);
+  assert.equal(readHeadlineFigures(run.output).asResults, 1, "one case read an invented page as an engine's results page");
+  assert.ok(probeSaw(run.output).invented > 0, "and the recorder saw its own probe, which is what makes the 1 a reading");
+});
+
+test("a case that registers the engine's own results page takes that count to zero, and the zero publishes", { skip: CHECK_ONLY }, async (t) => {
+  // The end state U2 has to reach, proven reachable here rather than hoped for across the shipped suite: the
+  // instrument must publish, not throw. Two things are being asserted at once, and the second is the whole
+  // point of the rig — had the recorder's own probe been flushed as a case, `classify` would have credited
+  // this run with an engine read at its own probe url and 0 would have been out of reach forever.
+  const instrument = scratchInstrument(t, { suite: "rig" });
+  const url = plantUrl(await engineResultPrefixes());
+  withLinklessInvention(instrument, url);
+
+  const run = instrument.run("", { CAMOUFOX_MEASURE_RIG_REGISTER: "1" });
+  assert.equal(run.status, 0, `the instrument refused to publish a zero it had every right to publish:\n${run.output}`);
+  const figures = readHeadlineFigures(run.output);
+  assert.equal(figures.asResults, 0, "the only engine read in the run was a page somebody registered");
+  assert.ok(figures.invented > 0, "the other count moved, so this is a closed hole rather than a silent recorder");
+  assert.ok(probeSaw(run.output).invented > 0, "and the probe still saw an invention, which is what licenses the zero");
+  // The figure's own shape is the claim: it is stated over the prefixes an invention is reachable at, so every
+  // read it counts was one. Let it average in the prefix the fake owns and `of` silently becomes 38 here.
+  const probe = probeSaw(run.output);
+  assert.equal(probe.invented, probe.of, "the probe figure counts only reads where an invention was reachable");
+  // And the half of that line that can never be an invention is named rather than averaged in: the fake answers
+  // google's prefix by url substring, so an unqualified "19 of 38" is a permanent half people stop reading.
+  // Take the caveat out of `probeFigures` and this is the case that says so.
+  assert.match(
+    run.output,
+    /is answered by the fake as its own page, so an invention is not reachable there/u,
+    "the prefix an invention is unreachable at is named on the probe line",
+  );
+});
+
+test("the count is the url and not the page, so a linkless invention is still counted", { skip: CHECK_ONLY }, async (t) => {
+  // Removing the link is U3's job, and this says why the order is forced: `classify` matches on the url alone,
+  // so no edit to the invented page can move this figure. A plan that deleted the link first would have landed
+  // a suite still reporting 11 and an instrument nobody believed.
+  const instrument = scratchInstrument(t, { suite: "rig" });
+  const url = plantUrl(await engineResultPrefixes());
+  withLinklessInvention(instrument, url);
+
+  const run = instrument.run("", { CAMOUFOX_MEASURE_RIG_REGISTER: "0" });
+  assert.equal(run.status, 0, `the instrument refused a run it should have published:\n${run.output}`);
+  assert.equal(readHeadlineFigures(run.output).asResults, 1, "a page with no link in it is still read at an engine's results url");
+});
+
+test("a recorder that cannot recognise its own probe read is refused, though the suite reported its total", { skip: CHECK_ONLY }, async (t) => {
+  // The blindness this guard exists for, in the only shape it can take once the probe is unconditional: not an
+  // empty case list — that is what a closed hole looks like now — but a recorder handed a page and unable to
+  // say it was invented. Here the fake ships a page at the engine's url, the suite runs green, and the
+  // instrument must still refuse rather than print a number it cannot see.
+  const instrument = scratchInstrument(t, { suite: "rig" });
+  const url = plantUrl(await engineResultPrefixes());
+  withTheInventionHidden(instrument, url);
+
+  const run = instrument.run("", { CAMOUFOX_MEASURE_RIG_REGISTER: "0" });
+  assert.notEqual(run.status, 0, `the instrument published a reading its own recorder could not see:\n${run.output}`);
+  assert.match(run.output, /recognised none of it as an invention/u, "it refused for the probe, which is the reason");
+  assert.match(run.output, /reported [1-9]\d* cases/u, "and the suite it refused really ran");
+  assert.match(run.output, /0 failing/u, "with nothing red in it, so no failing test is doing the refusing");
 });

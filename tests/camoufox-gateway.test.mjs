@@ -19,6 +19,7 @@ import registerExtension from "../src/camoufox-gateway.ts";
 import { DEFAULT_CONFIG, ENGINE_NAMES, MAX_SEARCH_RESULTS } from "../src/config.ts";
 import { describeAge, READ_DESCRIPTION, SEARCH_DESCRIPTION } from "../src/extension.ts";
 import { withFakeGateway, opens, openCalls } from "./helpers/fake_gateway.mjs";
+import { enginePage, engineResultsUrl, RECORDED_SERP } from "./helpers/engine_page.mjs";
 import { stageClock } from "./helpers/clock.mjs";
 
 function stubPi() {
@@ -680,7 +681,10 @@ test("an engine that fell through is reported to a script as well as to the mode
   // difference between "retry" and "file a bug", and a programmatic caller has an interest in it too.
   withConfigFile(t, { gatewayUrl: "http://gateway.test:9377" });
   const { ctx, userId } = session("pi-fell-through");
-  withFakeGateway(t, { consentWallOn: new Set([userId]) });
+  // The engine that fell through to has to answer with a page somebody registered: a `duckduckgo:ok` step is
+  // only honest while the page behind it is a recorded SERP and not the article the fake invents (G.6).
+  const page = await enginePage("duckduckgo", "camoufox", RECORDED_SERP);
+  withFakeGateway(t, { consentWallOn: new Set([userId]), ...page.fakeOptions });
   const { byName } = registered();
 
   const search = await byName.camoufox_search.execute("id", { query: "camoufox" }, undefined, undefined, ctx);
@@ -702,7 +706,7 @@ test("a chain that ran out hands a script the steps, not only the code", async (
   assert.ok(linkless.length > 2_000, `needs to be past PARSEABLE_MIN_CHARS to be parse_error, got ${linkless.length}`);
   withFakeGateway(t, {
     consentWallOn: new Set([userId]),
-    pageContents: new Map([["https://duckduckgo.com/?q=camoufox", linkless]]),
+    pageContents: new Map([[await engineResultsUrl("duckduckgo", "camoufox"), linkless]]),
   });
   const { byName } = registered();
 
@@ -727,7 +731,7 @@ test("the two width counts reach structuredContent, not just the prose", async (
     { length: 12 },
     (_unused, i) => `- link "Wide ${i + 1}" [e${i + 1}]:\n  - /url: https://example.test/w${i + 1}\n  - text: snippet ${i + 1}`,
   ).join("\n");
-  withFakeGateway(t, { pageContents: new Map([["https://www.google.com/search?q=camoufox", page]]) });
+  withFakeGateway(t, { pageContents: new Map([[await engineResultsUrl("google", "camoufox"), page]]) });
   const { byName } = registered();
   const { ctx } = session("pi-wide-page");
 
@@ -746,7 +750,7 @@ test("the time a search waited for its SERP reaches structuredContent, not just 
   const skeleton = `- heading "camoufox"\n- navigation:\n  - link "Allt" [e1]\n  - link "Webb" [e2]`;
   const served = `${skeleton}\n- link "Camoufox" [e3]:\n  - /url: https://camoufox.com\n  - text: An anti-detect browser.`;
   withFakeGateway(t, {
-    snapshotScripts: new Map([["https://www.google.com/search?q=late", [skeleton, served]]]),
+    snapshotScripts: new Map([[await engineResultsUrl("google", "late"), [skeleton, served]]]),
   });
   const { byName } = registered();
   const { ctx } = session("pi-slow-serp");
@@ -784,7 +788,10 @@ test("a read says what it is doing while it does it", async (t) => {
 test("a search names the engine it is trying, before it tries it", async (t) => {
   withConfigFile(t, { gatewayUrl: "http://gateway.test:9377" });
   const { ctx, userId } = session("pi-search-notes");
-  withFakeGateway(t, { consentWallOn: new Set([userId]) });
+  // Registered too, though nothing here can go red on it: these notes are emitted before each attempt, so this
+  // case passes with every engine failing — a weakness of its own, filed as a follow-up rather than widened here.
+  const page = await enginePage("duckduckgo", "camoufox", RECORDED_SERP);
+  withFakeGateway(t, { consentWallOn: new Set([userId]), ...page.fakeOptions });
   const { byName } = registered();
   const notes = [];
 

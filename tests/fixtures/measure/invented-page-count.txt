@@ -1,27 +1,5 @@
-cases in the suite:                   471
-read the fake's invented page:        64 of 471
-read it as an engine's results page:  11 of 471
+cases in the suite:                   478
+read the fake's invented page:        53 of 478
+read it as an engine's results page:  0 of 478
   google      https://www.google.com/search?q=  0 case(s)
-  duckduckgo  https://duckduckgo.com/?q=  11 case(s)
-      an engine that fell through is reported to a script as well as to the model
-        tests/camoufox-gateway.test.mjs  <https://duckduckgo.com/?q=camoufox>
-      a search names the engine it is trying, before it tries it
-        tests/camoufox-gateway.test.mjs  <https://duckduckgo.com/?q=camoufox>
-      duckduckgo navigates straight to its query url
-        tests/engines.test.mjs  <https://duckduckgo.com/?q=camoufox%20anti-detect>
-      each adapter opens at a page its own credited name owns
-        tests/engines.test.mjs  <https://duckduckgo.com/?q=camoufox>
-      falls through to duckduckgo when google hits a consent wall
-        tests/engines.test.mjs  <https://duckduckgo.com/?q=camoufox>
-      reports empty_results and keeps trying the chain
-        tests/engines.test.mjs  <https://duckduckgo.com/?q=camoufox>
-      one slow engine may not abort the whole search
-        tests/engines.test.mjs  <https://duckduckgo.com/?q=camoufox>
-      a SERP that answers on the first look costs exactly the requests it always cost
-        tests/engines.test.mjs  <https://duckduckgo.com/?q=camoufox>
-      an engine that hangs to its deadline still leaves the next one its whole deadline
-        tests/engines.test.mjs  <https://duckduckgo.com/?q=camoufox>
-      reports the engine chain it tried
-        tests/search-tool.test.mjs  <https://duckduckgo.com/?q=camoufox>
-      a search served from cache reports no wait it did not pay
-        tests/search-tool.test.mjs  <https://duckduckgo.com/?q=late>
+  duckduckgo  https://duckduckgo.com/?q=  0 case(s)
